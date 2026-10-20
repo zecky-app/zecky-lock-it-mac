@@ -28,6 +28,7 @@
 		A10000000000000000000043 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000042 /* HomeView.swift */; };
 		A10000000000000000000051 /* AddressBook.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000050 /* AddressBook.swift */; };
 		A10000000000000000000053 /* ReceiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000052 /* ReceiveView.swift */; };
+		A10000000000000000000055 /* SendView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000054 /* SendView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -53,6 +54,7 @@
 		A10000000000000000000042 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		A10000000000000000000050 /* AddressBook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressBook.swift; sourceTree = "<group>"; };
 		A10000000000000000000052 /* ReceiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiveView.swift; sourceTree = "<group>"; };
+		A10000000000000000000054 /* SendView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -89,6 +91,7 @@
 				A10000000000000000000005 /* ZeckyLockItApp.swift */,
 				A10000000000000000000006 /* ContentView.swift */,
 				A1000000000000000000001A /* KeyStore.swift */,
+				A10000000000000000000054 /* SendView.swift */,
 				A10000000000000000000050 /* AddressBook.swift */,
 				A10000000000000000000052 /* ReceiveView.swift */,
 				A10000000000000000000030 /* Theme.swift */,
@@ -213,6 +216,7 @@
 				A1000000000000000000000A /* ZeckyLockItApp.swift in Sources */,
 				A1000000000000000000000B /* ContentView.swift in Sources */,
 				A1000000000000000000001B /* KeyStore.swift in Sources */,
+				A10000000000000000000055 /* SendView.swift in Sources */,
 				A10000000000000000000051 /* AddressBook.swift in Sources */,
 				A10000000000000000000053 /* ReceiveView.swift in Sources */,
 				A10000000000000000000031 /* Theme.swift in Sources */,

@@ -3,7 +3,9 @@ import SwiftUI
 /// The main screen: balance and sync status. Quiet on purpose.
 struct HomeView: View {
     @ObservedObject var engine: WalletEngine
+    let wallet: StoredWallet
     @State private var receiving = false
+    @State private var sending = false
 
     var body: some View {
         VStack(spacing: 14) {
@@ -17,6 +19,7 @@ struct HomeView: View {
             Spacer()
             HStack(spacing: 12) {
                 SecondaryButton(title: "Receive") { receiving = true }.frame(width: 160)
+                SecondaryButton(title: "Send") { sending = true }.frame(width: 160)
             }
             .disabled(engine.status == .connecting)
             HStack(spacing: 8) {
@@ -27,6 +30,7 @@ struct HomeView: View {
         }
         .frame(maxWidth: .infinity)
         .sheet(isPresented: $receiving) { ReceiveView(engine: engine) { receiving = false } }
+        .sheet(isPresented: $sending) { SendView(engine: engine, phrase: wallet.phrase) { sending = false } }
     }
 
     private var statusText: String {

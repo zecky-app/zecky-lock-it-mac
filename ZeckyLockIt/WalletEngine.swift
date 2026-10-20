@@ -115,6 +115,100 @@ final class WalletEngine: ObservableObject {
         return counts
     }
 
+    // MARK: Sending
+
+    /// A checked, priced payment, ready for the review screen.
+    struct SendPlan {
+        let proposal: Proposal
+        let to: String
+        let amount: Int64
+        let fee: Int64
+        let toSelf: Bool
+    }
+
+    enum SendOutcome {
+        /// Delivered to the server.
+        case sent
+        /// Created and stored, but not delivered yet. The engine resends it
+        /// until it is mined or expires, so the owner must not retry.
+        case saved
+    }
+
+    enum SendError: Error, CustomStringConvertible {
+        case badAddress, tooLittle, notEnough, refused(String)
+        var description: String {
+            switch self {
+            case .badAddress: return "That is not a valid Zcash address."
+            case .tooLittle: return "Enter an amount above zero."
+            case .notEnough: return "Not enough available for this amount plus the fee."
+            case .refused(let why): return "The server refused the payment. Nothing was sent. (\(why))"
+            }
+        }
+    }
+
+    /// Prices a payment of `amount` zatoshi, or of everything spendable when nil.
+    func plan(to address: String, amount: Int64?) async throws -> SendPlan {
+        guard let synchronizer, let account else { throw EngineError.notReady }
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let recipient = try? Recipient(trimmed, network: .mainnet) else { throw SendError.badAddress }
+        let own = Set(AddressBook.load())
+            .union([(try? await synchronizer.getUnifiedAddress(accountUUID: account).stringEncoded) ?? ""])
+        let toSelf = own.contains(trimmed)
+
+        if let amount {
+            guard amount > 0 else { throw SendError.tooLittle }
+            do {
+                let proposal = try await synchronizer.proposeTransfer(
+                    accountUUID: account, recipient: recipient, amount: Zatoshi(amount), memo: nil)
+                return SendPlan(proposal: proposal, to: trimmed, amount: amount,
+                                fee: proposal.totalFeeRequired().amount, toSelf: toSelf)
+            } catch {
+                if amount > spendable { throw SendError.notEnough }
+                throw error
+            }
+        }
+        // Max: the fee depends on how many notes are used, so start from the
+        // minimum and adjust until amount + fee is exactly the spendable balance.
+        var fee: Int64 = 10_000
+        for _ in 0..<12 {
+            let amount = spendable - fee
+            guard amount > 0 else { throw SendError.notEnough }
+            let proposal = try await synchronizer.proposeTransfer(
+                accountUUID: account, recipient: recipient, amount: Zatoshi(amount), memo: nil)
+            let quoted = proposal.totalFeeRequired().amount
+            if quoted == fee {
+                return SendPlan(proposal: proposal, to: trimmed, amount: amount, fee: fee, toSelf: toSelf)
+            }
+            fee = quoted
+        }
+        throw SendError.notEnough
+    }
+
+    /// Signs with a key derived from the phrase for this payment only, and
+    /// hands the result to the server.
+    func send(_ plan: SendPlan, phrase: String) async throws -> SendOutcome {
+        guard let synchronizer else { throw EngineError.notReady }
+        let seed = try Mnemonic.seed(from: phrase)
+        let key = try DerivationTool(networkType: .mainnet)
+            .deriveUnifiedSpendingKey(seed: seed, accountIndex: Zip32AccountIndex(0))
+        var outcome: SendOutcome = .sent
+        for try await result in try await synchronizer.createProposedTransactions(proposal: plan.proposal, spendingKey: key) {
+            switch result {
+            case .success: break
+            case .grpcFailure: outcome = .saved
+            case .submitFailure(_, let code, let description): throw SendError.refused("\(code): \(description)")
+            case .notAttempted: outcome = .saved
+            }
+        }
+        return outcome
+    }
+
+    /// True while a payment we made is created but not yet mined or expired.
+    func hasWaitingPayment() async -> Bool {
+        guard let synchronizer, let txs = try? await synchronizer.allTransactions() else { return false }
+        return txs.contains { $0.isSentTransaction && $0.minedHeight == nil && $0.isExpiredUmined != true }
+    }
+
     func stop() {
         synchronizer?.stop()
         cancellables.removeAll()
