@@ -10,6 +10,7 @@
 		A1000000000000000000000A /* ZeckyLockItApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000005 /* ZeckyLockItApp.swift */; };
 		A1000000000000000000000B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000006 /* ContentView.swift */; };
 		A1000000000000000000000C /* ZcashLightClientKit in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000018 /* ZcashLightClientKit */; };
+		A1000000000000000000001B /* KeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001A /* KeyStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -17,6 +18,7 @@
 		A10000000000000000000006 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A10000000000000000000008 /* ZeckyLockIt.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ZeckyLockIt.entitlements; sourceTree = "<group>"; };
 		A10000000000000000000009 /* ZeckyLockIt.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ZeckyLockIt.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000000000000000000001A /* KeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -52,6 +54,7 @@
 			children = (
 				A10000000000000000000005 /* ZeckyLockItApp.swift */,
 				A10000000000000000000006 /* ContentView.swift */,
+				A1000000000000000000001A /* KeyStore.swift */,
 				A10000000000000000000008 /* ZeckyLockIt.entitlements */,
 			);
 			path = ZeckyLockIt;
@@ -157,6 +160,7 @@
 			files = (
 				A1000000000000000000000A /* ZeckyLockItApp.swift in Sources */,
 				A1000000000000000000000B /* ContentView.swift in Sources */,
+				A1000000000000000000001B /* KeyStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

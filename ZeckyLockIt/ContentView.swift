@@ -5,6 +5,7 @@ import ZcashLightClientKit
 // height through the official Zcash SDK. No wallet, no keys, no seed.
 struct ContentView: View {
     @State private var status = "Asking eu.zec.rocks for the block height…"
+    @State private var keychain = "Keychain: testing…"
 
     var body: some View {
         VStack(spacing: 8) {
@@ -16,9 +17,13 @@ struct ContentView: View {
                 .font(.system(.body, design: .monospaced))
                 .padding(.top, 12)
                 .textSelection(.enabled)
+            Text(keychain)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
         }
         .frame(minWidth: 420, minHeight: 280)
         .padding()
+        .task { keychain = KeyStoreSelfTest.run() }
         .task { await checkHeight() }
     }
 
