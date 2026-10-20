@@ -16,6 +16,16 @@
 		A10000000000000000000021 /* Birthday.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000020 /* Birthday.swift */; };
 		A10000000000000000000023 /* WalletSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000022 /* WalletSelfTest.swift */; };
 		A10000000000000000000025 /* bip39-english.txt in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000024 /* bip39-english.txt */; };
+		A10000000000000000000031 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000030 /* Theme.swift */; };
+		A10000000000000000000033 /* Amount.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000032 /* Amount.swift */; };
+		A10000000000000000000035 /* WalletVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000034 /* WalletVault.swift */; };
+		A10000000000000000000037 /* WalletEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000036 /* WalletEngine.swift */; };
+		A10000000000000000000039 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000038 /* AppModel.swift */; };
+		A1000000000000000000003B /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003A /* WelcomeView.swift */; };
+		A1000000000000000000003D /* BackupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003C /* BackupView.swift */; };
+		A1000000000000000000003F /* ConfirmView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003E /* ConfirmView.swift */; };
+		A10000000000000000000041 /* RestoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000040 /* RestoreView.swift */; };
+		A10000000000000000000043 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000042 /* HomeView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +39,16 @@
 		A10000000000000000000020 /* Birthday.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Birthday.swift; sourceTree = "<group>"; };
 		A10000000000000000000022 /* WalletSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletSelfTest.swift; sourceTree = "<group>"; };
 		A10000000000000000000024 /* bip39-english.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = bip39-english.txt; sourceTree = "<group>"; };
+		A10000000000000000000030 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		A10000000000000000000032 /* Amount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Amount.swift; sourceTree = "<group>"; };
+		A10000000000000000000034 /* WalletVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletVault.swift; sourceTree = "<group>"; };
+		A10000000000000000000036 /* WalletEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletEngine.swift; sourceTree = "<group>"; };
+		A10000000000000000000038 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		A1000000000000000000003A /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		A1000000000000000000003C /* BackupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupView.swift; sourceTree = "<group>"; };
+		A1000000000000000000003E /* ConfirmView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmView.swift; sourceTree = "<group>"; };
+		A10000000000000000000040 /* RestoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoreView.swift; sourceTree = "<group>"; };
+		A10000000000000000000042 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -65,6 +85,16 @@
 				A10000000000000000000005 /* ZeckyLockItApp.swift */,
 				A10000000000000000000006 /* ContentView.swift */,
 				A1000000000000000000001A /* KeyStore.swift */,
+				A10000000000000000000030 /* Theme.swift */,
+				A10000000000000000000032 /* Amount.swift */,
+				A10000000000000000000034 /* WalletVault.swift */,
+				A10000000000000000000036 /* WalletEngine.swift */,
+				A10000000000000000000038 /* AppModel.swift */,
+				A1000000000000000000003A /* WelcomeView.swift */,
+				A1000000000000000000003C /* BackupView.swift */,
+				A1000000000000000000003E /* ConfirmView.swift */,
+				A10000000000000000000040 /* RestoreView.swift */,
+				A10000000000000000000042 /* HomeView.swift */,
 				A1000000000000000000001C /* Mnemonic.swift */,
 				A1000000000000000000001E /* Entropy.swift */,
 				A10000000000000000000020 /* Birthday.swift */,
@@ -177,6 +207,16 @@
 				A1000000000000000000000A /* ZeckyLockItApp.swift in Sources */,
 				A1000000000000000000000B /* ContentView.swift in Sources */,
 				A1000000000000000000001B /* KeyStore.swift in Sources */,
+				A10000000000000000000031 /* Theme.swift in Sources */,
+				A10000000000000000000033 /* Amount.swift in Sources */,
+				A10000000000000000000035 /* WalletVault.swift in Sources */,
+				A10000000000000000000037 /* WalletEngine.swift in Sources */,
+				A10000000000000000000039 /* AppModel.swift in Sources */,
+				A1000000000000000000003B /* WelcomeView.swift in Sources */,
+				A1000000000000000000003D /* BackupView.swift in Sources */,
+				A1000000000000000000003F /* ConfirmView.swift in Sources */,
+				A10000000000000000000041 /* RestoreView.swift in Sources */,
+				A10000000000000000000043 /* HomeView.swift in Sources */,
 				A1000000000000000000001D /* Mnemonic.swift in Sources */,
 				A1000000000000000000001F /* Entropy.swift in Sources */,
 				A10000000000000000000021 /* Birthday.swift in Sources */,
