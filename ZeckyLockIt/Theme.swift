@@ -1,3 +1,4 @@
+import CoreText
 import SwiftUI
 
 /// Zecky's look: deep ink, warm gold, a serif for the balance.
@@ -10,9 +11,29 @@ enum Theme {
     static let green = Color(red: 0x8F / 255, green: 0xBF / 255, blue: 0x8A / 255)
     static let red = Color(red: 0xE0 / 255, green: 0x8A / 255, blue: 0x63 / 255)
 
-    /// Newsreader is the brand serif; until it is bundled, the system serif stands in.
+    /// Newsreader (brand serif) and Inter (text), bundled with the app under
+    /// the SIL Open Font License. Registered for this app only.
+    static func registerFonts() {
+        let names = ["Newsreader-Regular", "Newsreader-Medium", "Inter-Regular", "Inter-Medium", "Inter-SemiBold"]
+        for name in names {
+            if let url = Bundle.main.url(forResource: name, withExtension: "ttf") {
+                CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+            }
+        }
+    }
+
+    /// The serif for balances and titles.
     static func serif(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .serif)
+        .custom(weight == .regular ? "Newsreader-Regular" : "Newsreader-Medium", fixedSize: size)
+    }
+
+    /// The text face.
+    static func text(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        switch weight {
+        case .semibold, .bold, .heavy, .black: return .custom("Inter-SemiBold", fixedSize: size)
+        case .medium: return .custom("Inter-Medium", fixedSize: size)
+        default: return .custom("Inter-Regular", fixedSize: size)
+        }
     }
 }
 
@@ -25,7 +46,7 @@ struct PrimaryButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(Theme.text(14, weight: .semibold))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
                 .background(enabled ? Theme.gold : Theme.gold.opacity(0.35))
@@ -45,7 +66,7 @@ struct SecondaryButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .font(Theme.text(14, weight: .medium))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
                 .foregroundStyle(Theme.text)

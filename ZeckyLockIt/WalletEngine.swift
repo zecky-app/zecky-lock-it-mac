@@ -85,6 +85,18 @@ final class WalletEngine: ObservableObject {
     @Published private(set) var status: Status = .connecting
     @Published private(set) var spendable: Int64 = 0
     @Published private(set) var total: Int64 = 0
+    @Published private(set) var activity: [ActivityItem] = []
+
+    /// One line in Activity.
+    struct ActivityItem: Identifiable, Equatable {
+        enum Kind { case received, sent }
+        enum State { case waiting, confirmed, expired }
+        let id: Data
+        let kind: Kind
+        let amount: Int64
+        let date: Date?
+        let state: State
+    }
 
     private var synchronizer: SDKSynchronizer?
     private var account: AccountUUID?
@@ -227,6 +239,7 @@ final class WalletEngine: ObservableObject {
             case .notAttempted: outcome = .saved
             }
         }
+        await refreshActivity()
         return outcome
     }
 
@@ -249,16 +262,34 @@ final class WalletEngine: ObservableObject {
         synchronizer.stop()
         for try await _ in synchronizer.wipe().values {}
         account = nil
+        activity = []
         spendable = 0
         total = 0
         status = .connecting
+    }
+
+    /// Re-reads the wallet's payments, newest first.
+    func refreshActivity() async {
+        guard let synchronizer, let txs = try? await synchronizer.allTransactions() else { return }
+        activity = txs.map { tx in
+            let kind: ActivityItem.Kind = tx.isSentTransaction ? .sent : .received
+            let state: ActivityItem.State
+            if tx.minedHeight != nil { state = .confirmed }
+            else if tx.isExpiredUmined == true { state = .expired }
+            else { state = .waiting }
+            return ActivityItem(id: tx.rawID, kind: kind, amount: Int64(tx.value.amount.magnitude),
+                                date: tx.blockTime.map { Date(timeIntervalSince1970: $0) }, state: state)
+        }
+        .sorted { ($0.date ?? .distantFuture) > ($1.date ?? .distantFuture) }
     }
 
     private func apply(_ state: SynchronizerState) {
         switch state.syncStatus {
         case .unprepared: status = .connecting
         case .syncing(let progress, _): status = .syncing(Int((progress * 100).rounded(.down)))
-        case .upToDate: status = .upToDate
+        case .upToDate:
+            status = .upToDate
+            Task { await refreshActivity() }
         case .stopped: break
         case .error(let error): status = .failed(String(describing: error))
         }

@@ -30,6 +30,12 @@
 		A10000000000000000000053 /* ReceiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000052 /* ReceiveView.swift */; };
 		A10000000000000000000055 /* SendView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000054 /* SendView.swift */; };
 		A10000000000000000000057 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000056 /* SettingsView.swift */; };
+		A10000000000000000000059 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000058 /* Assets.xcassets */; };
+		A1000000000000000000005B /* Fonts/Inter-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000005A /* Fonts/Inter-Medium.ttf */; };
+		A1000000000000000000005D /* Fonts/Inter-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000005C /* Fonts/Inter-Regular.ttf */; };
+		A1000000000000000000005F /* Fonts/Inter-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000005E /* Fonts/Inter-SemiBold.ttf */; };
+		A10000000000000000000061 /* Fonts/Newsreader-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000060 /* Fonts/Newsreader-Medium.ttf */; };
+		A10000000000000000000063 /* Fonts/Newsreader-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000062 /* Fonts/Newsreader-Regular.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -57,6 +63,12 @@
 		A10000000000000000000052 /* ReceiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiveView.swift; sourceTree = "<group>"; };
 		A10000000000000000000054 /* SendView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendView.swift; sourceTree = "<group>"; };
 		A10000000000000000000056 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A10000000000000000000058 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A1000000000000000000005A /* Fonts/Inter-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/Inter-Medium.ttf; sourceTree = "<group>"; };
+		A1000000000000000000005C /* Fonts/Inter-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/Inter-Regular.ttf; sourceTree = "<group>"; };
+		A1000000000000000000005E /* Fonts/Inter-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/Inter-SemiBold.ttf; sourceTree = "<group>"; };
+		A10000000000000000000060 /* Fonts/Newsreader-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/Newsreader-Medium.ttf; sourceTree = "<group>"; };
+		A10000000000000000000062 /* Fonts/Newsreader-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/Newsreader-Regular.ttf; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -93,6 +105,12 @@
 				A10000000000000000000005 /* ZeckyLockItApp.swift */,
 				A10000000000000000000006 /* ContentView.swift */,
 				A1000000000000000000001A /* KeyStore.swift */,
+				A10000000000000000000062 /* Fonts/Newsreader-Regular.ttf */,
+				A10000000000000000000060 /* Fonts/Newsreader-Medium.ttf */,
+				A1000000000000000000005E /* Fonts/Inter-SemiBold.ttf */,
+				A1000000000000000000005C /* Fonts/Inter-Regular.ttf */,
+				A1000000000000000000005A /* Fonts/Inter-Medium.ttf */,
+				A10000000000000000000058 /* Assets.xcassets */,
 				A10000000000000000000056 /* SettingsView.swift */,
 				A10000000000000000000054 /* SendView.swift */,
 				A10000000000000000000050 /* AddressBook.swift */,
@@ -183,6 +201,12 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000063 /* Fonts/Newsreader-Regular.ttf in Resources */,
+				A10000000000000000000061 /* Fonts/Newsreader-Medium.ttf in Resources */,
+				A1000000000000000000005F /* Fonts/Inter-SemiBold.ttf in Resources */,
+				A1000000000000000000005D /* Fonts/Inter-Regular.ttf in Resources */,
+				A1000000000000000000005B /* Fonts/Inter-Medium.ttf in Resources */,
+				A10000000000000000000059 /* Assets.xcassets in Resources */,
 				A10000000000000000000025 /* bip39-english.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -292,6 +316,8 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Zecky Lock it";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "zecky.app";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -318,6 +344,8 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Zecky Lock it";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "zecky.app";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

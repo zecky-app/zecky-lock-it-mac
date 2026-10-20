@@ -1,10 +1,46 @@
+import AppKit
 import SwiftUI
 
 @main
 struct ZeckyLockItApp: App {
+    @StateObject private var model = AppModel()
+
+    init() { Theme.registerFonts() }
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        // One wallet, one window.
+        Window("Zecky Lock it", id: "main") {
+            ContentView(model: model)
         }
+        .defaultSize(width: 760, height: 620)
+        .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Zecky Lock it") { About.show() }
+            }
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { model.sheet = .settings }
+                    .keyboardShortcut(",", modifiers: .command)
+                    .disabled(!model.hasWallet)
+            }
+            CommandGroup(replacing: .newItem) {}
+            CommandMenu("Wallet") {
+                Button("Receive") { model.sheet = .receive }
+                    .keyboardShortcut("r", modifiers: .command)
+                    .disabled(!model.hasWallet)
+                Button("Send") { model.sheet = .send }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                    .disabled(!model.hasWallet)
+            }
+        }
+    }
+}
+
+enum About {
+    static func show() {
+        let credits = NSAttributedString(
+            string: "Self-custody Zcash, kept on this Mac.\nzecky.app\n\nNewsreader and Inter fonts: SIL Open Font License 1.1.",
+            attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits, .applicationName: "Zecky Lock it"])
+        NSApp.activate(ignoringOtherApps: true)
     }
 }

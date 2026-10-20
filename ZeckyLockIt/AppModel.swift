@@ -14,6 +14,10 @@ final class AppModel: ObservableObject {
     }
 
     @Published var screen: Screen = .loading
+    /// The sheet over the home screen, also opened from the menu bar.
+    enum Sheet: Identifiable { case receive, send, settings; var id: Self { self } }
+    @Published var sheet: Sheet?
+    var hasWallet: Bool { if case .home = screen { return true } else { return false } }
     @Published var busy = false
     @Published var message: String?
     let engine = WalletEngine()
@@ -79,6 +83,7 @@ final class AppModel: ObservableObject {
         WalletVault.phraseUnconfirmed = false
         AddressBook.clear()
         Server.reset()
+        sheet = nil
         screen = .welcome
     }
 

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var model = AppModel()
+    @ObservedObject var model: AppModel
     @State private var covered = false
 
     var body: some View {
@@ -34,7 +34,8 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in covered = true }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in covered = false }
-        .frame(minWidth: 560, minHeight: 520)
+        .frame(minWidth: 620, minHeight: 560)
+        .font(Theme.text(14))
         .preferredColorScheme(.dark)
         .onAppear { model.launch() }
     }
