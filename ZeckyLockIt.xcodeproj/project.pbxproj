@@ -93,6 +93,7 @@
 				TargetAttributes = {
 					A10000000000000000000010 = {
 						CreatedOnToolsVersion = 16.0;
+						DevelopmentTeam = "";
 					};
 				};
 			};
@@ -145,7 +146,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# The Zcash engine (libzcashlc) is a static library, already linked into\n# the app. Its macOS package uses the flat iPhone framework layout, which\n# macOS rejects. Xcode still embeds a copy, so put that copy into the\n# Mac layout (Versions/A) and sign it again. Safe to run on every build.\nset -e\nF=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/libzcashlc.framework\"\n[ -d \"$F\" ] || exit 0\nif [ -f \"$F/Info.plist\" ] && [ ! -L \"$F/Info.plist\" ] && [ ! -d \"$F/Resources\" ]; then\n  mkdir -p \"$F/Versions/A/Resources\"\n  for item in libzcashlc Headers Modules; do\n    if [ -e \"$F/$item\" ] && [ ! -L \"$F/$item\" ]; then mv \"$F/$item\" \"$F/Versions/A/$item\"; fi\n  done\n  mv \"$F/Info.plist\" \"$F/Versions/A/Resources/Info.plist\"\n  rm -rf \"$F/_CodeSignature\"\n  ln -sfn A \"$F/Versions/Current\"\n  for item in libzcashlc Headers Modules Resources; do\n    if [ -e \"$F/Versions/A/$item\" ]; then ln -sfn \"Versions/Current/$item\" \"$F/$item\"; fi\n  done\nfi\nP=\"$F/Versions/A/Resources/Info.plist\"\nif [ -f \"$P\" ]; then\n  /usr/bin/plutil -replace CFBundleSupportedPlatforms -json '[\"MacOSX\"]' \"$P\"\n  /usr/bin/plutil -replace CFBundlePackageType -string FMWK \"$P\"\n  /usr/bin/plutil -remove MinimumOSVersion \"$P\" 2>/dev/null || true\n  /usr/bin/plutil -replace LSMinimumSystemVersion -string \"${MACOSX_DEPLOYMENT_TARGET}\" \"$P\"\nfi\nif [ -d \"$F/Versions/A\" ]; then\n  /usr/bin/codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" --timestamp=none \"$F/Versions/A\"\nfi\n";
+			shellScript = "# The Zcash engine (libzcashlc) is a static library, already linked into\n# the app. Its macOS package uses the flat iPhone framework layout, which\n# macOS rejects. Xcode still embeds a copy (with a small stub binary), so\n# rebuild that copy in the Mac layout (Versions/A) and sign it again.\n# Works whatever state the copy is in, so it is safe on every build.\nset -e\nF=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/libzcashlc.framework\"\n[ -d \"$F\" ] || exit 0\nT=\"${DERIVED_FILE_DIR}/libzcashlc-fix\"\nrm -rf \"$T\" && mkdir -p \"$T\"\nif [ -f \"$F/libzcashlc\" ] && [ ! -L \"$F/libzcashlc\" ]; then cp \"$F/libzcashlc\" \"$T/bin\"\nelif [ -f \"$F/Versions/A/libzcashlc\" ]; then cp \"$F/Versions/A/libzcashlc\" \"$T/bin\"\nelse echo \"error: libzcashlc binary not found in $F\"; exit 1; fi\nif [ -f \"$F/Info.plist\" ] && [ ! -L \"$F/Info.plist\" ]; then cp \"$F/Info.plist\" \"$T/Info.plist\"\nelif [ -f \"$F/Versions/A/Resources/Info.plist\" ]; then cp \"$F/Versions/A/Resources/Info.plist\" \"$T/Info.plist\"\nelse echo \"error: libzcashlc Info.plist not found in $F\"; exit 1; fi\nrm -rf \"$F\"\nmkdir -p \"$F/Versions/A/Resources\"\nmv \"$T/bin\" \"$F/Versions/A/libzcashlc\"\nmv \"$T/Info.plist\" \"$F/Versions/A/Resources/Info.plist\"\nln -s A \"$F/Versions/Current\"\nln -s Versions/Current/libzcashlc \"$F/libzcashlc\"\nln -s Versions/Current/Resources \"$F/Resources\"\nP=\"$F/Versions/A/Resources/Info.plist\"\n/usr/bin/plutil -replace CFBundleSupportedPlatforms -json '[\"MacOSX\"]' \"$P\"\n/usr/bin/plutil -replace CFBundlePackageType -string FMWK \"$P\"\n/usr/bin/plutil -remove MinimumOSVersion \"$P\" 2>/dev/null || true\n/usr/bin/plutil -replace LSMinimumSystemVersion -string \"${MACOSX_DEPLOYMENT_TARGET}\" \"$P\"\n/usr/bin/codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" --timestamp=none \"$F/Versions/A\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -202,10 +203,11 @@
 			buildSettings = {
 				ARCHS = arm64;
 				CODE_SIGN_ENTITLEMENTS = ZeckyLockIt/ZeckyLockIt.entitlements;
-				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -227,10 +229,11 @@
 			buildSettings = {
 				ARCHS = arm64;
 				CODE_SIGN_ENTITLEMENTS = ZeckyLockIt/ZeckyLockIt.entitlements;
-				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
