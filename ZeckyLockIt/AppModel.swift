@@ -15,8 +15,24 @@ final class AppModel: ObservableObject {
 
     @Published var screen: Screen = .loading
     /// The sheet over the home screen, also opened from the menu bar.
-    enum Sheet: Identifiable { case receive, send, settings; var id: Self { self } }
+    enum Sheet: Identifiable { case receive, send, settings, activity; var id: Self { self } }
     @Published var sheet: Sheet?
+    /// The lock on the home screen: asking first, then open while releasing.
+    @Published var asking = false
+    @Published var lockOpen = false
+
+    func askToOpen() { sheet = nil; asking = true }
+    func keepLocked() { asking = false }
+    func openLock() {
+        asking = false
+        lockOpen = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 650_000_000)
+            if lockOpen { sheet = .send }
+        }
+    }
+    /// The lock closes again by itself once the release sheet is gone.
+    func sheetClosed() { if lockOpen { lockOpen = false } }
     var hasWallet: Bool { if case .home = screen { return true } else { return false } }
     @Published var busy = false
     @Published var message: String?
@@ -84,6 +100,8 @@ final class AppModel: ObservableObject {
         AddressBook.clear()
         Server.reset()
         sheet = nil
+        asking = false
+        lockOpen = false
         screen = .welcome
     }
 

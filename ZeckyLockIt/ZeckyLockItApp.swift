@@ -23,12 +23,16 @@ struct ZeckyLockItApp: App {
                     .disabled(!model.hasWallet)
             }
             CommandGroup(replacing: .newItem) {}
-            CommandMenu("Wallet") {
-                Button("Receive") { model.sheet = .receive }
-                    .keyboardShortcut("r", modifiers: .command)
+            CommandMenu("Lock") {
+                Button("Lock more") { model.sheet = .receive }
+                    .keyboardShortcut("l", modifiers: .command)
                     .disabled(!model.hasWallet)
-                Button("Send") { model.sheet = .send }
-                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                Button("Open the lock…") { model.askToOpen() }
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+                    .disabled(!model.hasWallet)
+                Divider()
+                Button("Activity") { model.sheet = .activity }
+                    .keyboardShortcut("y", modifiers: .command)
                     .disabled(!model.hasWallet)
             }
         }

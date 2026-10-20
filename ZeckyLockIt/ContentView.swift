@@ -29,7 +29,10 @@ struct ContentView: View {
             // in front, the window shows only the name, not balance or words.
             if covered {
                 Theme.ink.ignoresSafeArea()
-                Text("Zecky Lock it").font(Theme.serif(32, weight: .medium)).foregroundStyle(Theme.muted)
+                VStack(spacing: 14) {
+                    PadlockView(open: false, size: 120)
+                    Text("Zecky Lock it").font(Theme.serif(28, weight: .medium)).foregroundStyle(Theme.muted)
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in covered = true }

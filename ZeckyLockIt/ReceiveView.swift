@@ -15,7 +15,7 @@ struct ReceiveView: View {
     var body: some View {
         VStack(spacing: 18) {
             HStack {
-                Text("Receive").font(Theme.serif(24, weight: .medium))
+                Text("Lock more").font(Theme.serif(24, weight: .medium))
                 Spacer()
                 Button("Done", action: onClose).keyboardShortcut(.cancelAction)
             }
@@ -42,7 +42,7 @@ struct ReceiveView: View {
                     copied = true
                 }
                 .frame(width: 220)
-                Text("A fresh address appears here once this one has been paid.")
+                Text("Zcash sent here is locked in. A fresh address appears once this one has been paid.")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
             } else if let problem {
                 Text(problem).foregroundStyle(Theme.red).multilineTextAlignment(.center)

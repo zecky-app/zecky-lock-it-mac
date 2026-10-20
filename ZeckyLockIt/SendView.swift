@@ -27,7 +27,7 @@ struct SendView: View {
             switch stage {
             case .form: form
             case .review(let plan): review(plan)
-            case .sending: VStack { Spacer(); ProgressView("Sending…"); Spacer() }.frame(maxWidth: .infinity)
+            case .sending: VStack { Spacer(); ProgressView("Releasing…"); Spacer() }.frame(maxWidth: .infinity)
             case .done(let outcome): done(outcome)
             }
         }
@@ -40,10 +40,10 @@ struct SendView: View {
 
     private var title: String {
         switch stage {
-        case .form: return "Send"
+        case .form: return "Release Zcash"
         case .review: return "Check before sending"
-        case .sending: return "Sending"
-        case .done(.sent): return "Sent"
+        case .sending: return "Releasing"
+        case .done(.sent): return "Released"
         case .done(.saved): return "Payment saved"
         }
     }
@@ -65,7 +65,7 @@ struct SendView: View {
                 Toggle("Max", isOn: $max).toggleStyle(.button)
                 Spacer()
             }
-            Text("Available: \(Amount.zec(engine.spendable)) ZEC")
+            Text("In the lock: \(Amount.zec(engine.spendable)) ZEC")
                 .font(.system(size: 12)).foregroundStyle(Theme.muted)
             if waiting {
                 Text("A payment you made is still on its way. Wait for it to arrive before sending it again.")
@@ -106,7 +106,7 @@ struct SendView: View {
             HStack {
                 SecondaryButton(title: "Change") { stage = .form }.frame(width: 140)
                 Spacer()
-                PrimaryButton(title: "Send \(Amount.zec(plan.amount)) ZEC") { Task { await send(plan) } }.frame(width: 220)
+                PrimaryButton(title: "Release \(Amount.zec(plan.amount)) ZEC") { Task { await send(plan) } }.frame(width: 220)
             }
         }
     }
@@ -115,7 +115,7 @@ struct SendView: View {
         VStack(alignment: .leading, spacing: 14) {
             switch outcome {
             case .sent:
-                Text("Your payment is on its way. It shows as confirmed once it is in a block.")
+                Text("Released. It shows as confirmed once it is in a block. The rest stays locked, and the lock closes again.")
                     .foregroundStyle(Theme.muted)
             case .saved:
                 Text("The payment was made but could not be delivered yet. Zecky keeps trying until it is in a block or expires (about 40 blocks). Do not send it again.")

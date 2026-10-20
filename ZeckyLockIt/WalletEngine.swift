@@ -86,6 +86,9 @@ final class WalletEngine: ObservableObject {
     @Published private(set) var spendable: Int64 = 0
     @Published private(set) var total: Int64 = 0
     @Published private(set) var activity: [ActivityItem] = []
+    /// When the current holding began: the first payment in, counted again
+    /// from the next payment in if the wallet was ever completely emptied.
+    @Published private(set) var lockedSince: Date?
 
     /// One line in Activity.
     struct ActivityItem: Identifiable, Equatable {
@@ -263,6 +266,7 @@ final class WalletEngine: ObservableObject {
         for try await _ in synchronizer.wipe().values {}
         account = nil
         activity = []
+        lockedSince = nil
         spendable = 0
         total = 0
         status = .connecting
@@ -281,6 +285,19 @@ final class WalletEngine: ObservableObject {
                                 date: tx.blockTime.map { Date(timeIntervalSince1970: $0) }, state: state)
         }
         .sorted { ($0.date ?? .distantFuture) > ($1.date ?? .distantFuture) }
+
+        var running: Int64 = 0
+        var since: Date?
+        for item in activity.reversed() where item.state == .confirmed {
+            if item.kind == .received {
+                if running <= 0 { since = item.date }
+                running += item.amount
+            } else {
+                running -= item.amount
+                if running <= 0 { since = nil }
+            }
+        }
+        lockedSince = since
     }
 
     private func apply(_ state: SynchronizerState) {
