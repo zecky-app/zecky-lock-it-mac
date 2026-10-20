@@ -2,11 +2,30 @@ import Combine
 import Foundation
 import ZcashLightClientKit
 
-/// The light-wallet server. Same default as the iPhone app.
+/// The light-wallet server, over TLS. Same default and choices as the
+/// iPhone app. Not secret, so kept in the app's settings.
 enum Server {
-    static let host = "zec.rocks"
-    static let port = 443
+    static let defaultHost = "zec.rocks"
+    static let presets: [(label: String, host: String)] = [
+        ("Default", "zec.rocks"),
+        ("Europe", "eu.zec.rocks"),
+        ("North America", "na.zec.rocks"),
+        ("South America", "sa.zec.rocks"),
+        ("Asia Pacific", "ap.zec.rocks"),
+    ]
+    static var host: String { UserDefaults.standard.string(forKey: "server.host") ?? defaultHost }
+    static var port: Int { let p = UserDefaults.standard.integer(forKey: "server.port"); return p == 0 ? 443 : p }
     static var endpoint: LightWalletEndpoint { LightWalletEndpoint(address: host, port: port, secure: true) }
+
+    static func set(host: String, port: Int) {
+        UserDefaults.standard.set(host, forKey: "server.host")
+        UserDefaults.standard.set(port, forKey: "server.port")
+    }
+
+    static func reset() {
+        UserDefaults.standard.removeObject(forKey: "server.host")
+        UserDefaults.standard.removeObject(forKey: "server.port")
+    }
 }
 
 /// Where the engine keeps its files: the app's own sandbox container,
@@ -73,13 +92,21 @@ final class WalletEngine: ObservableObject {
 
     func start(_ wallet: StoredWallet) async {
         do {
-            let base = try WalletFiles.base("Wallet")
-            let synchronizer = SDKSynchronizer(initializer: WalletFiles.initializer(base: base, alias: .custom("zecky-main")))
-            self.synchronizer = synchronizer
-            synchronizer.stateStream
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] state in self?.apply(state) }
-                .store(in: &cancellables)
+            // The engine keeps a wallet name taken for the whole app session,
+            // so after an erase the same instance is reused for the next wallet.
+            let synchronizer: SDKSynchronizer
+            if let existing = self.synchronizer {
+                synchronizer = existing
+            } else {
+                let base = try WalletFiles.base("Wallet")
+                synchronizer = SDKSynchronizer(initializer: WalletFiles.initializer(base: base, alias: .custom("zecky-main")))
+                self.synchronizer = synchronizer
+                synchronizer.stateStream
+                    .receive(on: DispatchQueue.main)
+                    .sink { [weak self] state in self?.apply(state) }
+                    .store(in: &cancellables)
+            }
+            status = .connecting
             let seed = try Mnemonic.seed(from: wallet.phrase)
             _ = try await synchronizer.prepare(with: seed, walletBirthday: wallet.birthday, name: "Zecky", keySource: nil)
             account = try await synchronizer.listAccounts().first?.id
@@ -209,10 +236,22 @@ final class WalletEngine: ObservableObject {
         return txs.contains { $0.isSentTransaction && $0.minedHeight == nil && $0.isExpiredUmined != true }
     }
 
-    func stop() {
-        synchronizer?.stop()
-        cancellables.removeAll()
-        synchronizer = nil
+    /// Uses another server from now on.
+    func switchServer() async throws {
+        guard let synchronizer else { return }
+        status = .connecting
+        try await synchronizer.switchTo(endpoint: Server.endpoint)
+    }
+
+    /// Removes the wallet database and everything the engine stored.
+    func erase() async throws {
+        guard let synchronizer else { return }
+        synchronizer.stop()
+        for try await _ in synchronizer.wipe().values {}
+        account = nil
+        spendable = 0
+        total = 0
+        status = .connecting
     }
 
     private func apply(_ state: SynchronizerState) {

@@ -2,8 +2,10 @@ import SwiftUI
 
 /// The main screen: balance and sync status. Quiet on purpose.
 struct HomeView: View {
+    @ObservedObject var model: AppModel
     @ObservedObject var engine: WalletEngine
     let wallet: StoredWallet
+    @State private var settings = false
     @State private var receiving = false
     @State private var sending = false
 
@@ -20,6 +22,9 @@ struct HomeView: View {
             HStack(spacing: 12) {
                 SecondaryButton(title: "Receive") { receiving = true }.frame(width: 160)
                 SecondaryButton(title: "Send") { sending = true }.frame(width: 160)
+                SecondaryButton(title: "Settings") { settings = true }
+                    .frame(width: 160)
+                    .keyboardShortcut(",", modifiers: .command)
             }
             .disabled(engine.status == .connecting)
             HStack(spacing: 8) {
@@ -30,6 +35,7 @@ struct HomeView: View {
         }
         .frame(maxWidth: .infinity)
         .sheet(isPresented: $receiving) { ReceiveView(engine: engine) { receiving = false } }
+        .sheet(isPresented: $settings) { SettingsView(model: model, wallet: wallet) { settings = false } }
         .sheet(isPresented: $sending) { SendView(engine: engine, phrase: wallet.phrase) { sending = false } }
     }
 

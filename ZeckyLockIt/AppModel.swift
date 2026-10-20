@@ -71,6 +71,17 @@ final class AppModel: ObservableObject {
         open(wallet)
     }
 
+    /// Erase wallet: the engine's data, the phrase and every other Keychain
+    /// item, and every setting. Back to the welcome screen.
+    func erase() async throws {
+        try await engine.erase()
+        try KeyStore.delete(service: KeyStore.phraseService)
+        WalletVault.phraseUnconfirmed = false
+        AddressBook.clear()
+        Server.reset()
+        screen = .welcome
+    }
+
     func open(_ wallet: StoredWallet) {
         screen = .home(wallet)
         Task { await engine.start(wallet) }
