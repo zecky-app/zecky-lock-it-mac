@@ -26,6 +26,8 @@
 		A1000000000000000000003F /* ConfirmView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003E /* ConfirmView.swift */; };
 		A10000000000000000000041 /* RestoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000040 /* RestoreView.swift */; };
 		A10000000000000000000043 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000042 /* HomeView.swift */; };
+		A10000000000000000000051 /* AddressBook.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000050 /* AddressBook.swift */; };
+		A10000000000000000000053 /* ReceiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000052 /* ReceiveView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +51,8 @@
 		A1000000000000000000003E /* ConfirmView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmView.swift; sourceTree = "<group>"; };
 		A10000000000000000000040 /* RestoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoreView.swift; sourceTree = "<group>"; };
 		A10000000000000000000042 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		A10000000000000000000050 /* AddressBook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressBook.swift; sourceTree = "<group>"; };
+		A10000000000000000000052 /* ReceiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiveView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -85,6 +89,8 @@
 				A10000000000000000000005 /* ZeckyLockItApp.swift */,
 				A10000000000000000000006 /* ContentView.swift */,
 				A1000000000000000000001A /* KeyStore.swift */,
+				A10000000000000000000050 /* AddressBook.swift */,
+				A10000000000000000000052 /* ReceiveView.swift */,
 				A10000000000000000000030 /* Theme.swift */,
 				A10000000000000000000032 /* Amount.swift */,
 				A10000000000000000000034 /* WalletVault.swift */,
@@ -207,6 +213,8 @@
 				A1000000000000000000000A /* ZeckyLockItApp.swift in Sources */,
 				A1000000000000000000000B /* ContentView.swift in Sources */,
 				A1000000000000000000001B /* KeyStore.swift in Sources */,
+				A10000000000000000000051 /* AddressBook.swift in Sources */,
+				A10000000000000000000053 /* ReceiveView.swift in Sources */,
 				A10000000000000000000031 /* Theme.swift in Sources */,
 				A10000000000000000000033 /* Amount.swift in Sources */,
 				A10000000000000000000035 /* WalletVault.swift in Sources */,

@@ -68,6 +68,7 @@ final class WalletEngine: ObservableObject {
     @Published private(set) var total: Int64 = 0
 
     private var synchronizer: SDKSynchronizer?
+    private var account: AccountUUID?
     private var cancellables = Set<AnyCancellable>()
 
     func start(_ wallet: StoredWallet) async {
@@ -81,10 +82,37 @@ final class WalletEngine: ObservableObject {
                 .store(in: &cancellables)
             let seed = try Mnemonic.seed(from: wallet.phrase)
             _ = try await synchronizer.prepare(with: seed, walletBirthday: wallet.birthday, name: "Zecky", keySource: nil)
+            account = try await synchronizer.listAccounts().first?.id
             try await synchronizer.start(retry: false)
         } catch {
             status = .failed(String(describing: error))
         }
+    }
+
+    enum EngineError: Error, CustomStringConvertible {
+        case notReady
+        var description: String { "The wallet is still starting. Try again in a moment." }
+    }
+
+    /// A new shielded-only address (Sapling + Orchard, no transparent part).
+    /// Every one belongs to the same account and the same balance.
+    func freshShieldedAddress() async throws -> String {
+        guard let synchronizer, let account else { throw EngineError.notReady }
+        return try await synchronizer.getCustomUnifiedAddress(accountUUID: account, receivers: [.sapling, .orchard]).stringEncoded
+    }
+
+    /// How many incoming payments each of the wallet's own addresses received.
+    func addressUsage() async throws -> [String: Int] {
+        guard let synchronizer else { throw EngineError.notReady }
+        var counts: [String: Int] = [:]
+        for tx in try await synchronizer.allTransactions() where !tx.isSentTransaction {
+            var paidTo = Set<String>()
+            for output in await synchronizer.getTransactionOutputs(for: tx) where !output.isChange {
+                if case .address(let recipient) = output.recipient { paidTo.insert(recipient.stringEncoded) }
+            }
+            for address in paidTo { counts[address, default: 0] += 1 }
+        }
+        return counts
     }
 
     func stop() {
