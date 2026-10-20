@@ -6,6 +6,7 @@ import ZcashLightClientKit
 struct ContentView: View {
     @State private var status = "Asking eu.zec.rocks for the block height…"
     @State private var keychain = "Keychain: testing…"
+    @State private var wallet = "Wallet: testing…"
 
     var body: some View {
         VStack(spacing: 8) {
@@ -20,10 +21,14 @@ struct ContentView: View {
             Text(keychain)
                 .font(.system(.body, design: .monospaced))
                 .textSelection(.enabled)
+            Text(wallet)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
         }
         .frame(minWidth: 420, minHeight: 280)
         .padding()
         .task { keychain = KeyStoreSelfTest.run() }
+        .task { wallet = WalletSelfTest.run() }
         .task { await checkHeight() }
     }
 
