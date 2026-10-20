@@ -67,7 +67,7 @@
 				A1000000000000000000000D /* Sources */,
 				A1000000000000000000000E /* Frameworks */,
 				A1000000000000000000000F /* Resources */,
-				A10000000000000000000019 /* Remove unneeded libzcashlc copy */,
+				A10000000000000000000019 /* Fix libzcashlc layout for macOS */,
 			);
 			buildRules = (
 			);
@@ -128,7 +128,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		A10000000000000000000019 /* Remove unneeded libzcashlc copy */ = {
+		A10000000000000000000019 /* Fix libzcashlc layout for macOS */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -138,14 +138,14 @@
 			);
 			inputPaths = (
 			);
-			name = "Remove unneeded libzcashlc copy";
+			name = "Fix libzcashlc layout for macOS";
 			outputFileListPaths = (
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# The Zcash engine is a static library, already linked into the app.\n# Its macOS package is labelled for the iPhone simulator, so the extra\n# copy Xcode embeds fails app validation. Remove that copy only.\nrm -rf \"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/libzcashlc.framework\"\n";
+			shellScript = "# The Zcash engine (libzcashlc) is a static library, already linked into\n# the app. Its macOS package uses the flat iPhone framework layout, which\n# macOS rejects. Xcode still embeds a copy, so put that copy into the\n# Mac layout (Versions/A) and sign it again. Safe to run on every build.\nset -e\nF=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/libzcashlc.framework\"\n[ -d \"$F\" ] || exit 0\nif [ -f \"$F/Info.plist\" ] && [ ! -L \"$F/Info.plist\" ] && [ ! -d \"$F/Resources\" ]; then\n  mkdir -p \"$F/Versions/A/Resources\"\n  for item in libzcashlc Headers Modules; do\n    if [ -e \"$F/$item\" ] && [ ! -L \"$F/$item\" ]; then mv \"$F/$item\" \"$F/Versions/A/$item\"; fi\n  done\n  mv \"$F/Info.plist\" \"$F/Versions/A/Resources/Info.plist\"\n  rm -rf \"$F/_CodeSignature\"\n  ln -sfn A \"$F/Versions/Current\"\n  for item in libzcashlc Headers Modules Resources; do\n    if [ -e \"$F/Versions/A/$item\" ]; then ln -sfn \"Versions/Current/$item\" \"$F/$item\"; fi\n  done\nfi\nP=\"$F/Versions/A/Resources/Info.plist\"\nif [ -f \"$P\" ]; then\n  /usr/bin/plutil -replace CFBundleSupportedPlatforms -json '[\"MacOSX\"]' \"$P\"\n  /usr/bin/plutil -replace CFBundlePackageType -string FMWK \"$P\"\n  /usr/bin/plutil -remove MinimumOSVersion \"$P\" 2>/dev/null || true\n  /usr/bin/plutil -replace LSMinimumSystemVersion -string \"${MACOSX_DEPLOYMENT_TARGET}\" \"$P\"\nfi\nif [ -d \"$F/Versions/A\" ]; then\n  /usr/bin/codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" --timestamp=none \"$F/Versions/A\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
