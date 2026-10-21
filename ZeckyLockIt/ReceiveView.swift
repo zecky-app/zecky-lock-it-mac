@@ -2,7 +2,7 @@ import AppKit
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 
-/// Receive: one private address, its QR code and a Copy button.
+/// Lock more: one private address, its QR code with the Z, and Copy.
 struct ReceiveView: View {
     @ObservedObject var engine: WalletEngine
     let onClose: () -> Void
@@ -10,59 +10,84 @@ struct ReceiveView: View {
     @State private var address: String?
     @State private var problem: String?
     @State private var copied = false
-    @State private var showFull = false
 
     var body: some View {
-        VStack(spacing: 18) {
-            HStack {
-                Text("Lock more").font(Theme.serif(24, weight: .medium))
-                Spacer()
-                Button("Done", action: onClose).buttonStyle(HeaderButtonStyle()).keyboardShortcut(.cancelAction)
-            }
+        SheetScaffold(title: "Lock more",
+                      subtitle: "Send Zcash to this private address. It locks in by itself.",
+                      height: 500,
+                      onClose: onClose) {
             if let address {
-                if let qr = QRCode.image(for: address) {
-                    Image(nsImage: qr)
-                        .interpolation(.none)
-                        .resizable()
-                        .frame(width: 220, height: 220)
-                        .padding(12)
-                        .background(Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                HStack(alignment: .top, spacing: 20) {
+                    qrCard(address)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("PRIVATE ADDRESS").font(Theme.text(11, weight: .semibold)).tracking(1.4).foregroundStyle(Theme.muted)
+                        Text(grouped(address))
+                            .font(.system(size: 12.5, design: .monospaced))
+                            .lineSpacing(4)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                        PrimaryButton(title: copied ? "Copied ✓" : "Copy address") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(address, forType: .string)
+                            withAnimation { copied = true }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation { copied = false } }
+                        }
+                        .padding(.top, 4)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text("Private address").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.muted)
-                Text(showFull ? address : short(address))
-                    .font(.system(size: 13, design: .monospaced))
-                    .multilineTextAlignment(.center)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: 460)
-                Button(showFull ? "Show less" : "Show the full address") { showFull.toggle() }.buttonStyle(.link)
-                PrimaryButton(title: copied ? "Copied" : "Copy address") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(address, forType: .string)
-                    copied = true
+
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "shield.lefthalf.filled").foregroundStyle(Theme.gold)
+                    Text("Shielded: amounts, sender and this address stay private on the blockchain. Once this address has been paid, a fresh one appears here, so payments can't be linked.")
+                        .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .frame(width: 220)
-                Text("Zcash sent here is locked in. A fresh address appears once this one has been paid.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                .card(padding: 14)
+                .padding(.top, 20)
             } else if let problem {
-                Text(problem).foregroundStyle(Theme.red).multilineTextAlignment(.center)
+                Text(problem).foregroundStyle(Theme.red)
+                Spacer()
             } else {
-                ProgressView().padding(60)
+                HStack { Spacer(); ProgressView(); Spacer() }.padding(.top, 80)
+                Spacer()
             }
-            Spacer(minLength: 0)
         }
-        .padding(28)
-        .frame(width: 540, height: 560)
-        .background(Theme.ink)
-        .foregroundStyle(Theme.text)
         .task {
             do { address = try await AddressBook.addressToShow(engine: engine) }
             catch { problem = "No address could be shown. \(error)" }
         }
     }
 
-    private func short(_ a: String) -> String {
-        a.count > 40 ? String(a.prefix(20)) + "…" + String(a.suffix(20)) : a
+    private func qrCard(_ address: String) -> some View {
+        ZStack {
+            if let qr = QRCode.image(for: address) {
+                Image(nsImage: qr).interpolation(.none).resizable()
+                    .frame(width: 208, height: 208)
+            }
+            // The Z in the middle; the code is made with high error
+            // correction so it still scans.
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Theme.plateInk)
+                .frame(width: 46, height: 46)
+                .overlay(Text("Z").font(Theme.serif(30, weight: .medium)).foregroundStyle(Theme.metalGold).offset(y: -1))
+                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.white, lineWidth: 3))
+        }
+        .padding(14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.gold.opacity(0.8), lineWidth: 1.5))
+        .padding(3)
+        .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(Theme.gold.opacity(0.25), lineWidth: 1))
+        .accessibilityLabel("QR code of your private address")
+    }
+
+    /// "u1ab cdef …": groups of four, easier to compare by eye.
+    private func grouped(_ a: String) -> String {
+        stride(from: 0, to: a.count, by: 4).map { i -> String in
+            let start = a.index(a.startIndex, offsetBy: i)
+            let end = a.index(start, offsetBy: min(4, a.count - i))
+            return String(a[start..<end])
+        }.joined(separator: " ")
     }
 }
 
@@ -70,7 +95,7 @@ enum QRCode {
     static func image(for text: String) -> NSImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(text.utf8)
-        filter.correctionLevel = "M"
+        filter.correctionLevel = "H"
         guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)) else { return nil }
         let rep = NSCIImageRep(ciImage: output)
         let image = NSImage(size: rep.size)
