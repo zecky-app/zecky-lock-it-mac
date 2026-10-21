@@ -8,6 +8,14 @@ final class PriceFeed: ObservableObject {
     enum Currency: String, CaseIterable, Identifiable {
         case none, usd, eur, btc
         var id: Self { self }
+        var short: String {
+            switch self {
+            case .none: return "None"
+            case .usd: return "USD"
+            case .eur: return "EUR"
+            case .btc: return "BTC"
+            }
+        }
         var label: String {
             switch self {
             case .none: return "None"

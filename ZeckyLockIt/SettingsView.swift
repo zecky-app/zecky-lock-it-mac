@@ -17,28 +17,18 @@ struct SettingsView: View {
     @State private var serverNote: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(showingPhrase ? "Recovery phrase" : "Settings").font(Theme.serif(24, weight: .medium))
-                Spacer()
-                Button(showingPhrase ? "Hide" : "Done") {
-                    if showingPhrase { showingPhrase = false } else { onClose() }
-                }
-                .buttonStyle(HeaderButtonStyle())
-                .keyboardShortcut(.cancelAction)
-            }
-            .padding(.bottom, 18)
-
+        SheetScaffold(title: showingPhrase ? "Recovery phrase" : "Settings",
+                      subtitle: showingPhrase ? "Only for you. Check it against your paper." : "Everything stays on this Mac.",
+                      closeLabel: showingPhrase ? "Hide" : "Done",
+                      height: 740,
+                      onClose: { if showingPhrase { showingPhrase = false } else { onClose() } }) {
             if showingPhrase {
                 PhraseView(wallet: wallet)
             } else {
-                ScrollView { settings }
+                ScrollView { settings.padding(.bottom, 4).padding(.trailing, 6) }
+                    .scrollIndicators(.visible)
             }
         }
-        .padding(28)
-        .frame(width: 560, height: 560)
-        .background(Theme.ink)
-        .foregroundStyle(Theme.text)
         // The words leave the screen as soon as Zecky is not the app in front.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
             showingPhrase = false
@@ -52,75 +42,100 @@ struct SettingsView: View {
     }
 
     private var settings: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            section("Security") {
-                Button("Show recovery phrase") { Task { await showPhrase() } }
-                Text("Asks for Touch ID or your Mac password first.").font(.system(size: 12)).foregroundStyle(Theme.muted)
-            }
-
-            section("Server") {
-                Picker("", selection: $serverChoice) {
-                    ForEach(Server.presets.indices, id: \.self) { i in
-                        Text("\(Server.presets[i].label) · \(Server.presets[i].host)").tag(i)
-                    }
-                    Text("Your own server").tag(-1)
-                }
-                .labelsHidden()
-                .frame(width: 320)
-                if serverChoice == -1 {
-                    TextField("host:port", text: $customServer)
-                        .textFieldStyle(.roundedBorder).frame(width: 320).autocorrectionDisabled()
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            card("Security", icon: "key.fill") {
                 HStack {
-                    Button("Use this server") { Task { await applyServer() } }
-                    if let serverNote { Text(serverNote).font(.system(size: 12)).foregroundStyle(Theme.muted) }
+                    Text("Asks for Touch ID or your Mac password first.").font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    Spacer()
+                    SecondaryButton(title: "Show recovery phrase") { Task { await showPhrase() } }.frame(width: 200)
                 }
-                Text("Encrypted (TLS). The server sees this Mac's internet address, never your phrase or balance.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
             }
 
-            section("Appearance") {
-                Picker("", selection: $model.themeMode) {
-                    ForEach(Theme.Mode.allCases) { Text($0.label).tag($0) }
+            card("Appearance", icon: "circle.lefthalf.filled") {
+                HStack(spacing: 6) {
+                    ForEach(Theme.Mode.allCases) { mode in
+                        Chip(title: mode.label, on: model.themeMode == mode) { model.themeMode = mode }
+                    }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 320)
             }
 
-            section("Value") {
-                Picker("", selection: $prices.currency) {
-                    ForEach(PriceFeed.Currency.allCases) { Text($0.label).tag($0) }
+            card("Value", icon: "chart.line.uptrend.xyaxis") {
+                HStack(spacing: 6) {
+                    ForEach(PriceFeed.Currency.allCases) { currency in
+                        Chip(title: currency.short, on: prices.currency == currency) { prices.currency = currency }
+                    }
                 }
-                .labelsHidden()
-                .frame(width: 320)
-                Text("Shows what your Zcash is worth under the balance. The price comes from CoinGecko every 5 minutes; CoinGecko sees this Mac's internet address, never anything about your wallet.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Text("Shown on the lock. The price comes from CoinGecko every 5 minutes; CoinGecko sees this Mac's internet address, never anything about your wallet.")
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            section("Erase wallet") {
-                Button(erasing ? "Erasing…" : "Erase this wallet…") { Task { await askErase() } }
-                    .foregroundStyle(Theme.red)
-                    .disabled(erasing)
+            card("Server", icon: "server.rack") {
+                FlowChips(items: Server.presets.indices.map { ($0, Server.presets[$0].label) } + [(-1, "Your own")],
+                          selected: serverChoice) { serverChoice = $0 }
+                Text(serverChoice >= 0 ? Server.presets[serverChoice].host + ":443" : "Your own server, with TLS")
+                    .font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.muted)
+                if serverChoice == -1 {
+                    TextField("", text: $customServer, prompt: Text("host:port").foregroundColor(Theme.muted))
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13, design: .monospaced))
+                        .autocorrectionDisabled()
+                        .padding(10)
+                        .background(Theme.ink, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
+                }
+                HStack(spacing: 12) {
+                    SecondaryButton(title: "Use this server") { Task { await applyServer() } }.frame(width: 170)
+                    if let serverNote { Text(serverNote).font(Theme.text(12)).foregroundStyle(Theme.muted) }
+                }
+                Text("Encrypted (TLS). The server sees this Mac's internet address, never your phrase or balance.")
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+            }
+
+            card("About", icon: "info.circle") {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("ZECKY").font(Theme.text(12, weight: .semibold)).tracking(4).foregroundStyle(Theme.gold)
+                    Text("Lock it for Mac \(version)").font(Theme.serif(15))
+                }
+                Text("Self-custody Zcash. Your keys stay in this Mac's Keychain. zecky.app")
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+            }
+
+            // Erase, in its own card with a red edge.
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Erase wallet", systemImage: "trash").font(Theme.text(13, weight: .semibold)).foregroundStyle(Theme.red)
                 Text("Removes the phrase, history and settings from this Mac. Make sure your 24 words are on paper first.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { Task { await askErase() } } label: {
+                    Text(erasing ? "Erasing…" : "Erase this wallet…")
+                        .font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.red)
+                        .padding(.horizontal, 14).frame(height: 32)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.red.opacity(0.6)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(erasing)
             }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.red.opacity(0.45), lineWidth: 1))
 
-            section("About") {
-                Text("Zecky Lock it for Mac \(version)").font(.system(size: 13)).foregroundStyle(Theme.muted)
-            }
-
-            if let problem { Text(problem).foregroundStyle(Theme.red) }
+            if let problem { Text(problem).font(Theme.text(12)).foregroundStyle(Theme.red) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(1.2).foregroundStyle(Theme.muted)
+    private func card<Content: View>(_ title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: icon)
+                .font(Theme.text(13, weight: .semibold))
+                .foregroundStyle(Theme.text)
+                .labelStyle(GoldIconLabelStyle())
             content()
         }
+        .card(padding: 16)
     }
 
     private var version: String {
@@ -193,14 +208,42 @@ struct PhraseView: View {
                         Text(word).font(.system(size: 15, weight: .medium, design: .monospaced))
                         Spacer(minLength: 0)
                     }
-                    .padding(.vertical, 7).padding(.horizontal, 8)
-                    .background(Theme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .padding(.vertical, 8).padding(.horizontal, 8)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
                 }
             }
             Text("The words leave the screen when you click Hide, close Settings or switch to another app.")
                 .font(.system(size: 12)).foregroundStyle(Theme.muted)
             Spacer()
+        }
+    }
+}
+
+/// Label with the icon in gold.
+struct GoldIconLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 8) {
+            configuration.icon.foregroundStyle(Theme.gold).frame(width: 18)
+            configuration.title
+        }
+    }
+}
+
+/// Chips that wrap onto a second line when needed.
+struct FlowChips: View {
+    let items: [(Int, String)]
+    let selected: Int
+    let pick: (Int) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                ForEach(items.prefix(3), id: \.0) { item in Chip(title: item.1, on: selected == item.0) { pick(item.0) } }
+            }
+            HStack(spacing: 6) {
+                ForEach(items.dropFirst(3), id: \.0) { item in Chip(title: item.1, on: selected == item.0) { pick(item.0) } }
+            }
         }
     }
 }

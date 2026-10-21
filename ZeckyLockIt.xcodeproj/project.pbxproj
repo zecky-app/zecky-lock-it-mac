@@ -337,7 +337,8 @@
 				);
 				MARKETING_VERSION = 0.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = app.zecky.lockit.mac;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = ZeckyLockIt;
+				PRODUCT_NAME = "Zecky Lock it";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
@@ -365,7 +366,8 @@
 				);
 				MARKETING_VERSION = 0.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = app.zecky.lockit.mac;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = ZeckyLockIt;
+				PRODUCT_NAME = "Zecky Lock it";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
