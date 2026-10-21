@@ -5,7 +5,10 @@ import SwiftUI
 struct ZeckyLockItApp: App {
     @StateObject private var model = AppModel()
 
-    init() { Theme.registerFonts() }
+    init() {
+        Theme.registerFonts()
+        DispatchQueue.main.async { Theme.apply(Theme.mode) }
+    }
 
     var body: some Scene {
         // One wallet, one window.

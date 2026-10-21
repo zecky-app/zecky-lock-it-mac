@@ -10,6 +10,16 @@ struct HomeView: View {
     let wallet: StoredWallet
 
     @State private var tilt: CGSize = .zero
+    @Environment(\.colorScheme) private var scheme
+
+    /// The plate on the lock: the value when a currency is chosen, else the state.
+    private var plateText: String {
+        if prices.currency != .none {
+            if model.amountsHidden { return "≈ ••••" }
+            return prices.value(of: engine.total) ?? "…"
+        }
+        return model.lockOpen ? "OPEN" : "LOCKED"
+    }
 
     var body: some View {
         ZStack {
@@ -22,6 +32,17 @@ struct HomeView: View {
                     .padding(.top, 14)
                     .frame(maxWidth: .infinity)
                     .overlay(alignment: .trailing) {
+                      HStack(spacing: 2) {
+                        Button { model.themeMode = scheme == .dark ? .light : .dark } label: {
+                            Image(systemName: scheme == .dark ? "sun.max" : "moon")
+                                .font(.system(size: 14))
+                                .foregroundStyle(Theme.muted)
+                                .frame(width: 32, height: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(scheme == .dark ? "Light theme" : "Dark theme")
+                        .accessibilityLabel(scheme == .dark ? "Switch to light theme" : "Switch to dark theme")
                         Button { model.amountsHidden.toggle() } label: {
                             Image(systemName: model.amountsHidden ? "eye.slash" : "eye")
                                 .font(.system(size: 14))
@@ -32,12 +53,13 @@ struct HomeView: View {
                         .buttonStyle(.plain)
                         .help(model.amountsHidden ? "Show amounts" : "Hide amounts")
                         .accessibilityLabel(model.amountsHidden ? "Show amounts" : "Hide amounts")
-                        .padding(.trailing, 14).padding(.top, 10)
+                      }
+                      .padding(.trailing, 14).padding(.top, 10)
                     }
 
                     VStack(spacing: 8) {
                         Button { if !model.lockOpen && engine.status != .connecting { model.askToOpen() } } label: {
-                            PadlockView(open: model.lockOpen, size: 236, tilt: tilt)
+                            PadlockView(open: model.lockOpen, size: 236, tilt: tilt, plateText: plateText)
                                 .animation(.spring(response: 0.55, dampingFraction: 0.62), value: model.lockOpen)
                                 .animation(.easeOut(duration: 0.35), value: tilt)
                                 .contentShape(Rectangle())
@@ -46,13 +68,16 @@ struct HomeView: View {
                         .help("Open the lock")
                         .accessibilityHint("Asks whether you really want to open the lock")
 
-                        Text(model.lockOpen ? "OPEN" : "LOCKED")
-                            .font(Theme.text(11, weight: .semibold)).tracking(1.6)
-                            .foregroundStyle(model.lockOpen ? Theme.red : Theme.green)
-                            .padding(.horizontal, 12).frame(height: 24)
-                            .background((model.lockOpen ? Theme.red : Theme.green).opacity(0.15))
-                            .clipShape(Capsule())
-                            .padding(.top, 2)
+                        // The plate shows LOCKED / OPEN unless it shows the value.
+                        if prices.currency != .none {
+                            Text(model.lockOpen ? "OPEN" : "LOCKED")
+                                .font(Theme.text(11, weight: .semibold)).tracking(1.6)
+                                .foregroundStyle(model.lockOpen ? Theme.red : Theme.green)
+                                .padding(.horizontal, 12).frame(height: 24)
+                                .background((model.lockOpen ? Theme.red : Theme.green).opacity(0.15))
+                                .clipShape(Capsule())
+                                .padding(.top, 2)
+                        }
 
                         Button { if !model.amountsHidden { model.unit = model.unit == .zec ? .zats : .zec } } label: {
                             VStack(spacing: 2) {
@@ -60,11 +85,6 @@ struct HomeView: View {
                                     Text(balanceText).font(Theme.serif(balanceSize, weight: .medium))
                                         .lineLimit(1).minimumScaleFactor(0.5)
                                     Text(model.unit.rawValue).font(Theme.text(15, weight: .medium)).foregroundStyle(Theme.muted)
-                                }
-                                if let value = prices.value(of: engine.total) {
-                                    Text(model.amountsHidden ? "≈ ••••" : value)
-                                        .font(Theme.text(15, weight: .medium)).foregroundStyle(Theme.text.opacity(0.75))
-                                        .padding(.bottom, 2)
                                 }
                                 if !model.amountsHidden {
                                     Text("Click to show in \(model.unit == .zec ? "zats" : "ZEC")")
@@ -87,7 +107,7 @@ struct HomeView: View {
                         HStack(spacing: 12) {
                             PrimaryButton(title: "Lock more") { model.sheet = .receive }.frame(width: 160)
                             SecondaryButton(title: "Open the lock") { model.askToOpen() }
-                                .background(Theme.ink.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+                                .background(Theme.ink.opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
                                 .frame(width: 160)
                         }
                         .disabled(engine.status == .connecting)
@@ -214,7 +234,7 @@ struct OpenLockPrompt: View {
 
     var body: some View {
         ZStack {
-            Color(red: 0.04, green: 0.04, blue: 0.055).opacity(0.8).ignoresSafeArea()
+            Theme.scrim.ignoresSafeArea()
                 .onTapGesture {}
             VStack(alignment: .leading, spacing: 16) {
                 Text("Really open the lock?").font(Theme.serif(32, weight: .medium))

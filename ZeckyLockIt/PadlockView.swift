@@ -8,7 +8,10 @@ struct PadlockView: View {
     var size: CGFloat = 220
     /// -1…1 in each direction, from the pointer.
     var tilt: CGSize = .zero
-    var plate = true
+    /// What the name plate says: the value, or LOCKED / OPEN. nil = no plate.
+    var plateText: String? = nil
+
+    @Environment(\.colorScheme) private var scheme
 
     private static let ink = Color(red: 0x6A / 255, green: 0x4C / 255, blue: 0x1D / 255)
     private static let light = Color(red: 1, green: 0.94, blue: 0.8)
@@ -16,7 +19,7 @@ struct PadlockView: View {
     var body: some View {
         ZStack {
             Ellipse()
-                .fill(Color.black.opacity(0.6))
+                .fill(Color.black.opacity(scheme == .light ? 0.28 : 0.6))
                 .frame(width: 224, height: 20)
                 .blur(radius: 8)
                 .position(x: 150, y: 332)
@@ -38,7 +41,7 @@ struct PadlockView: View {
                 RoundedRectangle(cornerRadius: 34, style: .continuous)
                     .fill(LinearGradient(stops: [
                         .init(color: Color(red: 0.96, green: 0.87, blue: 0.64), location: 0),
-                        .init(color: Theme.gold, location: 0.42),
+                        .init(color: Theme.metalGold, location: 0.42),
                         .init(color: Color(red: 0.50, green: 0.36, blue: 0.14), location: 1),
                     ], startPoint: .top, endPoint: .bottom))
                 RoundedRectangle(cornerRadius: 34, style: .continuous)
@@ -53,25 +56,33 @@ struct PadlockView: View {
                 RoundedRectangle(cornerRadius: 34, style: .continuous)
                     .strokeBorder(Color(red: 0.35, green: 0.26, blue: 0.09).opacity(0.65), lineWidth: 1.5)
 
-                VStack(spacing: plate ? 10 : 0) {
+                VStack(spacing: plateText != nil ? 10 : 0) {
                     ZStack {
                         Text("Z").font(Theme.serif(88, weight: .medium))
                             .foregroundStyle(Self.light.opacity(0.45)).offset(y: 3)
                         Text("Z").font(Theme.serif(88, weight: .medium)).foregroundStyle(Self.ink)
                     }
                     .frame(height: 92)
-                    if plate {
-                        Text("ZECKY")
-                            .font(Theme.text(13, weight: .semibold)).tracking(6)
-                            .foregroundStyle(Theme.gold)
-                            .padding(.leading, 6)
-                            .frame(width: 116, height: 30)
-                            .background(Theme.ink, in: RoundedRectangle(cornerRadius: 6))
+                    if let plateText {
+                        let isWord = plateText.allSatisfy { $0.isLetter }
+                        Text(plateText)
+                            .font(Theme.text(isWord ? 13 : 14, weight: .semibold))
+                            .tracking(isWord ? 5 : 0.4)
+                            .foregroundStyle(Theme.metalGold)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                            .padding(.leading, isWord ? 5 : 0)
+                            .padding(.horizontal, 14)
+                            .fixedSize()
+                            .frame(minWidth: 116)
+                            .frame(height: 30)
+                            .background(Theme.plateInk, in: RoundedRectangle(cornerRadius: 6))
                             .overlay(RoundedRectangle(cornerRadius: 6)
                                 .stroke(Color(red: 0.95, green: 0.84, blue: 0.59).opacity(0.7), lineWidth: 1.2))
+                            .contentTransition(.numericText())
                     }
                 }
-                .offset(y: plate ? 2 : -2)
+                .offset(y: plateText != nil ? 2 : -2)
             }
             .frame(width: 228, height: 176)
             .position(x: 150, y: 236)
@@ -117,7 +128,7 @@ struct GuillocheBackground: View {
                     if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
                 }
                 path.closeSubpath()
-                context.stroke(path, with: .color(Theme.gold.opacity(k % 3 == 0 ? 0.09 : 0.05)), lineWidth: 0.8)
+                context.stroke(path, with: .color(Theme.gold.opacity(k % 3 == 0 ? 0.11 : 0.06)), lineWidth: 0.8)
             }
         }
         .background(

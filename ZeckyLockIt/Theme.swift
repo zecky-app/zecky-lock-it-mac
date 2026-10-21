@@ -1,15 +1,63 @@
+import AppKit
 import CoreText
 import SwiftUI
 
-/// Zecky's look: deep ink, warm gold, a serif for the balance.
+/// Zecky's look, the same palettes as the iPhone app: deep ink with warm
+/// gold, or warm paper with a deeper gold. Colours follow the appearance.
 enum Theme {
-    static let ink = Color(red: 0x14 / 255, green: 0x16 / 255, blue: 0x1C / 255)
-    static let surface = Color(red: 0x1C / 255, green: 0x1F / 255, blue: 0x27 / 255)
-    static let gold = Color(red: 0xD4 / 255, green: 0xA6 / 255, blue: 0x57 / 255)
-    static let text = Color(red: 0xEC / 255, green: 0xE8 / 255, blue: 0xDF / 255)
-    static let muted = Color(red: 0x9A / 255, green: 0x9D / 255, blue: 0xA6 / 255)
-    static let green = Color(red: 0x8F / 255, green: 0xBF / 255, blue: 0x8A / 255)
-    static let red = Color(red: 0xE0 / 255, green: 0x8A / 255, blue: 0x63 / 255)
+    enum Mode: String, CaseIterable, Identifiable {
+        case dark, light, auto
+        var id: Self { self }
+        var label: String {
+            switch self {
+            case .dark: return "Dark"
+            case .light: return "Light"
+            case .auto: return "Same as this Mac"
+            }
+        }
+    }
+
+    static var mode: Mode {
+        get { Mode(rawValue: UserDefaults.standard.string(forKey: "theme.mode") ?? "dark") ?? .dark }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "theme.mode"); apply(newValue) }
+    }
+
+    /// Sets the whole app's appearance, sheets and menus included.
+    static func apply(_ mode: Mode) {
+        switch mode {
+        case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
+        case .light: NSApp.appearance = NSAppearance(named: .aqua)
+        case .auto: NSApp.appearance = nil
+        }
+    }
+
+    private static func pair(_ dark: UInt32, _ light: UInt32) -> Color {
+        func c(_ hex: UInt32) -> NSColor {
+            NSColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255,
+                    blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+        }
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? c(light) : c(dark)
+        })
+    }
+
+    static let ink = pair(0x14161C, 0xF6F2EA)
+    static let surface = pair(0x1C1F27, 0xFFFFFF)
+    static let line = pair(0x2A2E39, 0xE0D9CB)
+    static let gold = pair(0xD4A657, 0xA9792B)
+    static let onGold = pair(0x14161C, 0xFFFFFF)
+    static let text = pair(0xF2EFE8, 0x1B1D24)
+    static let muted = pair(0x9A9CA5, 0x6A6D78)
+    static let green = pair(0x7FB58A, 0x3C7A50)
+    static let red = pair(0xD9705F, 0xB4472F)
+    /// The dimmed layer behind "Really open the lock?".
+    static let scrim = Color(nsColor: NSColor(name: nil) { a in
+        a.bestMatch(from: [.darkAqua, .aqua]) == .aqua
+            ? NSColor.black.withAlphaComponent(0.35) : NSColor(srgbRed: 0.04, green: 0.04, blue: 0.055, alpha: 0.8)
+    })
+    /// The lock's metal and name plate stay the same in both themes.
+    static let metalGold = Color(red: 0xD4 / 255, green: 0xA6 / 255, blue: 0x57 / 255)
+    static let plateInk = Color(red: 0x14 / 255, green: 0x16 / 255, blue: 0x1C / 255)
 
     /// Newsreader (brand serif) and Inter (text), bundled with the app under
     /// the SIL Open Font License. Registered for this app only.
@@ -50,7 +98,7 @@ struct PrimaryButton: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
                 .background(enabled ? Theme.gold : Theme.gold.opacity(0.35))
-                .foregroundStyle(Theme.ink)
+                .foregroundStyle(Theme.onGold)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)

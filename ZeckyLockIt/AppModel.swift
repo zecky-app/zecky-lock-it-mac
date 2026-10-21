@@ -22,6 +22,8 @@ final class AppModel: ObservableObject {
     /// ZEC or zats, and amounts hidden for bystanders. Remembered.
     @Published var unit: Amount.Unit = Amount.unit { didSet { Amount.unit = unit } }
     @Published var amountsHidden: Bool = Amount.hidden { didSet { Amount.hidden = amountsHidden } }
+    /// Dark (default), light, or the same as this Mac. Remembered.
+    @Published var themeMode: Theme.Mode = Theme.mode { didSet { Theme.mode = themeMode } }
     @Published var lockOpen = false
 
     func askToOpen() { sheet = nil; asking = true }
@@ -105,6 +107,7 @@ final class AppModel: ObservableObject {
         Server.reset()
         Amount.resetChoices()
         prices.reset()
+        themeMode = .dark
         unit = .zec
         amountsHidden = false
         sheet = nil

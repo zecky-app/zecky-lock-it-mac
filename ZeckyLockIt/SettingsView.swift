@@ -79,6 +79,15 @@ struct SettingsView: View {
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
             }
 
+            section("Appearance") {
+                Picker("", selection: $model.themeMode) {
+                    ForEach(Theme.Mode.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 320)
+            }
+
             section("Value") {
                 Picker("", selection: $prices.currency) {
                     ForEach(PriceFeed.Currency.allCases) { Text($0.label).tag($0) }
