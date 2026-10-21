@@ -87,7 +87,7 @@ struct HomeView: View {
                                 .padding(.horizontal, 12).frame(height: 24)
                                 .background((model.lockOpen ? Theme.red : Theme.green).opacity(0.15))
                                 .clipShape(Capsule())
-                                .padding(.top, 2)
+                                .padding(.top, 10)
                         }
 
                         Button { if !model.amountsHidden { model.unit = model.unit == .zec ? .zats : .zec } } label: {

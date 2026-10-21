@@ -184,6 +184,10 @@ struct Medallion: View {
         .drawingGroup()
         .mask(RadialGradient(colors: [.black, .black, .black.opacity(0)], center: .center,
                              startRadius: 0, endRadius: diameter / 2))
+        // Fade the lower part so the balance below sits on clean dark.
+        .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.64),
+                                     .init(color: .black.opacity(0), location: 0.76)],
+                             startPoint: .top, endPoint: .bottom))
         // Drawn once; the tilt only moves it a hair.
         .offset(x: tilt.width * 3, y: tilt.height * 2)
         .background(
@@ -223,6 +227,13 @@ struct MilestoneRing: View {
                 .stroke(Theme.gold, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .shadow(color: Theme.gold.opacity(0.5), radius: 4)
+            // A glowing point at the tip, like the hand of a clock.
+            let angle = (max(0.004, min(1, progress)) * 360 - 90) * .pi / 180
+            Circle()
+                .fill(Theme.gold)
+                .frame(width: 8, height: 8)
+                .shadow(color: Theme.gold.opacity(0.9), radius: 6)
+                .offset(x: diameter / 2 * cos(angle), y: diameter / 2 * sin(angle))
             // Tick marks every 6 degrees, a longer one every 30.
             ForEach(0..<60, id: \.self) { i in
                 Rectangle()
