@@ -223,10 +223,11 @@ struct PhraseView: View {
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
                 }
             }
-            Text("The words leave the screen when you click Hide, close Settings or switch to another app.")
+            Text("Screenshots and screen sharing show an empty window. The words leave the screen when you click Hide, close Settings or switch to another app.")
                 .font(.system(size: 12)).foregroundStyle(Theme.muted)
             Spacer()
         }
+        .hiddenFromCapture()
     }
 }
 

@@ -100,6 +100,7 @@ struct PrimaryButton: View {
                 .background(enabled ? Theme.gold : Theme.gold.opacity(0.35))
                 .foregroundStyle(Theme.onGold)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
@@ -133,7 +134,26 @@ struct SecondaryButton: View {
                 .padding(.vertical, 10)
                 .foregroundStyle(Theme.text)
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.muted.opacity(0.5)))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
     }
+}
+
+/// Keeps the app's windows out of screenshots, screen recordings and screen
+/// sharing while this view is on screen. Used wherever the 24 words show.
+struct HiddenFromCapture: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .onAppear { Self.set(.none) }
+            .onDisappear { Self.set(.readOnly) }
+    }
+
+    private static func set(_ type: NSWindow.SharingType) {
+        for window in NSApp.windows { window.sharingType = type }
+    }
+}
+
+extension View {
+    func hiddenFromCapture() -> some View { modifier(HiddenFromCapture()) }
 }

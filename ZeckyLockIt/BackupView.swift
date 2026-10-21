@@ -36,5 +36,6 @@ struct BackupView: View {
             HStack { Spacer(); PrimaryButton(title: "I wrote them down", action: onNext).frame(width: 220) }
         }
         .padding(32)
+        .hiddenFromCapture()
     }
 }
