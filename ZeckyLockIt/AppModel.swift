@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Which screen is showing, and the wallet behind it.
@@ -42,7 +43,40 @@ final class AppModel: ObservableObject {
     }
     /// The lock closes again by itself once the release sheet is gone.
     func sheetClosed() { if lockOpen { lockOpen = false } }
-    var hasWallet: Bool { if case .home = screen { return true } else { return false } }
+    var hasWallet: Bool { if case .home = screen { return !locked } else { return false } }
+
+    // MARK: Auto-lock
+
+    /// The whole app behind Touch ID or the Mac password: at launch, when
+    /// the Mac sleeps or its screen locks, and after 5 minutes away.
+    @Published var locked = false
+    static let idleLimit: TimeInterval = 5 * 60
+    private var inactiveSince: Date?
+
+    func lockNow() {
+        guard WalletVault.exists, !locked else { return }
+        sheet = nil
+        asking = false
+        lockOpen = false
+        locked = true
+    }
+
+    func unlock() async {
+        if await OwnerCheck.confirm(reason: "unlock Zecky Lock it") { locked = false }
+    }
+
+    func wentInactive() { inactiveSince = Date() }
+
+    func cameBack() {
+        if let since = inactiveSince, Date().timeIntervalSince(since) > Self.idleLimit { lockNow() }
+        inactiveSince = nil
+    }
+
+    /// No keyboard or mouse for 5 minutes while Lock it is in front.
+    func checkIdle() {
+        guard let any = CGEventType(rawValue: ~0) else { return }
+        if CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: any) > Self.idleLimit { lockNow() }
+    }
     @Published var busy = false
     @Published var message: String?
     let engine = WalletEngine()
@@ -56,6 +90,7 @@ final class AppModel: ObservableObject {
         guard WalletVault.exists else { screen = .welcome; return }
         if WalletVault.legacyExists { screen = .unseal(.sealOlder); return }
         if WalletVault.phraseUnconfirmed { screen = .unseal(.finishBackup); return }
+        lockNow()
         openHome()
     }
 
@@ -131,6 +166,7 @@ final class AppModel: ObservableObject {
         sheet = nil
         asking = false
         lockOpen = false
+        locked = false
         screen = .welcome
     }
 

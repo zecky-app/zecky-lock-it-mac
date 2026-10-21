@@ -25,10 +25,14 @@ struct ContentView: View {
                 }
             }
             .foregroundStyle(Theme.text)
+            .disabled(model.locked)
+            .accessibilityHidden(model.locked)
 
-            // Like the iPhone's app-switcher cover: when Zecky is not the app
-            // in front, the window shows only the name, not balance or words.
-            if covered {
+            if model.locked {
+                LockedView(model: model)
+            } else if covered {
+                // Like the iPhone's app-switcher cover: when Zecky is not the
+                // app in front, the window shows only the name.
                 Theme.ink.ignoresSafeArea()
                 VStack(spacing: 14) {
                     PadlockView(open: false, size: 120)
@@ -36,8 +40,18 @@ struct ContentView: View {
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in covered = true }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in covered = false }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            covered = true
+            model.wentInactive()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            covered = false
+            model.cameBack()
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in model.lockNow() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.screensDidSleepNotification)) { _ in model.lockNow() }
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("com.apple.screenIsLocked"))) { _ in model.lockNow() }
+        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in model.checkIdle() }
         .frame(minWidth: 680, minHeight: 760)
         .font(Theme.text(14))
         .onAppear { model.launch() }
@@ -86,5 +100,34 @@ struct UnsealView: View {
             .keyboardShortcut(.defaultAction)
         }
         .padding(40)
+    }
+}
+
+/// Lock it is locked: nothing of the wallet shows until the owner unlocks.
+struct LockedView: View {
+    @ObservedObject var model: AppModel
+    @State private var trying = false
+
+    var body: some View {
+        ZStack {
+            Theme.ink.ignoresSafeArea()
+            VStack(spacing: 18) {
+                PadlockView(open: false, size: 130)
+                Text("Zecky Lock it").font(Theme.serif(30, weight: .medium))
+                Text("Locked. Touch ID or your Mac password opens it.")
+                    .font(Theme.text(13)).foregroundStyle(Theme.muted)
+                PrimaryButton(title: trying ? "Waiting…" : "Unlock", enabled: !trying) {
+                    Task {
+                        trying = true
+                        await model.unlock()
+                        trying = false
+                    }
+                }
+                .frame(width: 200)
+                .keyboardShortcut(.defaultAction)
+                .padding(.top, 6)
+            }
+        }
+        .accessibilityAddTraits(.isModal)
     }
 }
