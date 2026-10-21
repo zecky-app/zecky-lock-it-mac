@@ -351,29 +351,62 @@ struct OpenLockPrompt: View {
     }
 }
 
-/// Activity as its own sheet: the savings record.
+/// Activity: the record of every time Zcash was locked or released.
 struct ActivitySheet: View {
     @ObservedObject var model: AppModel
     @ObservedObject var engine: WalletEngine
     let onClose: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Activity").font(Theme.serif(24, weight: .medium))
-                Spacer()
-                Button("Done", action: onClose).buttonStyle(HeaderButtonStyle()).keyboardShortcut(.cancelAction)
+        SheetScaffold(title: "Activity",
+                      subtitle: "Every time you locked more or released.",
+                      height: 640, onClose: onClose) {
+            if engine.activity.isEmpty {
+                VStack(spacing: 14) {
+                    Spacer()
+                    PadlockView(open: false, size: 90)
+                    Text("Nothing locked yet").font(Theme.serif(20, weight: .medium))
+                    Text("When Zcash arrives at your Lock more address, it shows up here.")
+                        .font(Theme.text(13)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                summary
+                    .padding(.bottom, 16)
+                ActivityList(items: engine.activity, unit: model.unit, hidden: model.amountsHidden)
             }
-            .padding(.horizontal, 28).padding(.top, 24)
-            ActivityList(items: engine.activity, unit: model.unit, hidden: model.amountsHidden)
         }
-        .frame(width: 540, height: 560)
-        .background(Theme.ink)
-        .foregroundStyle(Theme.text)
+    }
+
+    private var summary: some View {
+        let confirmed = engine.activity.filter { $0.state == .confirmed }
+        let lockedIn = confirmed.filter { $0.kind == .received }.reduce(Int64(0)) { $0 + $1.amount }
+        let released = confirmed.filter { $0.kind == .sent }.reduce(Int64(0)) { $0 + $1.amount }
+        return HStack(spacing: 0) {
+            stat("LOCKED IN", model.amountsHidden ? Amount.hiddenText : (lockedIn > 0 ? "+" : "") + Amount.text(lockedIn, model.unit),
+                 lockedIn > 0 ? Theme.green : Theme.muted)
+            Rectangle().fill(Theme.line).frame(width: 1, height: 34)
+            stat("RELEASED", model.amountsHidden ? Amount.hiddenText : (released > 0 ? "−" : "") + Amount.text(released, model.unit),
+                 released > 0 ? Theme.gold : Theme.muted)
+            Rectangle().fill(Theme.line).frame(width: 1, height: 34)
+            stat("ENTRIES", "\(engine.activity.count)", Theme.text)
+        }
+        .card(padding: 14)
+    }
+
+    private func stat(_ label: String, _ value: String, _ color: Color) -> some View {
+        VStack(spacing: 4) {
+            Text(label).font(Theme.text(10, weight: .semibold)).tracking(1.3).foregroundStyle(Theme.muted)
+            Text(value).font(Theme.text(14, weight: .semibold)).foregroundStyle(color)
+                .lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
-/// Past payments, newest first. Quiet: no addresses, just what and when.
+/// Past payments, newest first, grouped by month. Quiet: no addresses,
+/// just what and when.
 struct ActivityList: View {
     let items: [WalletEngine.ActivityItem]
     var unit: Amount.Unit = .zec
@@ -382,42 +415,71 @@ struct ActivityList: View {
     private static let dateFormat: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US")
-        f.dateFormat = "MMM d, yyyy · h:mm a"
+        f.dateFormat = "MMM d · h:mm a"
+        return f
+    }()
+    private static let monthFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US")
+        f.dateFormat = "MMMM yyyy"
         return f
     }()
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if items.isEmpty {
-                Text("Nothing locked or released yet.").font(Theme.text(13)).foregroundStyle(Theme.muted)
-                    .padding(.horizontal, 28).padding(.top, 8)
-                Spacer()
-            } else {
-                List(items) { item in
-                    HStack {
-                        Image(systemName: item.kind == .received ? "lock.fill" : "lock.open")
-                            .foregroundStyle(item.kind == .received ? Theme.green : Theme.gold)
-                            .frame(width: 18)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.kind == .received ? "Locked" : "Released").font(Theme.text(14, weight: .medium))
-                            Text(subtitle(item)).font(Theme.text(12)).foregroundStyle(Theme.muted)
-                        }
-                        Spacer()
-                        Text(hidden ? "Amount hidden" : "\(item.kind == .received ? "+" : "−")\(Amount.text(item.amount, unit))")
-                            .font(Theme.text(14, weight: .medium))
-                            .foregroundStyle(item.state == .expired ? Theme.muted : Theme.text)
-                            .strikethrough(item.state == .expired)
-                    }
-                    .padding(.vertical, 4)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparatorTint(Theme.muted.opacity(0.2))
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, 16)
-            }
+    /// Waiting payments first, then one group per month.
+    private var groups: [(title: String, items: [WalletEngine.ActivityItem])] {
+        var result: [(String, [WalletEngine.ActivityItem])] = []
+        for item in items {
+            let title = item.date.map { Self.monthFormat.string(from: $0).uppercased() } ?? "WAITING"
+            if let last = result.last, last.0 == title { result[result.count - 1].1.append(item) }
+            else { result.append((title, [item])) }
         }
-        .frame(maxHeight: .infinity, alignment: .top)
+        return result
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                ForEach(groups, id: \.title) { group in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(group.title).font(Theme.text(11, weight: .semibold)).tracking(1.4).foregroundStyle(Theme.muted)
+                        VStack(spacing: 0) {
+                            ForEach(Array(group.items.enumerated()), id: \.element.id) { index, item in
+                                if index > 0 { Rectangle().fill(Theme.line).frame(height: 1).padding(.leading, 52) }
+                                row(item)
+                            }
+                        }
+                        .card(padding: 4)
+                    }
+                }
+            }
+            .padding(.bottom, 8)
+        }
+        .scrollIndicators(.never)
+    }
+
+    private func row(_ item: WalletEngine.ActivityItem) -> some View {
+        let locked = item.kind == .received
+        let tint = item.state == .expired ? Theme.muted : (locked ? Theme.green : Theme.gold)
+        return HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(tint.opacity(0.14))
+                Image(systemName: locked ? "lock.fill" : "lock.open.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(tint)
+            }
+            .frame(width: 34, height: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(locked ? "Locked" : "Released").font(Theme.text(14, weight: .medium))
+                Text(subtitle(item)).font(Theme.text(12)).foregroundStyle(item.state == .waiting ? Theme.gold : Theme.muted)
+            }
+            Spacer()
+            Text(hidden ? "Amount hidden" : "\(locked ? "+" : "−")\(Amount.text(item.amount, unit))")
+                .font(Theme.text(14, weight: .semibold))
+                .foregroundStyle(item.state == .expired ? Theme.muted : (locked ? Theme.green : Theme.text))
+                .strikethrough(item.state == .expired)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
     }
 
     private func subtitle(_ item: WalletEngine.ActivityItem) -> String {
