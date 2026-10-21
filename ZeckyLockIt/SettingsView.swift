@@ -9,6 +9,11 @@ struct SettingsView: View {
     /// The opened phrase, only while it is on screen.
     @State private var revealed: StoredWallet?
     private var showingPhrase: Bool { revealed != nil }
+    /// A code step in place of the settings list.
+    private enum CodeStep { case phrase, setUp, change, remove, erase }
+    @State private var codeStep: CodeStep?
+    @State private var pendingPhrase: StoredWallet?
+    @State private var codeNote: String?
     @State private var problem: String?
     @State private var confirmErase = false
     @State private var erasing = false
@@ -18,13 +23,15 @@ struct SettingsView: View {
     @State private var serverNote: String?
 
     var body: some View {
-        SheetScaffold(title: showingPhrase ? "Recovery phrase" : "Settings",
-                      subtitle: showingPhrase ? "Only for you. Check it against your paper." : "Everything stays on this Mac.",
-                      closeLabel: showingPhrase ? "Hide" : "Done",
+        SheetScaffold(title: sheetTitle,
+                      subtitle: sheetSubtitle,
+                      closeLabel: showingPhrase ? "Hide" : (codeStep != nil ? "Back" : "Done"),
                       height: 740,
-                      onClose: { if showingPhrase { revealed = nil } else { onClose() } }) {
+                      onClose: { if showingPhrase { revealed = nil } else if codeStep != nil { codeStep = nil } else { onClose() } }) {
             if let revealed {
                 PhraseView(wallet: revealed)
+            } else if let codeStep {
+                codeView(codeStep)
             } else {
                 ScrollView { settings.padding(.bottom, 4).padding(.trailing, 6) }
                     .scrollIndicators(.visible)
@@ -49,6 +56,28 @@ struct SettingsView: View {
                     Text(sealNote).font(Theme.text(12)).foregroundStyle(Theme.muted)
                     Spacer()
                     SecondaryButton(title: "Show recovery phrase") { Task { await showPhrase() } }.frame(width: 200)
+                }
+            }
+
+            if WalletVault.canUseCode {
+                card("Code on the lock", icon: "lock.rotation") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(WalletVault.hasCode
+                             ? "On. Six digits, asked with Touch ID before releasing, showing your 24 words and unlocking."
+                             : "Optional. Six digits on top of Touch ID, so someone who knows your Mac password still cannot open the lock.")
+                            .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let codeNote { Text(codeNote).font(Theme.text(12)).foregroundStyle(Theme.green) }
+                        HStack(spacing: 10) {
+                            Spacer()
+                            if WalletVault.hasCode {
+                                SecondaryButton(title: "Remove code") { codeNote = nil; codeStep = .remove }.frame(width: 150)
+                                SecondaryButton(title: "Change code") { codeNote = nil; codeStep = .change }.frame(width: 150)
+                            } else {
+                                SecondaryButton(title: "Put a code on the lock") { codeNote = nil; codeStep = .setUp }.frame(width: 210)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -139,10 +168,83 @@ struct SettingsView: View {
         .card(padding: 16)
     }
 
+    private var sheetTitle: String {
+        if showingPhrase { return "Recovery phrase" }
+        switch codeStep {
+        case .phrase: return "Show recovery phrase"
+        case .setUp: return "Put a code on the lock"
+        case .change: return "Change the code"
+        case .remove: return "Remove the code"
+        case .erase: return "Erase this wallet"
+        case nil: return "Settings"
+        }
+    }
+
+    private var sheetSubtitle: String {
+        if showingPhrase { return "Only for you. Check it against your paper." }
+        switch codeStep {
+        case .phrase, .remove, .erase:
+            return WalletVault.usesPassword ? "Your Lock it password first." : "Your code, then Touch ID or your Mac password."
+        case .setUp, .change: return "Sealed with your phrase in this Mac's Secure Enclave."
+        case nil: return "Everything stays on this Mac."
+        }
+    }
+
+    @ViewBuilder
+    private func codeView(_ step: CodeStep) -> some View {
+        switch step {
+        case .phrase:
+            CodePrompt(action: "Show",
+                       submit: { code in
+                           do {
+                               let wallet = try await WalletVault.unseal(reason: "show your recovery phrase", code: code)
+                               pendingPhrase = wallet
+                               return nil
+                           } catch WalletVault.Failure.cancelled {
+                               return "Not confirmed."
+                           } catch { return String(describing: error) }
+                       },
+                       onDone: { revealed = pendingPhrase; pendingPhrase = nil; codeStep = nil },
+                       onCancel: { codeStep = nil })
+        case .setUp, .change:
+            CodeSetupView(changing: step == .change,
+                          onDone: { codeStep = nil; codeNote = step == .change ? "The code is changed." : "The lock has a code now." },
+                          onCancel: { codeStep = nil })
+        case .erase:
+            CodePrompt(action: "Continue",
+                       submit: { code in
+                           do {
+                               _ = try await WalletVault.unseal(reason: "erase this wallet", code: code)
+                               return nil
+                           } catch WalletVault.Failure.cancelled {
+                               return "Not confirmed."
+                           } catch { return String(describing: error) }
+                       },
+                       onDone: { codeStep = nil; confirmErase = true },
+                       onCancel: { codeStep = nil })
+        case .remove:
+            CodePrompt(action: "Remove",
+                       submit: { code in
+                           do {
+                               try await WalletVault.setCode(current: code, new: nil)
+                               return nil
+                           } catch WalletVault.Failure.cancelled {
+                               return "Not confirmed, so the code stays."
+                           } catch { return String(describing: error) }
+                       },
+                       onDone: { codeStep = nil; codeNote = "The code is removed. Touch ID or your Mac password opens the lock." },
+                       onCancel: { codeStep = nil })
+        }
+    }
+
     private var sealNote: String {
         switch WalletVault.kind {
+        case .secureEnclave where WalletVault.usesPassword: return "Sealed in this Mac's Secure Enclave. Opens only with your Lock it password."
         case .secureEnclave: return "Sealed in this Mac's Secure Enclave. Opens only with Touch ID or your Mac password."
-        default: return "Kept in this Mac's Keychain. Opens only with Touch ID or your Mac password."
+        default:
+            return WalletVault.usesPassword
+                ? "Kept in this Mac's Keychain. Opens only with your Lock it password."
+                : "Kept in this Mac's Keychain. Opens only with Touch ID or your Mac password."
         }
     }
 
@@ -152,6 +254,7 @@ struct SettingsView: View {
 
     private func showPhrase() async {
         problem = nil
+        if WalletVault.needsSecret { codeStep = .phrase; return }
         do { revealed = try await WalletVault.unseal(reason: "show your recovery phrase") }
         catch WalletVault.Failure.cancelled { }
         catch { problem = String(describing: error) }
@@ -183,6 +286,7 @@ struct SettingsView: View {
 
     private func askErase() async {
         problem = nil
+        if WalletVault.needsSecret { codeStep = .erase; return }
         if await OwnerCheck.confirm(reason: "erase this wallet") { confirmErase = true }
     }
 

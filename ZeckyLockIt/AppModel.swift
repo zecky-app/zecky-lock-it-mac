@@ -13,6 +13,8 @@ final class AppModel: ObservableObject {
         case home
         /// The phrase is sealed and this step needs it: ask first.
         case unseal(Unseal)
+        /// This Mac has no login password. `hasWallet`: one is already sealed.
+        case noMacPassword(hasWallet: Bool)
         case problem(String)
     }
 
@@ -31,18 +33,51 @@ final class AppModel: ObservableObject {
     @Published var themeMode: Theme.Mode = Theme.mode { didSet { Theme.mode = themeMode } }
     @Published var lockOpen = false
 
-    func askToOpen() { sheet = nil; asking = true }
-    func keepLocked() { asking = false }
-    func openLock() {
+    /// After the countdown: the code on the dials (when the lock has one).
+    @Published var askingCode = false
+    @Published var openNote: String?
+    /// The unsealed phrase, only while the lock is open. Wiped (let go) as
+    /// soon as the release is signed, the sheet closes, or the app locks.
+    private(set) var opened: StoredWallet?
+
+    func askToOpen() { sheet = nil; openNote = nil; asking = true }
+    func keepLocked() { asking = false; askingCode = false }
+
+    /// The countdown is done: the code, then Touch ID, then the lock opens.
+    func countdownDone() {
         asking = false
+        if WalletVault.needsSecret { askingCode = true; return }
+        Task { @MainActor in
+            if let message = await unsealToOpen(code: nil) { openNote = message } else { openLock() }
+        }
+    }
+
+    /// Unseals for this opening. Returns what to show, or nil when open.
+    func unsealToOpen(code: String?) async -> String? {
+        do {
+            opened = try await WalletVault.unseal(reason: "open the lock", code: code)
+            return nil
+        } catch WalletVault.Failure.cancelled {
+            return "Not confirmed, so the lock stayed closed."
+        } catch {
+            return String(describing: error)
+        }
+    }
+
+    func openLock() {
+        askingCode = false
         lockOpen = true
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 650_000_000)
             if lockOpen { sheet = .send }
         }
     }
+
+    /// Hands the phrase over for signing, once.
+    func takeOpened() -> StoredWallet? { defer { opened = nil }; return opened }
+
     /// The lock closes again by itself once the release sheet is gone.
-    func sheetClosed() { if lockOpen { lockOpen = false } }
+    func sheetClosed() { opened = nil; if lockOpen { lockOpen = false } }
     var hasWallet: Bool { if case .home = screen { return !locked } else { return false } }
 
     // MARK: Auto-lock
@@ -56,13 +91,29 @@ final class AppModel: ObservableObject {
     func lockNow() {
         guard WalletVault.exists, !locked else { return }
         sheet = nil
+        opened = nil
+        askingCode = false
         asking = false
         lockOpen = false
         locked = true
     }
 
     func unlock() async {
+        if !OwnerCheck.available { screen = .noMacPassword(hasWallet: true); locked = false; return }
         if await OwnerCheck.confirm(reason: "unlock Zecky Lock it") { locked = false }
+    }
+
+    /// With a code on the lock, unlocking proves the code: the seal is
+    /// opened and let go straight away. Returns what to show, or nil.
+    func unlock(code: String) async -> String? {
+        do {
+            _ = try await WalletVault.unseal(reason: "unlock Zecky Lock it", code: code)
+            return nil
+        } catch WalletVault.Failure.cancelled {
+            return "Not confirmed, so it stayed locked."
+        } catch {
+            return String(describing: error)
+        }
     }
 
     func wentInactive() { inactiveSince = Date() }
@@ -87,15 +138,30 @@ final class AppModel: ObservableObject {
         case .failure(let failure): screen = .problem(failure.description); return
         case .success: break
         }
-        guard WalletVault.exists else { screen = .welcome; return }
+        guard WalletVault.exists else {
+            screen = OwnerCheck.available || lockItPassword != nil ? .welcome : .noMacPassword(hasWallet: false)
+            return
+        }
+        if !WalletVault.usesPassword && !OwnerCheck.available { screen = .noMacPassword(hasWallet: true); return }
         if WalletVault.legacyExists { screen = .unseal(.sealOlder); return }
         if WalletVault.phraseUnconfirmed { screen = .unseal(.finishBackup); return }
         lockNow()
         openHome()
     }
 
-    /// Opens the seal for the step that needs the phrase.
-    func unseal(_ purpose: Unseal) async {
+    /// On a Mac without a login password: the Lock it password the owner
+    /// chose, held only until the new wallet is sealed with it.
+    @Published var lockItPassword: String?
+
+    func useLockItPassword(_ password: String) {
+        lockItPassword = password
+        screen = .welcome
+    }
+
+    /// Opens the seal for the step that needs the phrase. Returns what to
+    /// show, or nil when it went on.
+    @discardableResult
+    func unseal(_ purpose: Unseal, code: String? = nil) async -> String? {
         message = nil
         busy = true
         defer { busy = false }
@@ -105,12 +171,14 @@ final class AppModel: ObservableObject {
                 try await WalletVault.sealOlderWallet()
                 launch()
             case .finishBackup:
-                screen = .backup(try await WalletVault.unseal(reason: "finish your backup"))
+                screen = .backup(try await WalletVault.unseal(reason: "finish your backup", code: code))
             case .finishStart:
-                await startEngine(try await WalletVault.unseal(reason: "finish opening your wallet"))
+                await startEngine(try await WalletVault.unseal(reason: "finish opening your wallet", code: code))
             }
+            return nil
         } catch {
             message = String(describing: error)
+            return message
         }
     }
 
@@ -122,7 +190,8 @@ final class AppModel: ObservableObject {
             let birthday = try await ChainTip.latest()
             let phrase = try Mnemonic.phrase(from: Entropy.secure(32))
             let wallet = StoredWallet(phrase: phrase, birthday: birthday)
-            try WalletVault.save(wallet)
+            try WalletVault.save(wallet, password: lockItPassword)
+            lockItPassword = nil
             WalletVault.phraseUnconfirmed = true
             screen = .backup(wallet)
         } catch let failure as Entropy.Failure {
@@ -136,7 +205,8 @@ final class AppModel: ObservableObject {
         do {
             try Mnemonic.validate(phrase)
             let wallet = StoredWallet(phrase: Mnemonic.normalize(phrase), birthday: birthday)
-            try WalletVault.save(wallet)
+            try WalletVault.save(wallet, password: lockItPassword)
+            lockItPassword = nil
             WalletVault.phraseUnconfirmed = false
             openHome(with: wallet)
         } catch let failure as Mnemonic.Failure {

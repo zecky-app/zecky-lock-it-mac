@@ -117,14 +117,13 @@ struct HomeView: View {
                                 .font(Theme.text(12)).foregroundStyle(Theme.muted)
                         }
 
-                        HStack(spacing: 12) {
-                            PrimaryButton(title: "Lock more") { model.sheet = .receive }.frame(width: 160)
-                            SecondaryButton(title: "Open the lock") { model.askToOpen() }
-                                .background(Theme.ink.opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
-                                .frame(width: 160)
+                        PrimaryButton(title: "Lock more") { model.sheet = .receive }
+                            .frame(width: 200)
+                            .disabled(engine.status == .connecting)
+                            .padding(.top, 12)
+                        if let note = model.openNote {
+                            Text(note).font(Theme.text(12)).foregroundStyle(Theme.muted)
                         }
-                        .disabled(engine.status == .connecting)
-                        .padding(.top, 12)
 
                         if let last = engine.activity.first {
                             Button { model.sheet = .activity } label: {
@@ -185,19 +184,35 @@ struct HomeView: View {
             }
             // While "Really open the lock?" is up, nothing behind it can be
             // clicked, tabbed to or read out.
-            .disabled(model.asking)
-            .accessibilityHidden(model.asking)
+            .disabled(model.asking || model.askingCode)
+            .accessibilityHidden(model.asking || model.askingCode)
 
             if model.asking {
-                OpenLockPrompt(days: heldDays) { model.openLock() } onKeep: { model.keepLocked() }
+                OpenLockPrompt(days: heldDays) { model.countdownDone() } onKeep: { model.keepLocked() }
                     .transition(.opacity)
+            }
+            if model.askingCode {
+                ZStack {
+                    Theme.scrim.ignoresSafeArea().onTapGesture {}
+                    CodePrompt(action: "Open",
+                               submit: { code in await model.unsealToOpen(code: code) },
+                               onDone: { model.openLock() },
+                               onCancel: { model.keepLocked() })
+                        .padding(.horizontal, 40).padding(.vertical, 30)
+                        .frame(width: 560)
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.gold.opacity(0.25), lineWidth: 1))
+                        .shadow(color: .black.opacity(0.35), radius: 30, y: 12)
+                }
+                .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: model.asking)
+        .animation(.easeInOut(duration: 0.2), value: model.askingCode)
         .sheet(item: $model.sheet, onDismiss: { model.sheetClosed() }) { sheet in
             switch sheet {
             case .receive: ReceiveView(engine: engine) { model.sheet = nil }
-            case .send: SendView(engine: engine) { model.sheet = nil }
+            case .send: SendView(engine: engine, opened: model.takeOpened()) { model.sheet = nil }
             case .settings: SettingsView(model: model, prices: prices) { model.sheet = nil }
             case .activity: ActivitySheet(model: model, engine: engine) { model.sheet = nil }
             }

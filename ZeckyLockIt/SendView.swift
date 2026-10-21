@@ -4,6 +4,8 @@ import SwiftUI
 /// before anything leaves the lock.
 struct SendView: View {
     @ObservedObject var engine: WalletEngine
+    /// The phrase the owner unsealed when opening the lock. Used once.
+    @State private var opened: StoredWallet?
     let onClose: () -> Void
 
     private enum Stage { case form, review(WalletEngine.SendPlan), sending, done(WalletEngine.SendOutcome) }
@@ -18,6 +20,13 @@ struct SendView: View {
     @State private var waiting = false
     @State private var closedAgain = false
     @State private var lockNote: String?
+    @State private var used = false
+
+    init(engine: WalletEngine, opened: StoredWallet?, onClose: @escaping () -> Void) {
+        self.engine = engine
+        self.onClose = onClose
+        _opened = State(initialValue: opened)
+    }
     @State private var notUpToDate = false
 
     var body: some View {
@@ -249,28 +258,25 @@ struct SendView: View {
         catch { problem = String(describing: error) }
     }
 
-    /// Nothing leaves the lock until the owner of this Mac confirms it with
-    /// Touch ID or the Mac password. That opens the sealed phrase for this
-    /// one payment; the key is made, used, and wiped straight after.
+    /// The lock was opened with Touch ID (and the code) before this sheet
+    /// came up; that unsealed phrase signs this one payment. The key is
+    /// made, used, and wiped straight after. A second payment needs the
+    /// lock opened again.
     private func send(_ plan: WalletEngine.SendPlan) async {
         lockNote = nil
-        let total = Amount.text(plan.amount + plan.fee, .zec)
-        let wallet: StoredWallet
-        do {
-            wallet = try await WalletVault.unseal(reason: "release \(total) from the lock")
-        } catch WalletVault.Failure.cancelled {
-            lockNote = "Not confirmed, so nothing left the lock."
-            return
-        } catch {
-            lockNote = "\(error) Nothing left the lock."
+        guard let wallet = opened, !used else {
+            lockNote = "The lock closed again. Close this and open the lock once more."
             return
         }
+        used = true
         stage = .sending
         do {
             var seed = try Mnemonic.seed(from: wallet.phrase)
             defer { Wipe.bytes(&seed) }
             stage = .done(try await engine.send(plan, seed: seed))
+            opened = nil
         } catch {
+            used = false
             problem = String(describing: error); stage = .form
         }
     }

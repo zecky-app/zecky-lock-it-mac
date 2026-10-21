@@ -20,6 +20,7 @@ struct ContentView: View {
                 case .restore: RestoreView(model: model)
                 case .home: HomeView(model: model, engine: model.engine, prices: model.prices)
                 case .unseal(let purpose): UnsealView(model: model, purpose: purpose)
+                case .noMacPassword(let hasWallet): NoMacPasswordView(model: model, hasWallet: hasWallet)
                 case .problem(let text):
                     Text(text).foregroundStyle(Theme.red).padding(40)
                 }
@@ -83,6 +84,17 @@ struct UnsealView: View {
     }
 
     var body: some View {
+        if WalletVault.needsSecret && purpose != .sealOlder {
+            CodePrompt(action: "Continue",
+                       submit: { code in await model.unseal(purpose, code: code) },
+                       onDone: {}, onCancel: {})
+                .frame(width: 520)
+        } else {
+            plain
+        }
+    }
+
+    private var plain: some View {
         VStack(spacing: 22) {
             PadlockView(open: false, size: 130)
             Text(title).font(Theme.serif(32, weight: .medium))
@@ -111,21 +123,29 @@ struct LockedView: View {
     var body: some View {
         ZStack {
             Theme.ink.ignoresSafeArea()
-            VStack(spacing: 18) {
-                PadlockView(open: false, size: 130)
-                Text("Zecky Lock it").font(Theme.serif(30, weight: .medium))
-                Text("Locked. Touch ID or your Mac password opens it.")
-                    .font(Theme.text(13)).foregroundStyle(Theme.muted)
-                PrimaryButton(title: trying ? "Waiting…" : "Unlock", enabled: !trying) {
-                    Task {
-                        trying = true
-                        await model.unlock()
-                        trying = false
+            if WalletVault.needsSecret {
+                CodePrompt(heading: nil, action: "Unlock", showsCancel: false,
+                           submit: { code in await model.unlock(code: code) },
+                           onDone: { model.locked = false },
+                           onCancel: {})
+                    .frame(width: 520)
+            } else {
+                VStack(spacing: 18) {
+                    PadlockView(open: false, size: 130)
+                    Text("Zecky Lock it").font(Theme.serif(30, weight: .medium))
+                    Text("Locked. Touch ID or your Mac password opens it.")
+                        .font(Theme.text(13)).foregroundStyle(Theme.muted)
+                    PrimaryButton(title: trying ? "Waiting…" : "Unlock", enabled: !trying) {
+                        Task {
+                            trying = true
+                            await model.unlock()
+                            trying = false
+                        }
                     }
+                    .frame(width: 200)
+                    .keyboardShortcut(.defaultAction)
+                    .padding(.top, 6)
                 }
-                .frame(width: 200)
-                .keyboardShortcut(.defaultAction)
-                .padding(.top, 6)
             }
         }
         .accessibilityAddTraits(.isModal)

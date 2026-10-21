@@ -103,6 +103,12 @@ enum KeyStore {
 /// "Confirm it's you": Touch ID, or the Mac login password when there is
 /// no Touch ID. Guards showing the recovery phrase, like Face ID on iPhone.
 enum OwnerCheck {
+    /// False on a Mac without a login password (and so without Touch ID).
+    static var available: Bool {
+        var error: NSError?
+        return LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
+    }
+
     static func confirm(reason: String) async -> Bool {
         let context = LAContext()
         var error: NSError?
