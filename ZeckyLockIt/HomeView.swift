@@ -10,6 +10,7 @@ struct HomeView: View {
     let wallet: StoredWallet
 
     @State private var tilt: CGSize = .zero
+    @State private var area: CGSize = .zero
     @Environment(\.colorScheme) private var scheme
 
     /// The plate on the lock: the value when a currency is chosen, else the state.
@@ -58,15 +59,25 @@ struct HomeView: View {
                     }
 
                     VStack(spacing: 8) {
-                        Button { if !model.lockOpen && engine.status != .connecting { model.askToOpen() } } label: {
-                            PadlockView(open: model.lockOpen, size: 236, tilt: tilt, plateText: plateText)
-                                .animation(.spring(response: 0.55, dampingFraction: 0.62), value: model.lockOpen)
-                                .animation(.easeOut(duration: 0.35), value: tilt)
-                                .contentShape(Rectangle())
+                        ZStack {
+                            Medallion(tilt: tilt, diameter: 760)
+                                .animation(.easeOut(duration: 0.6), value: tilt)
+                                .frame(width: 330, height: 330)
+                            MilestoneRing(progress: milestone?.progress ?? 0, diameter: 320)
+                                .opacity(engine.lockedSince == nil ? 0.5 : 1)
+                                .animation(.easeOut(duration: 1.2), value: milestone?.progress ?? 0)
+                            Button { if !model.lockOpen && engine.status != .connecting { model.askToOpen() } } label: {
+                                PadlockView(open: model.lockOpen, size: 212, tilt: tilt, plateText: plateText)
+                                    .animation(.spring(response: 0.55, dampingFraction: 0.62), value: model.lockOpen)
+                                    .animation(.easeOut(duration: 0.35), value: tilt)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Open the lock")
+                            .accessibilityHint("Asks whether you really want to open the lock")
+                            .offset(y: 6)
                         }
-                        .buttonStyle(.plain)
-                        .help("Open the lock")
-                        .accessibilityHint("Asks whether you really want to open the lock")
+                        .frame(height: 330)
 
                         // The plate shows LOCKED / OPEN unless it shows the value.
                         if prices.currency != .none {
@@ -86,17 +97,20 @@ struct HomeView: View {
                                         .lineLimit(1).minimumScaleFactor(0.5)
                                     Text(model.unit.rawValue).font(Theme.text(15, weight: .medium)).foregroundStyle(Theme.muted)
                                 }
-                                if !model.amountsHidden {
-                                    Text("Click to show in \(model.unit == .zec ? "zats" : "ZEC")")
-                                        .font(Theme.text(11)).foregroundStyle(Theme.muted.opacity(0.8))
-                                }
                             }
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .help(model.amountsHidden ? "" : "Click to show in \(model.unit == .zec ? "zats" : "ZEC")")
                         .accessibilityHint("Switches between ZEC and zats")
 
-                        Text(heldLine).font(Theme.text(13)).foregroundStyle(Theme.muted)
+                        VStack(spacing: 3) {
+                            Text(heldLine).font(Theme.text(13)).foregroundStyle(Theme.muted)
+                            if let m = milestone, engine.lockedSince != nil {
+                                Text("Next milestone: \(m.name) · in \(m.inDays) \(m.inDays == 1 ? "day" : "days")")
+                                    .font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                            }
+                        }
                         if engine.status == .upToDate && engine.total > engine.spendable {
                             Text(model.amountsHidden
                                  ? "Part of your balance locks in within a few minutes"
@@ -112,16 +126,36 @@ struct HomeView: View {
                         }
                         .disabled(engine.status == .connecting)
                         .padding(.top, 12)
+
+                        if let last = engine.activity.first {
+                            Button { model.sheet = .activity } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: last.kind == .received ? "lock.fill" : "lock.open")
+                                        .font(.system(size: 10))
+                                    Text(lastLine(last))
+                                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                                }
+                                .font(Theme.text(12))
+                                .foregroundStyle(Theme.muted)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Open Activity")
+                            .padding(.top, 14)
+                        }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.top, 20)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(GuillocheBackground(tilt: tilt).animation(.easeOut(duration: 0.6), value: tilt))
+                .background(GeometryReader { geo in
+                    Color.clear.onAppear { area = geo.size }.onChange(of: geo.size) { area = $0 }
+                })
                 .onContinuousHover { phase in
                     switch phase {
                     case .active(let point):
-                        tilt = CGSize(width: (point.x / 380 - 1).clamped, height: (point.y / 300 - 1).clamped)
+                        let w = max(area.width, 1), h = max(area.height, 1)
+                        tilt = CGSize(width: (point.x / (w / 2) - 1).clamped, height: (point.y / (h / 2) - 1).clamped)
                     case .ended:
                         tilt = .zero
                     }
@@ -131,6 +165,11 @@ struct HomeView: View {
                     HStack(spacing: 8) {
                         Circle().fill(dotColor).frame(width: 8, height: 8)
                         Text(statusText).font(Theme.text(12)).foregroundStyle(Theme.muted)
+                        Text("·").foregroundStyle(Theme.muted.opacity(0.6))
+                        Label("Shielded", systemImage: "shield.lefthalf.filled")
+                            .labelStyle(.titleAndIcon)
+                            .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                            .help("Lock it only uses shielded addresses: amounts, senders and receivers stay private on the blockchain.")
                     }
                     Spacer()
                     HStack(spacing: 20) {
@@ -179,6 +218,21 @@ struct HomeView: View {
         case ...14: return 38
         default: return 30
         }
+    }
+
+    private var milestone: (name: String, inDays: Int, progress: Double)? {
+        Milestone.next(after: heldDays ?? 0)
+    }
+
+    private func lastLine(_ item: WalletEngine.ActivityItem) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US")
+        f.dateFormat = "MMM d"
+        let what = item.kind == .received ? "Last locked" : "Last released"
+        let when = item.date.map { f.string(from: $0) } ?? "waiting for a block"
+        if model.amountsHidden { return "\(what) · \(when)" }
+        let sign = item.kind == .received ? "+" : "−"
+        return "\(what) \(sign)\(Amount.text(item.amount, model.unit)) · \(when)"
     }
 
     private var heldDays: Int? {

@@ -15,7 +15,7 @@ struct ZeckyLockItApp: App {
         Window("Zecky Lock it", id: "main") {
             ContentView(model: model)
         }
-        .defaultSize(width: 820, height: 740)
+        .defaultSize(width: 880, height: 820)
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About Zecky Lock it") { About.show() }
