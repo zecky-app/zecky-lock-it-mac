@@ -79,7 +79,7 @@ final class AppModel: ObservableObject {
     /// Unseals for this opening. Returns what to show, or nil when open.
     func unsealToOpen(code: String?) async -> String? {
         do {
-            opened = try await WalletVault.unseal(reason: "open the lock", code: code)
+            opened = try await WalletVault.unseal(reason: "open the lock", code: code, fresh: false)
             return nil
         } catch WalletVault.Failure.cancelled {
             return "Not confirmed, so the lock stayed closed."
@@ -115,6 +115,7 @@ final class AppModel: ObservableObject {
 
     func lockNow() {
         guard WalletVault.exists, !locked else { return }
+        WalletVault.endSession()
         sheet = nil
         opened = nil
         askingCode = false
@@ -126,14 +127,18 @@ final class AppModel: ObservableObject {
 
     func unlock() async {
         if !OwnerCheck.available { screen = .noMacPassword(hasWallet: true); locked = false; return }
-        if await OwnerCheck.confirm(reason: "unlock Zecky Lock it") { locked = false }
+        do {
+            try await WalletVault.beginSession(reason: "unlock Zecky Lock it")
+            locked = false
+        } catch {}
     }
 
     /// With a code on the lock, unlocking proves the code: the seal is
     /// opened and let go straight away. Returns what to show, or nil.
     func unlock(code: String) async -> String? {
         do {
-            _ = try await WalletVault.unseal(reason: "unlock Zecky Lock it", code: code)
+            if !WalletVault.usesPassword { try await WalletVault.beginSession(reason: "unlock Zecky Lock it") }
+            _ = try await WalletVault.unseal(reason: "unlock Zecky Lock it", code: code, fresh: false)
             return nil
         } catch WalletVault.Failure.cancelled {
             return "Not confirmed, so it stayed locked."
@@ -254,6 +259,7 @@ final class AppModel: ObservableObject {
         try WalletVault.eraseAll()
         TimeLock.erase()
         LockLog.erase()
+        Contacts.erase()
         AddressBook.clear()
         Server.reset()
         Amount.resetChoices()

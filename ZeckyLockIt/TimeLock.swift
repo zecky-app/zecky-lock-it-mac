@@ -274,7 +274,7 @@ struct TimeLockPrompt: View {
 /// What happened to the lock itself, next to the payments in Activity:
 /// the glass broken, the time lock and the code changed. This device only.
 enum LockLog {
-    enum Kind: String, Codable { case glassBroken, timeLock, code }
+    enum Kind: String, Codable { case glassBroken, timeLock, code, addressBook }
 
     struct Entry: Codable, Identifiable {
         var id = UUID()

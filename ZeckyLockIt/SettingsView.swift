@@ -10,12 +10,15 @@ struct SettingsView: View {
     @State private var revealed: StoredWallet?
     private var showingPhrase: Bool { revealed != nil }
     /// A code step in place of the settings list.
-    private enum CodeStep { case phrase, setUp, change, remove, erase }
+    private enum CodeStep { case phrase, setUp, change, remove, erase, guarded }
     @State private var codeStep: CodeStep?
     @State private var pendingPhrase: StoredWallet?
     @State private var codeNote: String?
     @State private var timeLockHours = TimeLock.hours
     @State private var confirmTimeLock: Int?
+    /// An address-book change waiting for the owner's code and Touch ID.
+    @State private var guardAction: (() -> Void)?
+    @State private var guardReason = ""
     @State private var problem: String?
     @State private var confirmErase = false
     @State private var erasing = false
@@ -128,6 +131,12 @@ struct SettingsView: View {
                         }
                     }
                 }
+            }
+
+            section("Address book", "Addresses you trust, to release to by name.")
+            card("Saved addresses", icon: "person.crop.circle") {
+                ContactsCard(guarded: { reason, action in Task { await guarded(reason, action) } },
+                             changed: { model.timeLockChanged += 1 })
             }
 
             section("Display", "How Lock it looks on this Mac.")
@@ -260,6 +269,7 @@ struct SettingsView: View {
         case .change: return "Change the code"
         case .remove: return "Remove the code"
         case .erase: return "Erase this wallet"
+        case .guarded: return "Address book"
         case nil: return "Settings"
         }
     }
@@ -267,7 +277,7 @@ struct SettingsView: View {
     private var sheetSubtitle: String {
         if showingPhrase { return "Only for you. Check it against your paper." }
         switch codeStep {
-        case .phrase, .remove, .erase:
+        case .phrase, .remove, .erase, .guarded:
             return WalletVault.usesPassword ? "Your Lock it password first." : "Your code, then Touch ID or your Mac password."
         case .setUp, .change: return "Sealed with your phrase in this Mac's Secure Enclave."
         case nil: return "Everything stays on this Mac."
@@ -294,6 +304,18 @@ struct SettingsView: View {
             CodeSetupView(changing: step == .change,
                           onDone: { codeStep = nil; codeNote = step == .change ? "The code is changed." : "The lock has a code now." },
                           onCancel: { codeStep = nil })
+        case .guarded:
+            CodePrompt(action: "Continue",
+                       submit: { code in
+                           do {
+                               _ = try await WalletVault.unseal(reason: guardReason, code: code)
+                               return nil
+                           } catch WalletVault.Failure.cancelled {
+                               return "Not confirmed, so nothing changed."
+                           } catch { return String(describing: error) }
+                       },
+                       onDone: { let action = guardAction; guardAction = nil; codeStep = nil; action?() },
+                       onCancel: { guardAction = nil; codeStep = nil })
         case .erase:
             CodePrompt(action: "Continue",
                        submit: { code in
@@ -365,6 +387,18 @@ struct SettingsView: View {
             serverNote = "Now using \(host)"
         } catch {
             serverNote = "Could not connect: \(error)"
+        }
+    }
+
+    /// Runs `action` once the owner confirmed: the code (or Lock it
+    /// password) and Touch ID when set, otherwise Touch ID.
+    private func guarded(_ reason: String, _ action: @escaping () -> Void) async {
+        if WalletVault.needsSecret {
+            guardReason = reason
+            guardAction = action
+            codeStep = .guarded
+        } else if await OwnerCheck.confirm(reason: reason) {
+            action()
         }
     }
 

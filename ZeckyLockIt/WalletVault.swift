@@ -205,19 +205,48 @@ enum WalletVault {
     /// Asks for Touch ID or the Mac password, then opens the phrase. With a
     /// code on the lock, `code` must be the 6 digits; the chip checks them.
     /// The caller uses the phrase and lets it go straight away.
-    static func unseal(reason: String, code: String? = nil) async throws -> StoredWallet {
+    ///
+    /// `fresh: false` may use the confirmation from unlocking Lock it (the
+    /// session), so opening the lock right after needs no second prompt.
+    /// Showing the words, erasing and changing the code always ask fresh.
+    static func unseal(reason: String, code: String? = nil, fresh: Bool = true) async throws -> StoredWallet {
         if needsSecret {
             guard code != nil else { throw Failure.codeNeeded }
             if let until = waitUntil { throw Failure.mustWait(until: until) }
         }
-        let context = usesPassword ? LAContext() : try await confirmOwner(reason: reason)
-        defer { context.invalidate() }
+        let context: LAContext
+        var own = true
+        if usesPassword {
+            context = LAContext()
+        } else if !fresh, let session {
+            context = session; own = false
+        } else {
+            context = try await confirmOwner(reason: reason)
+        }
+        defer { if own { context.invalidate() } }
 
         if let legacy = try legacyLoad() { return legacy }
         guard let info else { throw Failure.damaged }
         let plain = try open(context, info: info, code: code)
         guard let wallet = try? JSONDecoder().decode(StoredWallet.self, from: plain) else { throw Failure.damaged }
         return wallet
+    }
+
+    // MARK: Session
+
+    /// The owner's confirmation from unlocking Lock it, kept until it locks
+    /// again (launch, sleep, screen lock, 5 minutes away).
+    private static var session: LAContext?
+
+    /// Unlocking: Touch ID or the Mac password once, kept as the session.
+    static func beginSession(reason: String) async throws {
+        endSession()
+        session = try await confirmOwner(reason: reason)
+    }
+
+    static func endSession() {
+        session?.invalidate()
+        session = nil
     }
 
     private static func confirmOwner(reason: String) async throws -> LAContext {

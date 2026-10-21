@@ -21,6 +21,10 @@ struct SendView: View {
     @State private var closedAgain = false
     @State private var lockNote: String?
     @State private var used = false
+    @State private var sentTo: String?
+    @State private var showBook = false
+    @State private var newName = ""
+    @State private var savedName: String?
 
     init(engine: WalletEngine, opened: StoredWallet?, onClose: @escaping () -> Void) {
         self.engine = engine
@@ -84,11 +88,40 @@ struct SendView: View {
     private var form: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 8) {
-                fieldLabel("TO")
-                TextField("", text: $to, prompt: Text("Zcash address").foregroundColor(Theme.muted))
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13, design: .monospaced))
-                    .autocorrectionDisabled()
+                HStack(spacing: 10) {
+                    fieldLabel("TO")
+                    Spacer()
+                    if let name = Contacts.name(for: to) {
+                        Label(name, systemImage: "checkmark.seal.fill")
+                            .font(Theme.text(11, weight: .semibold)).foregroundStyle(Theme.green)
+                    }
+                    Button { showBook.toggle() } label: {
+                        Label("Address book", systemImage: "person.crop.circle")
+                            .font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                            .padding(.horizontal, 10).frame(height: 24)
+                            .overlay(Capsule().stroke(Theme.gold.opacity(0.5)))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showBook, arrowEdge: .bottom) {
+                        BookPicker { address in to = address; showBook = false }
+                    }
+                }
+                if !Contacts.onlySaved {
+                    TextField("", text: $to, prompt: Text("Zcash address").foregroundColor(Theme.muted))
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13, design: .monospaced))
+                        .autocorrectionDisabled()
+                } else if Contacts.all.isEmpty {
+                    Text("Only saved addresses can be used, and none are saved yet. Add one in Settings › Address book.")
+                        .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                }
+                if !Contacts.all.isEmpty {
+                    FlowChips(items: Contacts.all.indices.map { ($0, Contacts.all[$0].name) },
+                              selected: Contacts.all.firstIndex { $0.address == to.trimmingCharacters(in: .whitespacesAndNewlines) } ?? -1) { i in
+                        to = Contacts.all[i].address
+                    }
+                }
             }
             .card(padding: 14)
 
@@ -149,7 +182,14 @@ struct SendView: View {
         let left = Swift.max(0, engine.spendable - total)
         return VStack(alignment: .leading, spacing: 14) {
             VStack(spacing: 0) {
-                receiptRow("To", plan.toSelf ? "Yourself" : short(plan.to), mono: !plan.toSelf)
+                receiptRow("To", plan.toSelf ? "Yourself" : (Contacts.name(for: plan.to) ?? "New address"), strong: true)
+                if !plan.toSelf {
+                    Text(Contacts.grouped(plan.to))
+                        .font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 6)
+                        .textSelection(.enabled)
+                }
                 receiptRow("Amount", Amount.text(plan.amount, unit))
                 receiptRow("Network fee", Amount.text(plan.fee, unit))
                 Rectangle().fill(Theme.line).frame(height: 1).padding(.vertical, 8)
@@ -195,6 +235,9 @@ struct SendView: View {
             case .sent:
                 Text("It shows as confirmed once it is in a block. The rest stays locked.")
                     .font(Theme.text(14)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                if let sentTo, Contacts.name(for: sentTo) == nil, !Contacts.onlySaved {
+                    saveContact(sentTo)
+                }
             case .saved:
                 Text("The payment was made but could not be delivered yet. Zecky keeps trying until it is in a block or expires (about 40 blocks). Do not send it again.")
                     .font(Theme.text(14)).foregroundStyle(Theme.gold).multilineTextAlignment(.center)
@@ -214,6 +257,27 @@ struct SendView: View {
 
     private func note(_ text: String, _ color: Color) -> some View {
         Text(text).font(Theme.text(12)).foregroundStyle(color).fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// After paying a new address: offer to save it under a name.
+    private func saveContact(_ address: String) -> some View {
+        HStack(spacing: 8) {
+            if let savedName {
+                Label("Saved as \(savedName)", systemImage: "checkmark.seal.fill")
+                    .font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.green)
+            } else {
+                TextField("", text: $newName, prompt: Text("Name, to save this address").foregroundColor(Theme.muted))
+                    .textFieldStyle(.plain).font(Theme.text(13))
+                    .padding(.horizontal, 10).frame(width: 240, height: 32)
+                    .background(Theme.ink, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
+                SecondaryButton(title: "Save") {
+                    if (try? Contacts.add(name: newName, address: address)) != nil { savedName = newName }
+                }
+                .frame(width: 80)
+            }
+        }
+        .padding(.top, 6)
     }
 
     private func short(_ a: String) -> String {
@@ -254,6 +318,10 @@ struct SendView: View {
             }
             amount = parsed
         }
+        if Contacts.onlySaved && Contacts.name(for: to) == nil {
+            problem = "Only saved addresses can be used. Pick one above, or change the rule in Settings."
+            return
+        }
         do { stage = .review(try await engine.plan(to: to, amount: amount)) }
         catch { problem = String(describing: error) }
     }
@@ -274,6 +342,7 @@ struct SendView: View {
             var seed = try Mnemonic.seed(from: wallet.phrase)
             defer { Wipe.bytes(&seed) }
             stage = .done(try await engine.send(plan, seed: seed))
+            if !plan.toSelf { sentTo = plan.to }
             opened = nil
         } catch {
             used = false
@@ -318,5 +387,85 @@ struct DottedLeader: View {
             p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
             return p
         }
+    }
+}
+
+/// The address book while releasing: pick a name, or save a new one.
+struct BookPicker: View {
+    let pick: (String) -> Void
+    @State private var contacts = Contacts.all
+    @State private var search = ""
+    @State private var adding = false
+    @State private var name = ""
+    @State private var address = ""
+    @State private var note: String?
+
+    private var shown: [Contacts.Contact] {
+        let q = search.trimmingCharacters(in: .whitespaces)
+        return q.isEmpty ? contacts : contacts.filter { $0.name.localizedCaseInsensitiveContains(q) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("ADDRESS BOOK").font(Theme.text(11, weight: .semibold)).tracking(1.8).foregroundStyle(Theme.gold)
+            if contacts.count > 5 {
+                TextField("Search", text: $search).textFieldStyle(.roundedBorder)
+            }
+            if contacts.isEmpty && !adding {
+                Text("No saved addresses yet.").font(Theme.text(12)).foregroundStyle(Theme.muted)
+            }
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(shown) { c in
+                        Button { pick(c.address) } label: {
+                            HStack(spacing: 10) {
+                                ZStack {
+                                    Circle().fill(Theme.gold.opacity(0.14))
+                                    Text(String(c.name.prefix(1)).uppercased())
+                                        .font(Theme.serif(14, weight: .medium)).foregroundStyle(Theme.gold)
+                                }
+                                .frame(width: 28, height: 28)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(c.name).font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.text)
+                                    Text(Contacts.short(c.address)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted)
+                                }
+                                Spacer()
+                            }
+                            .padding(.vertical, 6).padding(.horizontal, 6)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(maxHeight: 240)
+            if Contacts.onlySaved {
+                Text("New addresses are added in Settings › Address book, with your code and Touch ID.")
+                    .font(Theme.text(11)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            } else if adding {
+                TextField("Name", text: $name).textFieldStyle(.roundedBorder)
+                TextField("Zcash address", text: $address).textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12, design: .monospaced))
+                if let note { Text(note).font(Theme.text(11)).foregroundStyle(Theme.red) }
+                HStack {
+                    Button("Cancel") { adding = false; note = nil }
+                    Spacer()
+                    Button("Save and use") {
+                        do {
+                            try Contacts.add(name: name, address: address)
+                            pick(address.trimmingCharacters(in: .whitespacesAndNewlines))
+                        } catch { note = String(describing: error) }
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+            } else {
+                Button { adding = true } label: {
+                    Label("Add a new address", systemImage: "plus.circle").font(Theme.text(12, weight: .medium))
+                }
+                .buttonStyle(.plain).foregroundStyle(Theme.gold)
+            }
+        }
+        .padding(16)
+        .frame(width: 340)
     }
 }

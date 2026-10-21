@@ -586,6 +586,7 @@ struct ActivityList: View {
             case .glassBroken: return ("Time lock broken", "hammer.fill", Theme.red)
             case .timeLock: return ("Time lock", "clock.fill", Theme.gold)
             case .code: return ("Code", "lock.rotation", Theme.gold)
+            case .addressBook: return ("Address book", "person.crop.circle", Theme.gold)
             }
         }()
         return HStack(spacing: 12) {
