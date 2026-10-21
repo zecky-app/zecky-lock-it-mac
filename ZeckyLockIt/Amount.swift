@@ -11,6 +11,39 @@ enum Amount {
         return String(out.reversed())
     }
 
+    enum Unit: String { case zec = "ZEC", zats }
+
+    /// The owner's choices, kept like on iPhone: unit and hidden amounts.
+    static var unit: Unit {
+        get { Unit(rawValue: UserDefaults.standard.string(forKey: "amount.unit") ?? "ZEC") ?? .zec }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "amount.unit") }
+    }
+    static var hidden: Bool {
+        get { UserDefaults.standard.bool(forKey: "amount.hidden") }
+        set { UserDefaults.standard.set(newValue, forKey: "amount.hidden") }
+    }
+    static func resetChoices() {
+        UserDefaults.standard.removeObject(forKey: "amount.unit")
+        UserDefaults.standard.removeObject(forKey: "amount.hidden")
+    }
+
+    static let hiddenText = "••••••"
+
+    /// Whole zats with thousands separators.
+    static func zats(_ zatoshi: Int64) -> String {
+        (zatoshi < 0 ? "-" : "") + group(String(zatoshi.magnitude))
+    }
+
+    /// The number alone, in `unit`.
+    static func number(_ zatoshi: Int64, _ unit: Unit) -> String {
+        unit == .zec ? zec(zatoshi) : zats(zatoshi)
+    }
+
+    /// Number plus unit, e.g. "0.001 ZEC" or "100,000 zats".
+    static func text(_ zatoshi: Int64, _ unit: Unit) -> String {
+        number(zatoshi, unit) + " " + unit.rawValue
+    }
+
     /// "1,234.567", or "<0.001" for a tiny non-zero amount.
     static func zec(_ zatoshi: Int64) -> String {
         let sign = zatoshi < 0 ? "-" : ""

@@ -37,7 +37,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in covered = true }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in covered = false }
-        .frame(minWidth: 620, minHeight: 560)
+        .frame(minWidth: 640, minHeight: 700)
         .font(Theme.text(14))
         .preferredColorScheme(.dark)
         .onAppear { model.launch() }

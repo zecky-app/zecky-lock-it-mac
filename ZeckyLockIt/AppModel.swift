@@ -19,6 +19,9 @@ final class AppModel: ObservableObject {
     @Published var sheet: Sheet?
     /// The lock on the home screen: asking first, then open while releasing.
     @Published var asking = false
+    /// ZEC or zats, and amounts hidden for bystanders. Remembered.
+    @Published var unit: Amount.Unit = Amount.unit { didSet { Amount.unit = unit } }
+    @Published var amountsHidden: Bool = Amount.hidden { didSet { Amount.hidden = amountsHidden } }
     @Published var lockOpen = false
 
     func askToOpen() { sheet = nil; asking = true }
@@ -99,6 +102,9 @@ final class AppModel: ObservableObject {
         WalletVault.phraseUnconfirmed = false
         AddressBook.clear()
         Server.reset()
+        Amount.resetChoices()
+        unit = .zec
+        amountsHidden = false
         sheet = nil
         asking = false
         lockOpen = false
