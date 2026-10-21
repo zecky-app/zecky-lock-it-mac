@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Send: recipient and amount, then a review of every number before
-/// anything leaves the wallet.
+/// Release Zcash: recipient and amount, then a receipt of every number
+/// before anything leaves the lock.
 struct SendView: View {
     @ObservedObject var engine: WalletEngine
     let phrase: String
@@ -13,136 +13,209 @@ struct SendView: View {
     @State private var to = ""
     @State private var amountText = ""
     @State private var max = false
+    @State private var unit: Amount.Unit = Amount.unit
     @State private var problem: String?
     @State private var working = false
     @State private var waiting = false
+    @State private var closedAgain = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text(title).font(Theme.serif(24, weight: .medium))
-                Spacer()
-                if case .sending = stage {} else { Button("Close", action: onClose).buttonStyle(HeaderButtonStyle()).keyboardShortcut(.cancelAction) }
-            }
+        SheetScaffold(title: title, subtitle: subtitle, closeLabel: "Close", showsClose: !isSending,
+                      height: 520, onClose: onClose) {
             switch stage {
             case .form: form
             case .review(let plan): review(plan)
-            case .sending: VStack { Spacer(); ProgressView("Releasing…"); Spacer() }.frame(maxWidth: .infinity)
+            case .sending:
+                VStack(spacing: 14) {
+                    Spacer()
+                    PadlockView(open: true, size: 90)
+                    ProgressView().controlSize(.small)
+                    Text("Releasing…").font(Theme.text(13)).foregroundStyle(Theme.muted)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
             case .done(let outcome): done(outcome)
             }
         }
-        .padding(28)
-        .frame(width: 540, height: 520)
-        .background(Theme.ink)
-        .foregroundStyle(Theme.text)
         .task { waiting = await engine.hasWaitingPayment() }
     }
+
+    private var isSending: Bool { if case .sending = stage { return true } else { return false } }
 
     private var title: String {
         switch stage {
         case .form: return "Release Zcash"
-        case .review: return "Check before sending"
+        case .review: return "Check before releasing"
         case .sending: return "Releasing"
         case .done(.sent): return "Released"
         case .done(.saved): return "Payment saved"
         }
     }
 
+    private var subtitle: String {
+        switch stage {
+        case .form: return "Taken out of the lock. Everything else stays locked."
+        case .review: return "Nothing has left the lock yet."
+        case .sending: return "Signing on this Mac and handing it to the network."
+        case .done(.sent): return "The lock closes again."
+        case .done(.saved): return "Made, but not delivered yet."
+        }
+    }
+
+    // MARK: Form
+
     private var form: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("To").font(.system(size: 13, weight: .semibold))
-            TextField("Zcash address", text: $to)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 13, design: .monospaced))
-                .autocorrectionDisabled()
-            Text("Amount").font(.system(size: 13, weight: .semibold))
-            HStack {
-                TextField("0.000", text: $amountText)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 180)
-                    .disabled(max)
-                Text("ZEC").foregroundStyle(Theme.muted)
-                Toggle("Max", isOn: $max).toggleStyle(.button)
-                Spacer()
+            VStack(alignment: .leading, spacing: 8) {
+                fieldLabel("TO")
+                TextField("", text: $to, prompt: Text("Zcash address").foregroundColor(Theme.muted))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13, design: .monospaced))
+                    .autocorrectionDisabled()
             }
-            Text("In the lock: \(Amount.zec(engine.spendable)) ZEC")
-                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            .card(padding: 14)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    fieldLabel("AMOUNT")
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Chip(title: "ZEC", on: unit == .zec) { switchUnit(.zec) }
+                        Chip(title: "zats", on: unit == .zats) { switchUnit(.zats) }
+                        Chip(title: "Max", on: max) { max.toggle() }
+                    }
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if max {
+                        Text(Amount.number(Swift.max(0, engine.spendable), unit))
+                            .font(Theme.serif(30, weight: .medium)).foregroundStyle(Theme.muted)
+                        Text("minus the fee").font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    } else {
+                        TextField("", text: $amountText, prompt: Text(unit == .zec ? "0.000" : "0").foregroundColor(Theme.muted.opacity(0.6)))
+                            .textFieldStyle(.plain)
+                            .font(Theme.serif(30, weight: .medium))
+                    }
+                    Spacer()
+                    Text(unit.rawValue).font(Theme.text(14, weight: .medium)).foregroundStyle(Theme.muted)
+                }
+                Rectangle().fill(Theme.line).frame(height: 1)
+                Text("In the lock: \(Amount.text(engine.spendable, unit))")
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+            }
+            .card(padding: 14)
+
             if waiting {
-                Text("A payment you made is still on its way. Wait for it to arrive before sending it again.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.gold)
+                note("A payment you made is still on its way. Wait for it to arrive before releasing it again.", Theme.gold)
             }
             if engine.status != .upToDate {
-                Text("Wait until the wallet is up to date. Nothing is created until then.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.gold)
+                note("Wait until the wallet is up to date. Nothing is created until then.", Theme.gold)
             }
-            if let problem { Text(problem).foregroundStyle(Theme.red) }
-            Spacer()
+            if let problem { note(problem, Theme.red) }
+
+            Spacer(minLength: 0)
             HStack {
                 Spacer()
-                PrimaryButton(title: working ? "Checking…" : "Review",
+                PrimaryButton(title: working ? "Checking…" : "Check",
                               enabled: !working && engine.status == .upToDate && !to.isEmpty && (max || !amountText.isEmpty)) {
                     Task { await makePlan() }
                 }
                 .frame(width: 180)
+                .keyboardShortcut(.defaultAction)
             }
         }
     }
+
+    // MARK: Receipt
 
     private func review(_ plan: WalletEngine.SendPlan) -> some View {
         let total = plan.amount + plan.fee
-        let left = engine.spendable - total
-        return VStack(alignment: .leading, spacing: 12) {
-            row("To", plan.toSelf ? "Yourself" : short(plan.to), mono: !plan.toSelf)
-            row("Amount", "\(Amount.zec(plan.amount)) ZEC")
-            row("Fee", "\(Amount.zec(plan.fee)) ZEC")
-            Divider()
-            row("Total", "\(Amount.zec(total)) ZEC", strong: true)
-            row("Left after this", "\(Amount.zec(Swift.max(0, left))) ZEC")
-            if plan.toSelf {
-                Text("This is one of your own addresses: only the fee leaves your balance.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+        let left = Swift.max(0, engine.spendable - total)
+        return VStack(alignment: .leading, spacing: 14) {
+            VStack(spacing: 0) {
+                receiptRow("To", plan.toSelf ? "Yourself" : short(plan.to), mono: !plan.toSelf)
+                receiptRow("Amount", Amount.text(plan.amount, unit))
+                receiptRow("Network fee", Amount.text(plan.fee, unit))
+                Rectangle().fill(Theme.line).frame(height: 1).padding(.vertical, 8)
+                receiptRow("Total released", Amount.text(total, unit), strong: true)
+                receiptRow("Stays locked", Amount.text(left, unit), accent: true)
             }
-            Spacer()
+            .card(padding: 18)
+            if plan.toSelf {
+                note("This is one of your own addresses: only the network fee leaves the lock.", Theme.muted)
+            }
+            Spacer(minLength: 0)
             HStack {
                 SecondaryButton(title: "Change") { stage = .form }.frame(width: 140)
                 Spacer()
-                PrimaryButton(title: "Release \(Amount.zec(plan.amount)) ZEC") { Task { await send(plan) } }.frame(width: 220)
+                PrimaryButton(title: "Release \(Amount.text(plan.amount, unit))") { Task { await send(plan) } }
+                    .frame(width: 240)
             }
         }
     }
+
+    private func receiptRow(_ label: String, _ value: String, mono: Bool = false, strong: Bool = false, accent: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label).font(Theme.text(13)).foregroundStyle(Theme.muted)
+            DottedLeader()
+            Text(value)
+                .font(mono ? .system(size: 12.5, design: .monospaced) : Theme.text(14, weight: strong ? .semibold : .regular))
+                .foregroundStyle(accent ? Theme.gold : Theme.text)
+                .textSelection(.enabled)
+        }
+        .padding(.vertical, 6)
+    }
+
+    // MARK: Done
 
     private func done(_ outcome: WalletEngine.SendOutcome) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(spacing: 16) {
+            Spacer()
+            PadlockView(open: !closedAgain, size: 110)
+                .animation(.spring(response: 0.55, dampingFraction: 0.62), value: closedAgain)
+                .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { closedAgain = true } }
             switch outcome {
             case .sent:
-                Text("Released. It shows as confirmed once it is in a block. The rest stays locked, and the lock closes again.")
-                    .foregroundStyle(Theme.muted)
+                Text("It shows as confirmed once it is in a block. The rest stays locked.")
+                    .font(Theme.text(14)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
             case .saved:
                 Text("The payment was made but could not be delivered yet. Zecky keeps trying until it is in a block or expires (about 40 blocks). Do not send it again.")
-                    .foregroundStyle(Theme.gold)
+                    .font(Theme.text(14)).foregroundStyle(Theme.gold).multilineTextAlignment(.center)
             }
             Spacer()
-            HStack { Spacer(); PrimaryButton(title: "Done", action: onClose).frame(width: 160) }
+            PrimaryButton(title: "Done", action: onClose).frame(width: 180)
+                .keyboardShortcut(.defaultAction)
         }
+        .frame(maxWidth: .infinity)
     }
 
-    private func row(_ label: String, _ value: String, mono: Bool = false, strong: Bool = false) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label).foregroundStyle(Theme.muted).frame(width: 130, alignment: .leading)
-            Text(value)
-                .font(mono ? .system(size: 13, design: .monospaced) : .system(size: 14, weight: strong ? .semibold : .regular))
-                .textSelection(.enabled)
-            Spacer()
-        }
+    // MARK: Helpers
+
+    private func fieldLabel(_ text: String) -> some View {
+        Text(text).font(Theme.text(11, weight: .semibold)).tracking(1.4).foregroundStyle(Theme.muted)
+    }
+
+    private func note(_ text: String, _ color: Color) -> some View {
+        Text(text).font(Theme.text(12)).foregroundStyle(color).fixedSize(horizontal: false, vertical: true)
     }
 
     private func short(_ a: String) -> String {
-        a.count > 40 ? String(a.prefix(20)) + "…" + String(a.suffix(20)) : a
+        a.count > 40 ? String(a.prefix(18)) + "…" + String(a.suffix(18)) : a
     }
 
-    /// "1.25" → 125,000,000 zatoshi. US style; at most 8 decimals.
+    /// Keeps the typed amount when switching units.
+    private func switchUnit(_ next: Amount.Unit) {
+        guard next != unit else { return }
+        if let z = zatoshi(amountText) { amountText = next == .zec ? Amount.zec(z).replacingOccurrences(of: ",", with: "") : String(z) }
+        unit = next
+    }
+
+    /// "1.25" ZEC → 125,000,000; "1,500" zats → 1,500. US style.
     private func zatoshi(_ text: String) -> Int64? {
         let cleaned = text.replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces)
+        if unit == .zats {
+            guard let v = Int64(cleaned), v > 0 else { return nil }
+            return v
+        }
         guard let value = Decimal(string: cleaned, locale: Locale(identifier: "en_US")), value > 0 else { return nil }
         var scaled = value * 100_000_000
         var rounded = Decimal()
@@ -157,7 +230,10 @@ struct SendView: View {
         defer { working = false }
         var amount: Int64?
         if !max {
-            guard let parsed = zatoshi(amountText) else { problem = "Enter the amount as a number, like 0.5 (at most 8 decimals)."; return }
+            guard let parsed = zatoshi(amountText) else {
+                problem = unit == .zec ? "Enter the amount as a number, like 0.5 (at most 8 decimals)." : "Enter a whole number of zats."
+                return
+            }
             amount = parsed
         }
         do { stage = .review(try await engine.plan(to: to, amount: amount)) }
@@ -168,5 +244,44 @@ struct SendView: View {
         stage = .sending
         do { stage = .done(try await engine.send(plan, phrase: phrase)) }
         catch { problem = String(describing: error); stage = .form }
+    }
+}
+
+/// A small rounded toggle in Zecky's gold.
+struct Chip: View {
+    let title: String
+    let on: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(Theme.text(12, weight: .medium))
+                .padding(.horizontal, 10).frame(height: 24)
+                .foregroundStyle(on ? Theme.onGold : Theme.text)
+                .background(on ? Theme.gold : Color.clear, in: Capsule())
+                .overlay(Capsule().stroke(on ? Color.clear : Theme.line))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// The dotted line between a label and its value on a receipt.
+struct DottedLeader: View {
+    var body: some View {
+        Line()
+            .stroke(Theme.muted.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [1, 4]))
+            .frame(height: 1)
+            .offset(y: -3)
+    }
+
+    private struct Line: Shape {
+        func path(in rect: CGRect) -> Path {
+            var p = Path()
+            p.move(to: CGPoint(x: 0, y: rect.midY))
+            p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            return p
+        }
     }
 }

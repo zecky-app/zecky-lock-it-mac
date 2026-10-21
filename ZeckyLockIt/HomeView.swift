@@ -290,9 +290,28 @@ struct OpenLockPrompt: View {
         ZStack {
             Theme.scrim.ignoresSafeArea()
                 .onTapGesture {}
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(spacing: 18) {
+                // A small lock inside a gold ring that fills while you wait.
+                ZStack {
+                    Circle().stroke(Theme.gold.opacity(0.15), lineWidth: 3)
+                    Circle()
+                        .trim(from: 0, to: Double(10 - countdown) / 10)
+                        .stroke(Theme.gold, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .animation(.linear(duration: 1), value: countdown)
+                    PadlockView(open: false, size: 62)
+                    if countdown > 0 {
+                        Text("\(countdown)")
+                            .font(Theme.text(11, weight: .semibold)).foregroundStyle(Theme.gold)
+                            .offset(y: 58)
+                    }
+                }
+                .frame(width: 104, height: 104)
+                .padding(.bottom, 4)
+
                 Text("Really open the lock?").font(Theme.serif(32, weight: .medium))
                 Text(intro).font(Theme.text(14)).foregroundStyle(Theme.muted)
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                 Toggle(isOn: $agreed) {
                     Text("I am opening it myself, and nobody is telling me to.").font(Theme.text(14))
@@ -300,8 +319,8 @@ struct OpenLockPrompt: View {
                 .toggleStyle(.checkbox)
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.ink)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .background(Theme.ink, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(agreed ? Theme.gold.opacity(0.6) : Theme.line))
                 HStack(spacing: 12) {
                     PrimaryButton(title: "Keep it locked", action: onKeep)
                         .keyboardShortcut(.cancelAction)
@@ -310,13 +329,13 @@ struct OpenLockPrompt: View {
                     }
                     .opacity(agreed && countdown == 0 ? 1 : 0.45)
                 }
-                .padding(.top, 4)
+                .padding(.top, 2)
             }
-            .padding(.horizontal, 38).padding(.vertical, 34)
-            .frame(width: 470)
-            .background(Theme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.06)))
+            .padding(.horizontal, 40).padding(.top, 30).padding(.bottom, 32)
+            .frame(width: 480)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.gold.opacity(0.25), lineWidth: 1))
+            .shadow(color: .black.opacity(0.35), radius: 30, y: 12)
         }
         .onReceive(timer) { _ in if countdown > 0 { countdown -= 1 } }
     }
