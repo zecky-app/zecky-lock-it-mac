@@ -281,6 +281,7 @@ enum WalletVault {
         try? KeyStore.delete(service: stagingService)
         var updated = info
         updated.hasCode = new != nil
+        LockLog.add(.code, new == nil ? "Code removed" : (info.hasCode == true ? "Code changed" : "Code put on the lock"))
         try KeyStore.save(try JSONEncoder().encode(updated), service: infoService)
         resetTries()
     }

@@ -15,7 +15,23 @@ enum Server {
     ]
     static var host: String { UserDefaults.standard.string(forKey: "server.host") ?? defaultHost }
     static var port: Int { let p = UserDefaults.standard.integer(forKey: "server.port"); return p == 0 ? 443 : p }
-    static var endpoint: LightWalletEndpoint { LightWalletEndpoint(address: host, port: port, secure: true) }
+    /// Public servers over TLS. Your own node (Rock it) on a private address
+    /// (home network, this Mac, or Tailscale) without it: at home the traffic
+    /// stays inside your network, and Tailscale encrypts it on the way.
+    static var endpoint: LightWalletEndpoint { LightWalletEndpoint(address: host, port: port, secure: !isHomeNode(host)) }
+
+    /// 10/8, 172.16/12, 192.168/16, 127/8 or Tailscale's 100.64/10. Same
+    /// ranges as the iPhone app.
+    static func isHomeNode(_ host: String) -> Bool {
+        let parts = host.split(separator: ".")
+        guard parts.count == 4 else { return false }
+        let n = parts.compactMap { Int($0) }
+        guard n.count == 4, n.allSatisfy({ (0...255).contains($0) }) else { return false }
+        return n[0] == 10 || n[0] == 127 || (n[0] == 192 && n[1] == 168)
+            || (n[0] == 172 && (16...31).contains(n[1])) || (n[0] == 100 && (64...127).contains(n[1]))
+    }
+
+    static var isRockIt: Bool { isHomeNode(host) }
 
     static func set(host: String, port: Int) {
         UserDefaults.standard.set(host, forKey: "server.host")

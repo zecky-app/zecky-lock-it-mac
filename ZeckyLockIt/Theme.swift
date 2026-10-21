@@ -157,3 +157,51 @@ struct HiddenFromCapture: ViewModifier {
 extension View {
     func hiddenFromCapture() -> some View { modifier(HiddenFromCapture()) }
 }
+
+/// The main action on the home screen, in the padlock's brass: engraved
+/// text, a polished top edge, and a soft gold glow that grows on hover.
+struct BrassButton: View {
+    let title: String
+    var icon = "lock.fill"
+    let action: () -> Void
+    @State private var hover = false
+    @Environment(\.isEnabled) private var enabled
+
+    private static func c(_ hex: Int) -> Color {
+        Color(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon).font(.system(size: 14, weight: .bold))
+                Text(title).font(Theme.text(15, weight: .semibold)).tracking(0.3)
+            }
+            .foregroundStyle(Self.c(0x3A2A0C))
+            .shadow(color: Self.c(0xFFF3D1).opacity(0.6), radius: 0, y: 1)
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(LinearGradient(stops: [
+                            .init(color: Self.c(0xF6E2B0), location: 0),
+                            .init(color: Self.c(0xD9AE5F), location: 0.48),
+                            .init(color: Self.c(0xB88A3E), location: 0.52),
+                            .init(color: Self.c(0x9C7330), location: 1),
+                        ], startPoint: .top, endPoint: .bottom))
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(LinearGradient(colors: [.white.opacity(hover ? 0.22 : 0.12), .clear], startPoint: .leading, endPoint: .trailing))
+                }
+            )
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Self.c(0x5E4519).opacity(0.8), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).inset(by: 1.5).stroke(Self.c(0xFFF3D1).opacity(0.45), lineWidth: 1))
+            .shadow(color: Self.c(0xD4A657).opacity(hover ? 0.45 : 0.22), radius: hover ? 18 : 10, y: 5)
+            .scaleEffect(hover ? 1.015 : 1)
+            .opacity(enabled ? 1 : 0.5)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { h in withAnimation(.easeOut(duration: 0.18)) { hover = h } }
+    }
+}

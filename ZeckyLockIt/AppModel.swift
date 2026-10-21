@@ -40,15 +40,39 @@ final class AppModel: ObservableObject {
     /// soon as the release is signed, the sheet closes, or the app locks.
     private(set) var opened: StoredWallet?
 
-    func askToOpen() { sheet = nil; openNote = nil; asking = true }
-    func keepLocked() { asking = false; askingCode = false }
+    /// The time lock prompt: ask ahead, or see how long is left.
+    @Published var timeLockShown = false
+    /// Bumped when the time lock changes, so the home screen redraws.
+    @Published var timeLockChanged = 0
+
+    func askToOpen() {
+        sheet = nil
+        openNote = nil
+        switch TimeLock.phase {
+        case .off, .ready: asking = true
+        case .notAsked, .waiting: timeLockShown = true
+        }
+    }
+    func keepLocked() { asking = false; askingCode = false; timeLockShown = false; breakingGlass = false }
+    func startTimeLockWait() { TimeLock.askToOpen(); timeLockShown = false; timeLockChanged += 1 }
+    func cancelTimeLockRequest() { TimeLock.cancelRequest(); timeLockShown = false; timeLockChanged += 1 }
+
+    /// Break the glass: straight to the code and Touch ID, past the time
+    /// lock. Recorded only once the lock really opens.
+    private var breakingGlass = false
+    func breakGlass() {
+        timeLockShown = false
+        breakingGlass = true
+        countdownDone()
+    }
+    func seenBrokenGlass() { TimeLock.seenBroken(); timeLockChanged += 1 }
 
     /// The countdown is done: the code, then Touch ID, then the lock opens.
     func countdownDone() {
         asking = false
         if WalletVault.needsSecret { askingCode = true; return }
         Task { @MainActor in
-            if let message = await unsealToOpen(code: nil) { openNote = message } else { openLock() }
+            if let message = await unsealToOpen(code: nil) { openNote = message; breakingGlass = false } else { openLock() }
         }
     }
 
@@ -66,6 +90,7 @@ final class AppModel: ObservableObject {
 
     func openLock() {
         askingCode = false
+        if breakingGlass { TimeLock.recordBroken(); breakingGlass = false; timeLockChanged += 1 }
         lockOpen = true
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 650_000_000)
@@ -93,6 +118,7 @@ final class AppModel: ObservableObject {
         sheet = nil
         opened = nil
         askingCode = false
+        timeLockShown = false
         asking = false
         lockOpen = false
         locked = true
@@ -226,6 +252,8 @@ final class AppModel: ObservableObject {
     func erase() async throws {
         try await engine.erase()
         try WalletVault.eraseAll()
+        TimeLock.erase()
+        LockLog.erase()
         AddressBook.clear()
         Server.reset()
         Amount.resetChoices()

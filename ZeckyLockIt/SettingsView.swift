@@ -14,6 +14,8 @@ struct SettingsView: View {
     @State private var codeStep: CodeStep?
     @State private var pendingPhrase: StoredWallet?
     @State private var codeNote: String?
+    @State private var timeLockHours = TimeLock.hours
+    @State private var confirmTimeLock: Int?
     @State private var problem: String?
     @State private var confirmErase = false
     @State private var erasing = false
@@ -41,6 +43,19 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
             revealed = nil
         }
+        .alert(timeLockQuestion, isPresented: Binding(get: { confirmTimeLock != nil }, set: { if !$0 { confirmTimeLock = nil } })) {
+            Button("Cancel", role: .cancel) { confirmTimeLock = nil }
+            Button(timeLockAction) {
+                if let hours = confirmTimeLock {
+                    TimeLock.choose(hours)
+                    timeLockHours = TimeLock.hours
+                    model.timeLockChanged += 1
+                }
+                confirmTimeLock = nil
+            }
+        } message: {
+            Text(timeLockMessage)
+        }
         .alert("Erase this wallet from this Mac?", isPresented: $confirmErase) {
             Button("Cancel", role: .cancel) {}
             Button("Erase", role: .destructive) { Task { await erase() } }
@@ -51,9 +66,11 @@ struct SettingsView: View {
 
     private var settings: some View {
         VStack(alignment: .leading, spacing: 12) {
-            card("Security", icon: "key.fill") {
-                HStack {
+            section("Security", "How the lock opens, and what keeps it shut.")
+            card("Recovery phrase", icon: "key.fill") {
+                HStack(alignment: .center, spacing: 14) {
                     Text(sealNote).font(Theme.text(12)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     SecondaryButton(title: "Show recovery phrase") { Task { await showPhrase() } }.frame(width: 200)
                 }
@@ -81,6 +98,39 @@ struct SettingsView: View {
                 }
             }
 
+            card("Time lock", icon: "clock") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Opening the lock has to be asked for this long ahead. Turning it off or shorter waits as long as the current time lock, so nobody can rush you into it. It does not stop someone who has your 24 words.")
+                        .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 6) {
+                        ForEach(TimeLock.choices, id: \.self) { hours in
+                            Chip(title: TimeLock.label(hours), on: timeLockHours == hours) {
+                                if hours != timeLockHours { confirmTimeLock = hours }
+                            }
+                        }
+                    }
+                    if let broken = TimeLock.lastBroken {
+                        Label("Glass last broken on \(TimeLock.when(broken))", systemImage: "hammer")
+                            .font(Theme.text(12)).foregroundStyle(Theme.red)
+                    }
+                    if let pending = TimeLock.pendingHours, let from = TimeLock.pendingFrom {
+                        let _ = model.timeLockChanged
+                        HStack {
+                            Text("Becomes \(TimeLock.label(pending).lowercased()) on \(TimeLock.when(from)).")
+                                .font(Theme.text(12)).foregroundStyle(Theme.gold)
+                            Spacer()
+                            Button("Keep \(TimeLock.label(timeLockHours).lowercased())") {
+                                TimeLock.cancelChange()
+                                model.timeLockChanged += 1
+                            }
+                            .buttonStyle(.plain).font(Theme.text(12)).foregroundStyle(Theme.muted).underline()
+                        }
+                    }
+                }
+            }
+
+            section("Display", "How Lock it looks on this Mac.")
             card("Appearance", icon: "circle.lefthalf.filled") {
                 HStack(spacing: 6) {
                     ForEach(Theme.Mode.allCases) { mode in
@@ -100,13 +150,14 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            section("Network", "Where Lock it gets the Zcash chain from.")
             card("Server", icon: "server.rack") {
                 FlowChips(items: Server.presets.indices.map { ($0, Server.presets[$0].label) } + [(-1, "Your own")],
                           selected: serverChoice) { serverChoice = $0 }
-                Text(serverChoice >= 0 ? Server.presets[serverChoice].host + ":443" : "Your own server, with TLS")
+                Text(serverChoice >= 0 ? Server.presets[serverChoice].host + ":443" : "Your own node (Rock it) or server: host:port")
                     .font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.muted)
                 if serverChoice == -1 {
-                    TextField("", text: $customServer, prompt: Text("host:port").foregroundColor(Theme.muted))
+                    TextField("", text: $customServer, prompt: Text("192.168.1.20:9067 or a Tailscale 100.x address").foregroundColor(Theme.muted))
                         .textFieldStyle(.plain)
                         .font(.system(size: 13, design: .monospaced))
                         .autocorrectionDisabled()
@@ -118,10 +169,14 @@ struct SettingsView: View {
                     SecondaryButton(title: "Use this server") { Task { await applyServer() } }.frame(width: 170)
                     if let serverNote { Text(serverNote).font(Theme.text(12)).foregroundStyle(Theme.muted) }
                 }
-                Text("Encrypted (TLS). The server sees this Mac's internet address, never your phrase or balance.")
+                Text(Server.isRockIt
+                     ? "Rock it, your own node. On a home address there is no TLS layer: the traffic stays in your home network, and Tailscale encrypts it on the way."
+                     : "Encrypted (TLS). The server sees this Mac's internet address, never your phrase or balance. Your own node on a home or Tailscale address is used as Rock it.")
                     .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
+            section("About", nil)
             card("About", icon: "info.circle") {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("ZECKY").font(Theme.text(12, weight: .semibold)).tracking(4).foregroundStyle(Theme.gold)
@@ -131,6 +186,7 @@ struct SettingsView: View {
                     .font(Theme.text(12)).foregroundStyle(Theme.muted)
             }
 
+            section("Erase", nil)
             // Erase, in its own card with a red edge.
             VStack(alignment: .leading, spacing: 10) {
                 Label("Erase wallet", systemImage: "trash").font(Theme.text(13, weight: .semibold)).foregroundStyle(Theme.red)
@@ -157,6 +213,15 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// A quiet header above a group of cards.
+    private func section(_ title: String, _ subtitle: String?) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title.uppercased()).font(Theme.text(11, weight: .semibold)).tracking(2).foregroundStyle(Theme.gold)
+            if let subtitle { Text(subtitle).font(Theme.text(12)).foregroundStyle(Theme.muted) }
+        }
+        .padding(.top, 14).padding(.leading, 4)
+    }
+
     private func card<Content: View>(_ title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(title, systemImage: icon)
@@ -166,6 +231,25 @@ struct SettingsView: View {
             content()
         }
         .card(padding: 16)
+    }
+
+    private var timeLockQuestion: String {
+        guard let hours = confirmTimeLock else { return "" }
+        if hours == 0 { return "Turn the time lock off?" }
+        return hours > timeLockHours ? "Set a \(TimeLock.label(hours).lowercased()) time lock?" : "Shorten the time lock to \(TimeLock.label(hours).lowercased())?"
+    }
+
+    private var timeLockAction: String {
+        guard let hours = confirmTimeLock else { return "OK" }
+        return hours == 0 ? "Turn off" : (hours > timeLockHours ? "Set time lock" : "Shorten")
+    }
+
+    private var timeLockMessage: String {
+        guard let hours = confirmTimeLock else { return "" }
+        if hours > timeLockHours {
+            return "From now on, opening the lock has to be asked \(TimeLock.label(hours).lowercased()) ahead. Turning it off or shorter later also takes \(TimeLock.label(hours).lowercased()). In an emergency you can break the glass."
+        }
+        return "This takes effect on \(TimeLock.when(TimeLock.shorterFrom())), after the current \(TimeLock.label(timeLockHours).lowercased()). Until then the time lock stays as it is."
     }
 
     private var sheetTitle: String {
