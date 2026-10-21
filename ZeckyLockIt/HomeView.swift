@@ -6,6 +6,7 @@ import SwiftUI
 struct HomeView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var engine: WalletEngine
+    @ObservedObject var prices: PriceFeed
     let wallet: StoredWallet
 
     @State private var tilt: CGSize = .zero
@@ -35,9 +36,15 @@ struct HomeView: View {
                     }
 
                     VStack(spacing: 8) {
-                        PadlockView(open: model.lockOpen, size: 236, tilt: tilt)
-                            .animation(.spring(response: 0.55, dampingFraction: 0.62), value: model.lockOpen)
-                            .animation(.easeOut(duration: 0.35), value: tilt)
+                        Button { if !model.lockOpen && engine.status != .connecting { model.askToOpen() } } label: {
+                            PadlockView(open: model.lockOpen, size: 236, tilt: tilt)
+                                .animation(.spring(response: 0.55, dampingFraction: 0.62), value: model.lockOpen)
+                                .animation(.easeOut(duration: 0.35), value: tilt)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open the lock")
+                        .accessibilityHint("Asks whether you really want to open the lock")
 
                         Text(model.lockOpen ? "OPEN" : "LOCKED")
                             .font(Theme.text(11, weight: .semibold)).tracking(1.6)
@@ -53,6 +60,11 @@ struct HomeView: View {
                                     Text(balanceText).font(Theme.serif(balanceSize, weight: .medium))
                                         .lineLimit(1).minimumScaleFactor(0.5)
                                     Text(model.unit.rawValue).font(Theme.text(15, weight: .medium)).foregroundStyle(Theme.muted)
+                                }
+                                if let value = prices.value(of: engine.total) {
+                                    Text(model.amountsHidden ? "≈ ••••" : value)
+                                        .font(Theme.text(15, weight: .medium)).foregroundStyle(Theme.text.opacity(0.75))
+                                        .padding(.bottom, 2)
                                 }
                                 if !model.amountsHidden {
                                     Text("Click to show in \(model.unit == .zec ? "zats" : "ZEC")")
@@ -128,7 +140,7 @@ struct HomeView: View {
             switch sheet {
             case .receive: ReceiveView(engine: engine) { model.sheet = nil }
             case .send: SendView(engine: engine, phrase: wallet.phrase) { model.sheet = nil }
-            case .settings: SettingsView(model: model, wallet: wallet) { model.sheet = nil }
+            case .settings: SettingsView(model: model, prices: prices, wallet: wallet) { model.sheet = nil }
             case .activity: ActivitySheet(model: model, engine: engine) { model.sheet = nil }
             }
         }

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var prices: PriceFeed
     let wallet: StoredWallet
     let onClose: () -> Void
 
@@ -76,6 +77,17 @@ struct SettingsView: View {
                 }
                 Text("Encrypted (TLS). The server sees this Mac's internet address, never your phrase or balance.")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            }
+
+            section("Value") {
+                Picker("", selection: $prices.currency) {
+                    ForEach(PriceFeed.Currency.allCases) { Text($0.label).tag($0) }
+                }
+                .labelsHidden()
+                .frame(width: 320)
+                Text("Shows what your Zcash is worth under the balance. The price comes from CoinGecko every 5 minutes; CoinGecko sees this Mac's internet address, never anything about your wallet.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             section("Erase wallet") {

@@ -18,7 +18,7 @@ struct ContentView: View {
                                 onBack: { model.screen = .backup(wallet) },
                                 onDone: { model.confirmed(wallet) })
                 case .restore: RestoreView(model: model)
-                case .home(let wallet): HomeView(model: model, engine: model.engine, wallet: wallet)
+                case .home(let wallet): HomeView(model: model, engine: model.engine, prices: model.prices, wallet: wallet)
                 case .problem(let text):
                     Text(text).foregroundStyle(Theme.red).padding(40)
                 }

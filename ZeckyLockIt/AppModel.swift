@@ -40,6 +40,7 @@ final class AppModel: ObservableObject {
     @Published var busy = false
     @Published var message: String?
     let engine = WalletEngine()
+    let prices = PriceFeed()
 
     func launch() {
         do {
@@ -103,6 +104,7 @@ final class AppModel: ObservableObject {
         AddressBook.clear()
         Server.reset()
         Amount.resetChoices()
+        prices.reset()
         unit = .zec
         amountsHidden = false
         sheet = nil
