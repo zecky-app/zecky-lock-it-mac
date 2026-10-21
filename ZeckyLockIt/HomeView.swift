@@ -53,6 +53,16 @@ struct HomeView: View {
                         .buttonStyle(.plain)
                         .help(model.amountsHidden ? "Show amounts" : "Hide amounts")
                         .accessibilityLabel(model.amountsHidden ? "Show amounts" : "Hide amounts")
+                        Button { model.lockNow() } label: {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Theme.gold)
+                                .frame(width: 32, height: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Lock Zecky Lock it now (⇧⌘L)")
+                        .accessibilityLabel("Lock Zecky Lock it now")
                       }
                       .padding(.trailing, 14).padding(.top, 10)
                     }
