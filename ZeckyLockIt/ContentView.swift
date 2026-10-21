@@ -18,7 +18,8 @@ struct ContentView: View {
                                 onBack: { model.screen = .backup(wallet) },
                                 onDone: { model.confirmed(wallet) })
                 case .restore: RestoreView(model: model)
-                case .home(let wallet): HomeView(model: model, engine: model.engine, prices: model.prices, wallet: wallet)
+                case .home: HomeView(model: model, engine: model.engine, prices: model.prices)
+                case .unseal(let purpose): UnsealView(model: model, purpose: purpose)
                 case .problem(let text):
                     Text(text).foregroundStyle(Theme.red).padding(40)
                 }
@@ -40,5 +41,50 @@ struct ContentView: View {
         .frame(minWidth: 680, minHeight: 760)
         .font(Theme.text(14))
         .onAppear { model.launch() }
+    }
+}
+
+/// The phrase is sealed and the next step needs it.
+struct UnsealView: View {
+    @ObservedObject var model: AppModel
+    let purpose: AppModel.Unseal
+
+    private var title: String {
+        switch purpose {
+        case .sealOlder: return "Seal your recovery phrase"
+        case .finishBackup: return "Finish your backup"
+        case .finishStart: return "Finish opening your wallet"
+        }
+    }
+
+    private var text: String {
+        switch purpose {
+        case .sealOlder:
+            return "Your recovery phrase is about to be sealed inside this Mac. From now on it only opens with Touch ID or your Mac password, and only for releasing or showing the words."
+        case .finishBackup:
+            return "Your 24 words are sealed. Open them to write them down and finish the backup."
+        case .finishStart:
+            return "The wallet needs your sealed phrase once to finish setting up. It is let go again straight after."
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 22) {
+            PadlockView(open: false, size: 130)
+            Text(title).font(Theme.serif(32, weight: .medium))
+            Text(text)
+                .font(Theme.text(14)).foregroundStyle(Theme.muted)
+                .multilineTextAlignment(.center).frame(maxWidth: 440)
+            if let message = model.message {
+                Text(message).font(Theme.text(13)).foregroundStyle(Theme.red)
+                    .multilineTextAlignment(.center).frame(maxWidth: 440)
+            }
+            PrimaryButton(title: model.busy ? "Waiting…" : "Continue", enabled: !model.busy) {
+                Task { await model.unseal(purpose) }
+            }
+            .frame(width: 220)
+            .keyboardShortcut(.defaultAction)
+        }
+        .padding(40)
     }
 }

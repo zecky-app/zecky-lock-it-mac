@@ -4,10 +4,11 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var prices: PriceFeed
-    let wallet: StoredWallet
     let onClose: () -> Void
 
-    @State private var showingPhrase = false
+    /// The opened phrase, only while it is on screen.
+    @State private var revealed: StoredWallet?
+    private var showingPhrase: Bool { revealed != nil }
     @State private var problem: String?
     @State private var confirmErase = false
     @State private var erasing = false
@@ -21,9 +22,9 @@ struct SettingsView: View {
                       subtitle: showingPhrase ? "Only for you. Check it against your paper." : "Everything stays on this Mac.",
                       closeLabel: showingPhrase ? "Hide" : "Done",
                       height: 740,
-                      onClose: { if showingPhrase { showingPhrase = false } else { onClose() } }) {
-            if showingPhrase {
-                PhraseView(wallet: wallet)
+                      onClose: { if showingPhrase { revealed = nil } else { onClose() } }) {
+            if let revealed {
+                PhraseView(wallet: revealed)
             } else {
                 ScrollView { settings.padding(.bottom, 4).padding(.trailing, 6) }
                     .scrollIndicators(.visible)
@@ -31,7 +32,7 @@ struct SettingsView: View {
         }
         // The words leave the screen as soon as Zecky is not the app in front.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-            showingPhrase = false
+            revealed = nil
         }
         .alert("Erase this wallet from this Mac?", isPresented: $confirmErase) {
             Button("Cancel", role: .cancel) {}
@@ -45,7 +46,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             card("Security", icon: "key.fill") {
                 HStack {
-                    Text("Asks for Touch ID or your Mac password first.").font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    Text(sealNote).font(Theme.text(12)).foregroundStyle(Theme.muted)
                     Spacer()
                     SecondaryButton(title: "Show recovery phrase") { Task { await showPhrase() } }.frame(width: 200)
                 }
@@ -138,13 +139,22 @@ struct SettingsView: View {
         .card(padding: 16)
     }
 
+    private var sealNote: String {
+        switch WalletVault.kind {
+        case .secureEnclave: return "Sealed in this Mac's Secure Enclave. Opens only with Touch ID or your Mac password."
+        default: return "Kept in this Mac's Keychain. Opens only with Touch ID or your Mac password."
+        }
+    }
+
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
     }
 
     private func showPhrase() async {
         problem = nil
-        if await OwnerCheck.confirm(reason: "show your recovery phrase") { showingPhrase = true }
+        do { revealed = try await WalletVault.unseal(reason: "show your recovery phrase") }
+        catch WalletVault.Failure.cancelled { }
+        catch { problem = String(describing: error) }
     }
 
     private func applyServer() async {

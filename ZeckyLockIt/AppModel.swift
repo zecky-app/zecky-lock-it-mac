@@ -9,9 +9,13 @@ final class AppModel: ObservableObject {
         case backup(StoredWallet)
         case confirm(StoredWallet)
         case restore
-        case home(StoredWallet)
+        case home
+        /// The phrase is sealed and this step needs it: ask first.
+        case unseal(Unseal)
         case problem(String)
     }
+
+    enum Unseal: Equatable { case sealOlder, finishBackup, finishStart }
 
     @Published var screen: Screen = .loading
     /// The sheet over the home screen, also opened from the menu bar.
@@ -45,18 +49,33 @@ final class AppModel: ObservableObject {
     let prices = PriceFeed()
 
     func launch() {
+        switch Mnemonic.words {
+        case .failure(let failure): screen = .problem(failure.description); return
+        case .success: break
+        }
+        guard WalletVault.exists else { screen = .welcome; return }
+        if WalletVault.legacyExists { screen = .unseal(.sealOlder); return }
+        if WalletVault.phraseUnconfirmed { screen = .unseal(.finishBackup); return }
+        openHome()
+    }
+
+    /// Opens the seal for the step that needs the phrase.
+    func unseal(_ purpose: Unseal) async {
+        message = nil
+        busy = true
+        defer { busy = false }
         do {
-            switch Mnemonic.words {
-            case .failure(let failure): screen = .problem(failure.description); return
-            case .success: break
-            }
-            if let wallet = try WalletVault.load() {
-                if WalletVault.phraseUnconfirmed { screen = .backup(wallet) } else { open(wallet) }
-            } else {
-                screen = .welcome
+            switch purpose {
+            case .sealOlder:
+                try await WalletVault.sealOlderWallet()
+                launch()
+            case .finishBackup:
+                screen = .backup(try await WalletVault.unseal(reason: "finish your backup"))
+            case .finishStart:
+                await startEngine(try await WalletVault.unseal(reason: "finish opening your wallet"))
             }
         } catch {
-            screen = .problem("The Keychain could not be read: \(error)")
+            message = String(describing: error)
         }
     }
 
@@ -84,7 +103,7 @@ final class AppModel: ObservableObject {
             let wallet = StoredWallet(phrase: Mnemonic.normalize(phrase), birthday: birthday)
             try WalletVault.save(wallet)
             WalletVault.phraseUnconfirmed = false
-            open(wallet)
+            openHome(with: wallet)
         } catch let failure as Mnemonic.Failure {
             message = failure.description
         } catch {
@@ -94,15 +113,14 @@ final class AppModel: ObservableObject {
 
     func confirmed(_ wallet: StoredWallet) {
         WalletVault.phraseUnconfirmed = false
-        open(wallet)
+        openHome(with: wallet)
     }
 
     /// Erase wallet: the engine's data, the phrase and every other Keychain
     /// item, and every setting. Back to the welcome screen.
     func erase() async throws {
         try await engine.erase()
-        try KeyStore.delete(service: KeyStore.phraseService)
-        WalletVault.phraseUnconfirmed = false
+        try WalletVault.eraseAll()
         AddressBook.clear()
         Server.reset()
         Amount.resetChoices()
@@ -116,8 +134,26 @@ final class AppModel: ObservableObject {
         screen = .welcome
     }
 
-    func open(_ wallet: StoredWallet) {
-        screen = .home(wallet)
-        Task { await engine.start(wallet) }
+    /// The home screen. Normally the wallet starts without the phrase; a
+    /// phrase that is already in memory (just created or restored) is used
+    /// once to create the account and then let go.
+    func openHome(with wallet: StoredWallet? = nil) {
+        screen = .home
+        Task { await startEngine(wallet) }
+    }
+
+    private func startEngine(_ wallet: StoredWallet?) async {
+        guard let birthday = wallet?.birthday ?? WalletVault.birthday else {
+            screen = .problem("The wallet's birthday could not be read. Restore with your 24 words.")
+            return
+        }
+        var seed: [UInt8] = []
+        if let wallet { seed = (try? Mnemonic.seed(from: wallet.phrase)) ?? [] }
+        defer { Wipe.bytes(&seed) }
+        if await engine.start(birthday: birthday, seed: seed.isEmpty ? nil : seed) {
+            screen = .home
+        } else {
+            screen = .unseal(.finishStart)
+        }
     }
 }

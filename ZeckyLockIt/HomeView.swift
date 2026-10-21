@@ -7,7 +7,6 @@ struct HomeView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var engine: WalletEngine
     @ObservedObject var prices: PriceFeed
-    let wallet: StoredWallet
 
     @State private var tilt: CGSize = .zero
     @State private var area: CGSize = .zero
@@ -198,8 +197,8 @@ struct HomeView: View {
         .sheet(item: $model.sheet, onDismiss: { model.sheetClosed() }) { sheet in
             switch sheet {
             case .receive: ReceiveView(engine: engine) { model.sheet = nil }
-            case .send: SendView(engine: engine, phrase: wallet.phrase) { model.sheet = nil }
-            case .settings: SettingsView(model: model, prices: prices, wallet: wallet) { model.sheet = nil }
+            case .send: SendView(engine: engine) { model.sheet = nil }
+            case .settings: SettingsView(model: model, prices: prices) { model.sheet = nil }
             case .activity: ActivitySheet(model: model, engine: engine) { model.sheet = nil }
             }
         }

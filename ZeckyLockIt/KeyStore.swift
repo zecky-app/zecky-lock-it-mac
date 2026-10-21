@@ -38,18 +38,33 @@ enum KeyStore {
     }
 
     /// Stores `data`, replacing anything already stored for `service`.
-    static func save(_ data: Data, service: String) throws {
+    /// With `access`, reading it later needs what that access asks for
+    /// (for example Touch ID or the Mac password).
+    static func save(_ data: Data, service: String, access: SecAccessControl? = nil) throws {
         try delete(service: service)
         var item = query(service)
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        if let access {
+            item[kSecAttrAccessControl as String] = access
+        } else {
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        }
         item[kSecValueData as String] = data
         let status = SecItemAdd(item as CFDictionary, nil)
         guard status == errSecSuccess else { throw Failure.keychain(status) }
     }
 
-    /// Returns the stored data, or nil when nothing is stored.
-    static func read(service: String) throws -> Data? {
+    /// Returns the stored data, or nil when nothing is stored. A `context`
+    /// that already confirmed the owner opens a guarded item without asking
+    /// again; without one, a guarded item is never shown a prompt.
+    static func read(service: String, context: LAContext? = nil) throws -> Data? {
         var q = query(service)
+        if let context {
+            q[kSecUseAuthenticationContext as String] = context
+        } else {
+            let silent = LAContext()
+            silent.interactionNotAllowed = true
+            q[kSecUseAuthenticationContext as String] = silent
+        }
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: AnyObject?

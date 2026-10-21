@@ -4,7 +4,6 @@ import SwiftUI
 /// before anything leaves the lock.
 struct SendView: View {
     @ObservedObject var engine: WalletEngine
-    let phrase: String
     let onClose: () -> Void
 
     private enum Stage { case form, review(WalletEngine.SendPlan), sending, done(WalletEngine.SendOutcome) }
@@ -18,7 +17,7 @@ struct SendView: View {
     @State private var working = false
     @State private var waiting = false
     @State private var closedAgain = false
-    @State private var stillLocked = false
+    @State private var lockNote: String?
     @State private var notUpToDate = false
 
     var body: some View {
@@ -152,12 +151,10 @@ struct SendView: View {
             if plan.toSelf {
                 note("This is one of your own addresses: only the network fee leaves the lock.", Theme.muted)
             }
-            if stillLocked {
-                note("Not confirmed, so nothing left the lock.", Theme.muted)
-            }
+            if let lockNote { note(lockNote, Theme.muted) }
             Spacer(minLength: 0)
             HStack {
-                SecondaryButton(title: "Change") { stillLocked = false; stage = .form }.frame(width: 140)
+                SecondaryButton(title: "Change") { lockNote = nil; stage = .form }.frame(width: 140)
                 Spacer()
                 PrimaryButton(title: "Release \(Amount.text(plan.amount, unit))") { Task { await send(plan) } }
                     .frame(width: 240)
@@ -253,17 +250,29 @@ struct SendView: View {
     }
 
     /// Nothing leaves the lock until the owner of this Mac confirms it with
-    /// Touch ID or the Mac password, right before signing.
+    /// Touch ID or the Mac password. That opens the sealed phrase for this
+    /// one payment; the key is made, used, and wiped straight after.
     private func send(_ plan: WalletEngine.SendPlan) async {
-        stillLocked = false
+        lockNote = nil
         let total = Amount.text(plan.amount + plan.fee, .zec)
-        guard await OwnerCheck.confirm(reason: "release \(total) from the lock") else {
-            stillLocked = true
+        let wallet: StoredWallet
+        do {
+            wallet = try await WalletVault.unseal(reason: "release \(total) from the lock")
+        } catch WalletVault.Failure.cancelled {
+            lockNote = "Not confirmed, so nothing left the lock."
+            return
+        } catch {
+            lockNote = "\(error) Nothing left the lock."
             return
         }
         stage = .sending
-        do { stage = .done(try await engine.send(plan, phrase: phrase)) }
-        catch { problem = String(describing: error); stage = .form }
+        do {
+            var seed = try Mnemonic.seed(from: wallet.phrase)
+            defer { Wipe.bytes(&seed) }
+            stage = .done(try await engine.send(plan, seed: seed))
+        } catch {
+            problem = String(describing: error); stage = .form
+        }
     }
 }
 

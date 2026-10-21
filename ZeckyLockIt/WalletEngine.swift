@@ -105,7 +105,11 @@ final class WalletEngine: ObservableObject {
     private var account: AccountUUID?
     private var cancellables = Set<AnyCancellable>()
 
-    func start(_ wallet: StoredWallet) async {
+    /// Starts the wallet. Normally without the phrase: the engine only
+    /// needs it once, to create the account, and for some upgrades. Then
+    /// this returns false and the caller unseals and calls again with it.
+    @discardableResult
+    func start(birthday: Int, seed: [UInt8]? = nil) async -> Bool {
         do {
             // The engine keeps a wallet name taken for the whole app session,
             // so after an erase the same instance is reused for the next wallet.
@@ -122,13 +126,24 @@ final class WalletEngine: ObservableObject {
                     .store(in: &cancellables)
             }
             status = .connecting
-            let seed = try Mnemonic.seed(from: wallet.phrase)
-            _ = try await synchronizer.prepare(with: seed, walletBirthday: wallet.birthday, name: "Zecky", keySource: nil)
-            account = try await synchronizer.listAccounts().first?.id
+            switch try await synchronizer.prepare(with: seed, walletBirthday: birthday, name: "Zecky", keySource: nil) {
+            case .success: break
+            case .seedRequired: return false
+            case .seedNotRelevant:
+                status = .failed("The wallet data on this Mac belongs to other words. Erase and restore with your 24 words.")
+                return true
+            }
+            guard let first = try await synchronizer.listAccounts().first?.id else {
+                if seed == nil { return false }
+                status = .failed("The wallet account could not be created.")
+                return true
+            }
+            account = first
             try await synchronizer.start(retry: false)
         } catch {
             status = .failed(String(describing: error))
         }
+        return true
     }
 
     enum EngineError: Error, CustomStringConvertible {
@@ -226,11 +241,10 @@ final class WalletEngine: ObservableObject {
         throw SendError.notEnough
     }
 
-    /// Signs with a key derived from the phrase for this payment only, and
-    /// hands the result to the server.
-    func send(_ plan: SendPlan, phrase: String) async throws -> SendOutcome {
+    /// Signs with a key derived from the seed for this payment only, and
+    /// hands the result to the server. The caller wipes the seed after.
+    func send(_ plan: SendPlan, seed: [UInt8]) async throws -> SendOutcome {
         guard let synchronizer else { throw EngineError.notReady }
-        let seed = try Mnemonic.seed(from: phrase)
         let key = try DerivationTool(networkType: .mainnet)
             .deriveUnifiedSpendingKey(seed: seed, accountIndex: Zip32AccountIndex(0))
         var outcome: SendOutcome = .sent
