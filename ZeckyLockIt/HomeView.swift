@@ -33,7 +33,7 @@ struct HomeView: View {
                     .padding(.top, 4)
 
                     Text(heldLine).font(Theme.text(14)).foregroundStyle(Theme.muted)
-                    if engine.total > engine.spendable {
+                    if engine.status == .upToDate && engine.total > engine.spendable {
                         Text("\(Amount.zec(engine.total - engine.spendable)) ZEC locks in within a few minutes")
                             .font(Theme.text(13)).foregroundStyle(Theme.muted)
                     }
@@ -76,6 +76,10 @@ struct HomeView: View {
                 .frame(height: 44)
                 .overlay(alignment: .top) { Rectangle().fill(Theme.surface).frame(height: 1) }
             }
+            // While "Really open the lock?" is up, nothing behind it can be
+            // clicked, tabbed to or read out.
+            .disabled(model.asking)
+            .accessibilityHidden(model.asking)
 
             if model.asking {
                 OpenLockPrompt(days: heldDays) { model.openLock() } onKeep: { model.keepLocked() }
@@ -93,9 +97,12 @@ struct HomeView: View {
         }
     }
 
+    /// Calendar days, so a payment from yesterday evening counts as 1 day.
     private var heldDays: Int? {
         guard let since = engine.lockedSince else { return nil }
-        return max(0, Calendar.current.dateComponents([.day], from: since, to: Date()).day ?? 0)
+        let cal = Calendar.current
+        let days = cal.dateComponents([.day], from: cal.startOfDay(for: since), to: cal.startOfDay(for: Date())).day ?? 0
+        return max(0, days)
     }
 
     private var heldLine: String {
@@ -105,13 +112,14 @@ struct HomeView: View {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US")
         f.dateFormat = "MMMM d, yyyy"
+        if days == 0 { return "Locked since today" }
         return "Locked for \(days) \(days == 1 ? "day" : "days") · since \(f.string(from: since))"
     }
 
     private var statusText: String {
         switch engine.status {
         case .connecting: return "Connecting…"
-        case .syncing(let pct): return "Syncing \(pct)%"
+        case .syncing(let pct): return pct >= 100 ? "Finishing…" : "Syncing \(pct)%"
         case .upToDate: return "Up to date"
         case .failed(let text): return "Problem: \(text)"
         }
@@ -177,7 +185,12 @@ struct OpenLockPrompt: View {
     }
 
     private var intro: String {
-        let held = days.map { "This Zcash has been locked for \($0) \($0 == 1 ? "day" : "days"). " } ?? ""
+        let held: String
+        switch days {
+        case .none: held = ""
+        case .some(0): held = "This Zcash was locked today. "
+        case .some(let d): held = "This Zcash has been locked for \(d) \(d == 1 ? "day" : "days"). "
+        }
         return held + "Nobody legitimate will ever rush you, ask for your 24 words, or tell you to move your Zcash to keep it safe."
     }
 }
@@ -192,7 +205,7 @@ struct ActivitySheet: View {
             HStack {
                 Text("Activity").font(Theme.serif(24, weight: .medium))
                 Spacer()
-                Button("Done", action: onClose).keyboardShortcut(.cancelAction)
+                Button("Done", action: onClose).buttonStyle(HeaderButtonStyle()).keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal, 28).padding(.top, 24)
             ActivityList(items: engine.activity)

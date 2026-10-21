@@ -17,7 +17,7 @@ struct ReceiveView: View {
             HStack {
                 Text("Lock more").font(Theme.serif(24, weight: .medium))
                 Spacer()
-                Button("Done", action: onClose).keyboardShortcut(.cancelAction)
+                Button("Done", action: onClose).buttonStyle(HeaderButtonStyle()).keyboardShortcut(.cancelAction)
             }
             if let address {
                 if let qr = QRCode.image(for: address) {

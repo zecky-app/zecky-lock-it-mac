@@ -23,6 +23,7 @@ struct SettingsView: View {
                 Button(showingPhrase ? "Hide" : "Done") {
                     if showingPhrase { showingPhrase = false } else { onClose() }
                 }
+                .buttonStyle(HeaderButtonStyle())
                 .keyboardShortcut(.cancelAction)
             }
             .padding(.bottom, 18)

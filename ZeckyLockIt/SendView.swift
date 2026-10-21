@@ -22,7 +22,7 @@ struct SendView: View {
             HStack {
                 Text(title).font(Theme.serif(24, weight: .medium))
                 Spacer()
-                if case .sending = stage {} else { Button("Close", action: onClose).keyboardShortcut(.cancelAction) }
+                if case .sending = stage {} else { Button("Close", action: onClose).buttonStyle(HeaderButtonStyle()).keyboardShortcut(.cancelAction) }
             }
             switch stage {
             case .form: form

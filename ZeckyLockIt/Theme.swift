@@ -58,6 +58,20 @@ struct PrimaryButton: View {
     }
 }
 
+/// Done / Close / Hide in sheet headers: small, outlined, in Zecky's colours.
+struct HeaderButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(Theme.text(13, weight: .medium))
+            .foregroundStyle(Theme.text)
+            .padding(.horizontal, 14)
+            .frame(height: 30)
+            .background(configuration.isPressed ? Theme.surface : Color.clear)
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.muted.opacity(0.45)))
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+    }
+}
+
 /// A quiet, outlined secondary button.
 struct SecondaryButton: View {
     let title: String
