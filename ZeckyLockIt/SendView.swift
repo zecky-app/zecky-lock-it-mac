@@ -18,6 +18,8 @@ struct SendView: View {
     @State private var working = false
     @State private var waiting = false
     @State private var closedAgain = false
+    @State private var stillLocked = false
+    @State private var notUpToDate = false
 
     var body: some View {
         SheetScaffold(title: title, subtitle: subtitle, closeLabel: "Close", showsClose: !isSending,
@@ -38,6 +40,13 @@ struct SendView: View {
             }
         }
         .task { waiting = await engine.hasWaitingPayment() }
+        // The wallet checks for new blocks now and then, which flips the
+        // status for a moment. Only warn when it stays behind for a while.
+        .task(id: engine.status == .upToDate) {
+            guard engine.status != .upToDate else { notUpToDate = false; return }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if !Task.isCancelled && engine.status != .upToDate { notUpToDate = true }
+        }
     }
 
     private var isSending: Bool { if case .sending = stage { return true } else { return false } }
@@ -107,7 +116,7 @@ struct SendView: View {
             if waiting {
                 note("A payment you made is still on its way. Wait for it to arrive before releasing it again.", Theme.gold)
             }
-            if engine.status != .upToDate {
+            if notUpToDate {
                 note("Wait until the wallet is up to date. Nothing is created until then.", Theme.gold)
             }
             if let problem { note(problem, Theme.red) }
@@ -143,9 +152,12 @@ struct SendView: View {
             if plan.toSelf {
                 note("This is one of your own addresses: only the network fee leaves the lock.", Theme.muted)
             }
+            if stillLocked {
+                note("Not confirmed, so nothing left the lock.", Theme.muted)
+            }
             Spacer(minLength: 0)
             HStack {
-                SecondaryButton(title: "Change") { stage = .form }.frame(width: 140)
+                SecondaryButton(title: "Change") { stillLocked = false; stage = .form }.frame(width: 140)
                 Spacer()
                 PrimaryButton(title: "Release \(Amount.text(plan.amount, unit))") { Task { await send(plan) } }
                     .frame(width: 240)
@@ -240,7 +252,15 @@ struct SendView: View {
         catch { problem = String(describing: error) }
     }
 
+    /// Nothing leaves the lock until the owner of this Mac confirms it with
+    /// Touch ID or the Mac password, right before signing.
     private func send(_ plan: WalletEngine.SendPlan) async {
+        stillLocked = false
+        let total = Amount.text(plan.amount + plan.fee, .zec)
+        guard await OwnerCheck.confirm(reason: "release \(total) from the lock") else {
+            stillLocked = true
+            return
+        }
         stage = .sending
         do { stage = .done(try await engine.send(plan, phrase: phrase)) }
         catch { problem = String(describing: error); stage = .form }
