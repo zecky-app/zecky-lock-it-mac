@@ -83,7 +83,7 @@ enum TimeLock {
     /// Longer: straight away. Shorter or off: after the current wait.
     static func choose(_ hours: Int) {
         var s = state
-        if hours >= s.hours {
+        if LockRules.timeLock(from: s.hours, to: hours) == .nothing {
             s.hours = hours; s.pendingHours = nil; s.pendingFrom = nil
             LockLog.add(.timeLock, hours == 0 ? "Time lock off" : "Time lock on · \(label(hours).lowercased())")
         } else {

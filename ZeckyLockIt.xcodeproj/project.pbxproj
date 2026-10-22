@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1000000000000000000007D /* LockRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000007C /* LockRules.swift */; };
+		A10000000000000000000081 /* ZeckyLockItTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000080 /* ZeckyLockItTests.swift */; };
 		A1000000000000000000000A /* ZeckyLockItApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000005 /* ZeckyLockItApp.swift */; };
 		A1000000000000000000000B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000006 /* ContentView.swift */; };
 		A1000000000000000000000C /* ZcashLightClientKit in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000018 /* ZcashLightClientKit */; };
@@ -44,7 +46,20 @@
 		A1000000000000000000007B /* Contacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000007A /* Contacts.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A1000000000000000000008A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000000000000000000010;
+			remoteInfo = ZeckyLockIt;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		A1000000000000000000007C /* LockRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockRules.swift; sourceTree = "<group>"; };
+		A10000000000000000000080 /* ZeckyLockItTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZeckyLockItTests.swift; sourceTree = "<group>"; };
+		A10000000000000000000082 /* ZeckyLockItTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZeckyLockItTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000005 /* ZeckyLockItApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZeckyLockItApp.swift; sourceTree = "<group>"; };
 		A10000000000000000000006 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A10000000000000000000008 /* ZeckyLockIt.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ZeckyLockIt.entitlements; sourceTree = "<group>"; };
@@ -84,6 +99,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A10000000000000000000086 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A1000000000000000000000E /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -95,10 +117,19 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		A10000000000000000000083 /* ZeckyLockItTests */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000080 /* ZeckyLockItTests.swift */,
+			);
+			path = ZeckyLockItTests;
+			sourceTree = "<group>";
+		};
 		A10000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000004 /* ZeckyLockIt */,
+				A10000000000000000000083 /* ZeckyLockItTests */,
 				A10000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -107,6 +138,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000009 /* ZeckyLockIt.app */,
+				A10000000000000000000082 /* ZeckyLockItTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -121,6 +153,7 @@
 				A10000000000000000000076 /* CombinationView.swift */,
 				A10000000000000000000078 /* TimeLock.swift */,
 				A1000000000000000000007A /* Contacts.swift */,
+				A1000000000000000000007C /* LockRules.swift */,
 				A10000000000000000000072 /* PriceFeed.swift */,
 				A10000000000000000000070 /* PadlockView.swift */,
 				A10000000000000000000062 /* Fonts/Newsreader-Regular.ttf */,
@@ -156,6 +189,23 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A10000000000000000000084 /* ZeckyLockItTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000087 /* Build configuration list for PBXNativeTarget "ZeckyLockItTests" */;
+			buildPhases = (
+				A10000000000000000000085 /* Sources */,
+				A10000000000000000000086 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1000000000000000000008B /* PBXTargetDependency */,
+			);
+			name = ZeckyLockItTests;
+			productName = ZeckyLockItTests;
+			productReference = A10000000000000000000082 /* ZeckyLockItTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		A10000000000000000000010 /* ZeckyLockIt */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A10000000000000000000012 /* Build configuration list for PBXNativeTarget "ZeckyLockIt" */;
@@ -191,6 +241,11 @@
 						CreatedOnToolsVersion = 16.0;
 						DevelopmentTeam = "";
 					};
+					A10000000000000000000084 = {
+						CreatedOnToolsVersion = 16.0;
+						DevelopmentTeam = "";
+						TestTargetID = A10000000000000000000010;
+					};
 				};
 			};
 			buildConfigurationList = A10000000000000000000011 /* Build configuration list for PBXProject "ZeckyLockIt" */;
@@ -210,6 +265,7 @@
 			projectRoot = "";
 			targets = (
 				A10000000000000000000010 /* ZeckyLockIt */,
+				A10000000000000000000084 /* ZeckyLockItTests */,
 			);
 		};
 /* End PBXProject section */
@@ -254,6 +310,14 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A10000000000000000000085 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000081 /* ZeckyLockItTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A1000000000000000000000D /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -265,6 +329,7 @@
 				A10000000000000000000077 /* CombinationView.swift in Sources */,
 				A10000000000000000000079 /* TimeLock.swift in Sources */,
 				A1000000000000000000007B /* Contacts.swift in Sources */,
+				A1000000000000000000007D /* LockRules.swift in Sources */,
 				A10000000000000000000073 /* PriceFeed.swift in Sources */,
 				A10000000000000000000071 /* PadlockView.swift in Sources */,
 				A10000000000000000000057 /* SettingsView.swift in Sources */,
@@ -290,7 +355,51 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		A1000000000000000000008B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000000000000000000010 /* ZeckyLockIt */;
+			targetProxy = A1000000000000000000008A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		A10000000000000000000088 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = app.zecky.lockit.mac.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zecky Lock it.app/Contents/MacOS/Zecky Lock it";
+			};
+			name = Debug;
+		};
+		A10000000000000000000089 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = app.zecky.lockit.mac.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zecky Lock it.app/Contents/MacOS/Zecky Lock it";
+			};
+			name = Release;
+		};
 		A10000000000000000000013 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -389,6 +498,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A10000000000000000000087 /* Build configuration list for PBXNativeTarget "ZeckyLockItTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000088 /* Debug */,
+				A10000000000000000000089 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A10000000000000000000011 /* Build configuration list for PBXProject "ZeckyLockIt" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

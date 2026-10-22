@@ -57,7 +57,8 @@ struct ContentView: View {
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in model.checkIdle() }
         .frame(minWidth: 680, minHeight: 760)
         .font(Theme.text(14))
-        .onAppear { model.launch() }
+        // While the tests run inside the app, no wallet is started.
+        .onAppear { if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil { model.launch() } }
     }
 }
 

@@ -243,12 +243,12 @@ struct ContactsCard: View {
             do { try Contacts.add(name: n, address: a); adding = false; name = ""; address = ""; reload() }
             catch { note = String(describing: error) }
         }
-        if onlySaved { guarded("save a new address", commit) } else { commit() }
+        if LockRules.addAddress(ruleOn: onlySaved) == .owner { guarded("save a new address", commit) } else { commit() }
     }
 
     private func toggleRule(_ on: Bool) {
-        if on {
-            Contacts.setOnlySaved(true); reload()
+        if LockRules.addressRule(on: on) == .nothing {
+            Contacts.setOnlySaved(on); reload()
         } else {
             guarded("turn off the saved-addresses rule") { Contacts.setOnlySaved(false); reload() }
         }
