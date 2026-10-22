@@ -446,7 +446,7 @@ struct BookPicker: View {
             }
             .frame(maxHeight: 240)
             if Contacts.onlySaved {
-                Text("New addresses are added in Settings › Address book, with your code and Touch ID.")
+                Text("New addresses are added in Settings › Address book, with your Zecky code and Touch ID.")
                     .font(Theme.text(11)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             } else if adding {
                 TextField("Name", text: $name).textFieldStyle(.roundedBorder)

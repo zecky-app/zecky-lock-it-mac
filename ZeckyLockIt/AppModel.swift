@@ -49,7 +49,9 @@ final class AppModel: ObservableObject {
         sheet = nil
         openNote = nil
         switch TimeLock.phase {
-        case .off, .ready: asking = true
+        case .off, .ready:
+            // Don't ask: straight to the code and Touch ID.
+            if Keys.wait == 0 { countdownDone() } else { asking = true }
         case .notAsked, .waiting: timeLockShown = true
         }
     }
@@ -79,7 +81,7 @@ final class AppModel: ObservableObject {
     /// Unseals for this opening. Returns what to show, or nil when open.
     func unsealToOpen(code: String?) async -> String? {
         do {
-            opened = try await WalletVault.unseal(reason: "open the lock", code: code, fresh: false)
+            opened = try await WalletVault.unseal(reason: "open the lock", code: code, fresh: Keys.askOpeningLock)
             return nil
         } catch WalletVault.Failure.cancelled {
             return "Not confirmed, so the lock stayed closed."
@@ -113,8 +115,11 @@ final class AppModel: ObservableObject {
     static let idleLimit: TimeInterval = 5 * 60
     private var inactiveSince: Date?
 
-    func lockNow() {
+    /// Locks Lock it. By itself (launch, sleep, away) only when the owner
+    /// wants to be asked when opening Zecky; the padlock button always.
+    func lockNow(manual: Bool = false) {
         guard WalletVault.exists, !locked else { return }
+        guard manual || Keys.askOpeningZecky else { closeLock(); WalletVault.endSession(); return }
         WalletVault.endSession()
         sheet = nil
         opened = nil
@@ -280,6 +285,7 @@ final class AppModel: ObservableObject {
         try WalletVault.eraseAll()
         TimeLock.erase()
         LockLog.erase()
+        Keys.erase()
         Contacts.erase()
         AddressBook.clear()
         Server.reset()

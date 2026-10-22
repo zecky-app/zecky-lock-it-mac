@@ -43,4 +43,61 @@ enum LockRules {
     /// confirmation already given when unlocking.
     static let showPhrase: Need = .owner
     static let erase: Need = .owner
+
+    /// Switching a check on is stricter; switching it off is weaker.
+    static func check(on: Bool) -> Need { on ? .nothing : .owner }
+
+    /// "Really open the lock?": a longer wait is stricter, a shorter one
+    /// (or Don't ask, 0) is weaker.
+    static func wait(from current: Int, to new: Int) -> Need { new >= current ? .nothing : .owner }
+}
+
+/// Keys to the lock: which checks the owner wants, kept in the Keychain
+/// (this device only) so they cannot be changed from outside the app.
+/// Defaults: ask when opening Zecky, a 10-second pause before opening the
+/// lock, and the confirmation from opening Zecky reused for the lock.
+enum Keys {
+    static let waits = [10, 5, 3, 0]
+    private static let service = "app.zecky.lockit.mac.keys"
+
+    private struct Choice: Codable {
+        var askOpeningZecky = true
+        var askOpeningLock = false
+        var wait = 10
+    }
+
+    private static var choice: Choice {
+        get {
+            guard let data = (try? KeyStore.read(service: service)) ?? nil,
+                  let c = try? JSONDecoder().decode(Choice.self, from: data) else { return Choice() }
+            return c
+        }
+        set { try? KeyStore.save(try JSONEncoder().encode(newValue), service: service) }
+    }
+
+    /// Key 1: Touch ID / password (and the Zecky code) when Lock it starts
+    /// and after it locked itself.
+    static var askOpeningZecky: Bool {
+        get { choice.askOpeningZecky }
+        set { var c = choice; c.askOpeningZecky = newValue; choice = c
+              LockLog.add(.keys, newValue ? "Ask when opening Zecky: on" : "Ask when opening Zecky: off") }
+    }
+
+    /// Key 3: ask again when opening the lock, even right after opening Zecky.
+    static var askOpeningLock: Bool {
+        get { choice.askOpeningLock }
+        set { var c = choice; c.askOpeningLock = newValue; choice = c
+              LockLog.add(.keys, newValue ? "Ask again when opening the lock: on" : "Ask again when opening the lock: off") }
+    }
+
+    /// Key 2: seconds of "Really open the lock?"; 0 is Don't ask.
+    static var wait: Int {
+        get { choice.wait }
+        set { var c = choice; c.wait = newValue; choice = c
+              LockLog.add(.keys, newValue == 0 ? "Really open the lock?: don't ask" : "Really open the lock?: \(newValue) seconds") }
+    }
+
+    static func waitLabel(_ seconds: Int) -> String { seconds == 0 ? "Don't ask" : "\(seconds) s" }
+
+    static func erase() { try? KeyStore.delete(service: service) }
 }

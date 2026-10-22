@@ -38,7 +38,7 @@ struct ZeckyLockItApp: App {
                     .keyboardShortcut("y", modifiers: .command)
                     .disabled(!model.hasWallet)
                 Divider()
-                Button("Lock Zecky Lock it Now") { model.lockNow() }
+                Button("Lock Zecky Lock it Now") { model.lockNow(manual: true) }
                     .keyboardShortcut("l", modifiers: [.command, .shift])
                     .disabled(!model.hasWallet)
             }

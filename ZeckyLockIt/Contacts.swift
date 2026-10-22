@@ -216,7 +216,7 @@ struct ContactsCard: View {
             field("Name, for example My exchange", $name)
             field("Zcash address", $address, mono: true)
             HStack {
-                Text(onlySaved ? "Needs your code and Touch ID while the rule is on." : " ")
+                Text(onlySaved ? "Needs your Zecky code and Touch ID while the rule is on." : " ")
                     .font(Theme.text(11)).foregroundStyle(Theme.muted)
                 Spacer()
                 SecondaryButton(title: "Cancel") { adding = false; name = ""; address = ""; note = nil }.frame(width: 110)

@@ -76,6 +76,16 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(LockRules.removeAddress, .nothing)
     }
 
+    func testKeysToTheLockRules() {
+        XCTAssertEqual(LockRules.check(on: true), .nothing)
+        XCTAssertEqual(LockRules.check(on: false), .owner)
+        for from in Keys.waits {
+            for to in Keys.waits {
+                XCTAssertEqual(LockRules.wait(from: from, to: to), to >= from ? .nothing : .owner, "\(from) → \(to)")
+            }
+        }
+    }
+
     func testAlwaysTheOwner() {
         XCTAssertEqual(LockRules.breakGlass, .owner)
         XCTAssertEqual(LockRules.showPhrase, .owner)

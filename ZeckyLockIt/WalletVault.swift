@@ -57,10 +57,10 @@ enum WalletVault {
         case mustWait(until: Date)
         var description: String {
             switch self {
-            case .codeNeeded: return "Turn in your code first."
+            case .codeNeeded: return "Turn in your Zecky code first."
             case .wrongCode(let wait):
-                if let wait { return "That is not the code. Try again in \(WalletVault.waitText(until: wait))." }
-                return "That is not the code."
+                if let wait { return "That is not your Zecky code. Try again in \(WalletVault.waitText(until: wait))." }
+                return "That is not your Zecky code."
             case .mustWait(let until): return "Too many wrong codes. Try again in \(WalletVault.waitText(until: until))."
             case .cancelled: return "Not confirmed, so the lock stayed closed."
             case .unavailable: return "This Mac has no password or Touch ID set up, so the recovery phrase cannot be sealed. Set a login password in System Settings first."

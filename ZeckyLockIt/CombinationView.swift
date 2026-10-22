@@ -140,10 +140,10 @@ struct CodePrompt: View {
         VStack(spacing: 12) {
             PadlockView(open: accepted, size: 64)
                 .animation(.spring(response: 0.55, dampingFraction: 0.62), value: accepted)
-            Text(accepted ? (usesPassword ? "PASSWORD ACCEPTED" : "CODE ACCEPTED") : (usesPassword ? "THE LOCK HAS A PASSWORD" : "THE LOCK HAS A CODE"))
+            Text(accepted ? (usesPassword ? "PASSWORD ACCEPTED" : "CODE ACCEPTED") : (usesPassword ? "LOCK IT PASSWORD" : "ZECKY CODE"))
                 .font(Theme.text(11, weight: .semibold)).tracking(1.8)
                 .foregroundStyle(accepted ? Theme.green : Theme.gold)
-            Text(heading ?? (usesPassword ? "Enter your Lock it password" : "Turn in your code")).font(Theme.serif(26, weight: .medium))
+            Text(heading ?? (usesPassword ? "Enter your Lock it password" : "Turn in your Zecky code")).font(Theme.serif(26, weight: .medium))
             if usesPassword {
                 SecureField("Lock it password", text: $password)
                     .textFieldStyle(.plain)
@@ -203,7 +203,7 @@ struct CodePrompt: View {
         let result = await submit(code)
         working = false
         if let result {
-            note = usesPassword ? result.replacingOccurrences(of: "not the code", with: "not the password") : result
+            note = usesPassword ? result.replacingOccurrences(of: "not your Zecky code", with: "not your Lock it password") : result
             digits = [0, 0, 0, 0, 0, 0]
             password = ""
             active = 0
@@ -248,7 +248,7 @@ struct CodeSetupView: View {
                 .padding(.vertical, 6)
             if step == .new && !changing {
                 Toggle(isOn: $paper) {
-                    Text("My 24 words are on paper. If I forget this code, the only way back is Erase and restoring with those words.")
+                    Text("My 24 words are on paper. If I forget my Zecky code, the only way back is Erase and restoring with those words.")
                         .font(Theme.text(13))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -272,8 +272,8 @@ struct CodeSetupView: View {
 
     private var explain: String {
         switch step {
-        case .current: return "Turn in the code the lock has now."
-        case .new: return "Six digits only you know. Asked before releasing, before showing your 24 words and when unlocking, together with Touch ID. Someone who knows your Mac password still cannot open the lock. The Secure Enclave checks the code itself."
+        case .current: return "Turn in your current Zecky code."
+        case .new: return "Six digits only you know, asked together with Touch ID when opening Zecky, opening the lock, showing your 24 words and erasing. Why: someone who knows your Mac password still cannot open the lock. The Secure Enclave checks the code itself."
         case .confirm: return "Turn in the same six digits once more."
         }
     }
@@ -306,7 +306,7 @@ struct CodeSetupView: View {
             first = code; step = .confirm
         case .confirm:
             guard code == first else {
-                note = "The codes differ. Turn in the new code again."
+                note = "The two codes differ. Turn in the new Zecky code again."
                 first = nil; step = .new; reset(); return
             }
             Task {

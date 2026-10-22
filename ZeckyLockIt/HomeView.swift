@@ -53,7 +53,7 @@ struct HomeView: View {
                         .buttonStyle(.plain)
                         .help(model.amountsHidden ? "Show amounts" : "Hide amounts")
                         .accessibilityLabel(model.amountsHidden ? "Show amounts" : "Hide amounts")
-                        Button { model.lockNow() } label: {
+                        Button { model.lockNow(manual: true) } label: {
                             Image(systemName: "lock.fill")
                                 .font(.system(size: 13))
                                 .foregroundStyle(Theme.gold)
@@ -365,7 +365,8 @@ struct OpenLockPrompt: View {
     let onKeep: () -> Void
 
     @State private var agreed = false
-    @State private var countdown = 10
+    @State private var countdown = Keys.wait
+    private let total = max(1, Keys.wait)
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -377,7 +378,7 @@ struct OpenLockPrompt: View {
                 ZStack {
                     Circle().stroke(Theme.gold.opacity(0.15), lineWidth: 3)
                     Circle()
-                        .trim(from: 0, to: Double(10 - countdown) / 10)
+                        .trim(from: 0, to: Double(total - countdown) / Double(total))
                         .stroke(Theme.gold, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                         .animation(.linear(duration: 1), value: countdown)
@@ -611,6 +612,7 @@ struct ActivityList: View {
             case .timeLock: return ("Time lock", "clock.fill", Theme.gold)
             case .code: return ("Code", "lock.rotation", Theme.gold)
             case .addressBook: return ("Address book", "person.crop.circle", Theme.gold)
+            case .keys: return ("Keys to the lock", "key.fill", Theme.gold)
             }
         }()
         return HStack(spacing: 12) {

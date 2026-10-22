@@ -222,7 +222,7 @@ struct TimeLockPrompt: View {
     private var glass: some View {
         VStack(spacing: 14) {
             Text("Break the glass").font(Theme.serif(30, weight: .medium)).foregroundStyle(Theme.red)
-            Text("Only for an emergency. After your code and Touch ID the lock opens straight away, and the time lock turns off. It stays on record in Activity.")
+            Text("Only for an emergency. After your Zecky code and Touch ID the lock opens straight away, and the time lock turns off. It stays on record in Activity.")
                 .font(Theme.text(14)).foregroundStyle(Theme.muted)
                 .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             Text("Nobody legitimate will ever ask you to do this.")
@@ -274,7 +274,7 @@ struct TimeLockPrompt: View {
 /// What happened to the lock itself, next to the payments in Activity:
 /// the glass broken, the time lock and the code changed. This device only.
 enum LockLog {
-    enum Kind: String, Codable { case glassBroken, timeLock, code, addressBook }
+    enum Kind: String, Codable { case glassBroken, timeLock, code, addressBook, keys }
 
     struct Entry: Codable, Identifiable {
         var id = UUID()
