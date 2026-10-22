@@ -260,7 +260,7 @@ struct HomeView: View {
         .animation(.easeInOut(duration: 0.2), value: model.timeLockShown)
         .sheet(item: $model.sheet, onDismiss: { model.sheetClosed() }) { sheet in
             switch sheet {
-            case .receive: ReceiveView(engine: engine) { model.sheet = nil }
+            case .receive: ReceiveView(engine: engine, prices: prices) { model.sheet = nil }
             case .send: SendView(engine: engine, prices: prices, opened: model.opened, signing: { model.signing = $0 }, onReleased: { model.released = true }) { model.sheet = nil }
             case .settings: SettingsView(model: model, prices: prices) { model.sheet = nil }
             case .activity: ActivitySheet(model: model, engine: engine) { model.sheet = nil }

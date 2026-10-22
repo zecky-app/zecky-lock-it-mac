@@ -6,6 +6,7 @@ import SwiftUI
 /// line, click to copy; then Request an amount and All addresses.
 struct ReceiveView: View {
     @ObservedObject var engine: WalletEngine
+    @ObservedObject var prices: PriceFeed
     let onClose: () -> Void
 
     private enum Mode { case address, request, all }
@@ -14,6 +15,9 @@ struct ReceiveView: View {
     @State private var problem: String?
     @State private var copied = false
     @State private var requestText = ""
+    /// Ask in the currency chosen under Settings › Value; the request
+    /// itself always carries the ZEC amount.
+    @State private var requestFiat = false
     @State private var usage: [String: Int] = [:]
     @State private var copiedOther: String?
 
@@ -48,16 +52,27 @@ struct ReceiveView: View {
         return VStack(spacing: 14) {
             qrCard(payload ?? address)
             if mode == .request {
-                HStack(spacing: 8) {
-                    Text("Ask for").font(Theme.text(13)).foregroundStyle(Theme.muted)
-                    TextField("", text: $requestText, prompt: Text("0.000").foregroundColor(Theme.muted.opacity(0.6)))
-                        .textFieldStyle(.plain).font(Theme.serif(22, weight: .medium))
-                        .multilineTextAlignment(.trailing).frame(width: 120)
-                    Text("ZEC").font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.muted)
+                VStack(spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text("Ask for").font(Theme.text(13)).foregroundStyle(Theme.muted)
+                        TextField("", text: $requestText, prompt: Text(requestFiat ? "0.00" : "0.000").foregroundColor(Theme.muted.opacity(0.6)))
+                            .textFieldStyle(.plain).font(Theme.serif(22, weight: .medium))
+                            .multilineTextAlignment(.trailing).frame(width: 120)
+                        if rate != nil {
+                            Chip(title: "ZEC", on: !requestFiat) { requestFiat = false; requestText = "" }
+                            Chip(title: prices.currency.short, on: requestFiat) { requestFiat = true; requestText = "" }
+                        } else {
+                            Text("ZEC").font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.muted)
+                        }
+                    }
+                    .padding(.horizontal, 14).frame(height: 40)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line))
+                    if requestFiat, let zec = requestZEC {
+                        Text("The request asks for \(zec) ZEC, at CoinGecko's price of a few minutes ago.")
+                            .font(Theme.text(11)).foregroundStyle(Theme.gold)
+                    }
                 }
-                .padding(.horizontal, 14).frame(height: 40)
-                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line))
             }
             Button { copy(payload ?? address) } label: {
                 VStack(spacing: 4) {
@@ -87,13 +102,32 @@ struct ReceiveView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// ZIP-321 request: "zcash:<address>?amount=0.5". Nil without a valid amount.
-    private func requestURI(_ address: String) -> String? {
-        guard mode == .request else { return nil }
+    private var rate: Double? {
+        guard prices.currency != .none else { return nil }
+        return prices.rates[prices.currency.rawValue]
+    }
+
+    /// The ZEC amount asked for, as text with at most 8 decimals.
+    private var requestZEC: String? {
         let text = requestText.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+        if requestFiat {
+            guard let rate, rate > 0, let value = Double(text), value > 0 else { return nil }
+            let zats = (value / rate * 100_000_000).rounded()
+            guard zats >= 1 else { return nil }
+            var zec = String(format: "%.8f", zats / 100_000_000)
+            while zec.hasSuffix("0") { zec.removeLast() }
+            if zec.hasSuffix(".") { zec.removeLast() }
+            return zec
+        }
         guard let value = Decimal(string: text, locale: Locale(identifier: "en_US")), value > 0, value < 21_000_000,
               text.range(of: #"^\d+(\.\d{1,8})?$"#, options: .regularExpression) != nil else { return nil }
-        return "zcash:\(address)?amount=\(text)"
+        return text
+    }
+
+    /// ZIP-321 request: "zcash:<address>?amount=0.5". Nil without a valid amount.
+    private func requestURI(_ address: String) -> String? {
+        guard mode == .request, let zec = requestZEC else { return nil }
+        return "zcash:\(address)?amount=\(zec)"
     }
 
     // MARK: All addresses
