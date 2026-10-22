@@ -33,9 +33,9 @@ struct SettingsView: View {
     var body: some View {
         SheetScaffold(title: sheetTitle,
                       subtitle: sheetSubtitle,
-                      closeLabel: showingPhrase ? "Hide" : (codeStep != nil ? "Back" : "Done"),
+                      closeLabel: showingPhrase ? "Hide" : (codeStep != nil || page != nil ? "Back" : "Done"),
                       height: 740,
-                      onClose: { if showingPhrase { revealed = nil } else if codeStep != nil { codeStep = nil } else { onClose() } }) {
+                      onClose: { if showingPhrase { revealed = nil } else if codeStep != nil { codeStep = nil } else if page != nil { page = nil } else { onClose() } }) {
             if let revealed {
                 PhraseView(wallet: revealed)
             } else if let codeStep {
@@ -70,9 +70,117 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: Pages
+
+    /// Settings is a calm list; each topic opens its own page.
+    enum Page: Hashable { case keys, timeLock, phrase, addressBook, display, network, how, about }
+    @State private var page: Page?
+
     private var settings: some View {
         VStack(alignment: .leading, spacing: 12) {
-            section("Security", "One, two or three keys: you choose.")
+            switch page {
+            case nil: overview
+            case .keys?: pageBody { keysPage }
+            case .timeLock?: pageBody { timeLockPage }
+            case .phrase?: pageBody { phrasePage }
+            case .addressBook?: pageBody { addressBookPage }
+            case .display?: pageBody { displayPage }
+            case .network?: pageBody { networkPage }
+            case .how?: pageBody { HowItWorks() }
+            case .about?: pageBody { aboutPage }
+            }
+            if let problem { Text(problem).font(Theme.text(12)).foregroundStyle(Theme.red) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func pageBody<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) { content() }
+    }
+
+    private var overview: some View {
+        let _ = model.timeLockChanged
+        return VStack(alignment: .leading, spacing: 18) {
+            group("Security") {
+                row(.keys, "Keys to the lock", "key.fill", keysSummary)
+                row(.timeLock, "Time lock", "clock", TimeLock.isOn ? TimeLock.label(TimeLock.hours) : "Off")
+                row(.phrase, "Recovery phrase", "doc.text.magnifyingglass", WalletVault.kind == .secureEnclave ? "Sealed in the Secure Enclave" : "In the Keychain")
+                row(.addressBook, "Address book", "person.crop.circle", addressSummary)
+            }
+            group("This Mac") {
+                row(.display, "Display", "circle.lefthalf.filled", "\(model.themeMode.label) · Value \(prices.currency.short)")
+                row(.network, "Network", "server.rack", Server.isRockIt ? "Rock it · \(Server.host)" : Server.host)
+            }
+            group("Lock it") {
+                row(.how, "How Zecky works", "book.closed", "The lock, the keys, your privacy")
+                row(.about, "About", "info.circle", "Version \(version) · your Zcash by pool")
+            }
+            // Erase, on its own, with a red edge.
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Erase wallet", systemImage: "trash").font(Theme.text(13, weight: .semibold)).foregroundStyle(Theme.red)
+                Text("Removes the phrase, history and settings from this Mac. Make sure your 24 words are on paper first.")
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { Task { await askErase() } } label: {
+                    Text(erasing ? "Erasing…" : "Erase this wallet…")
+                        .font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.red)
+                        .padding(.horizontal, 14).frame(height: 32)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.red.opacity(0.6)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(erasing)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.red.opacity(0.45), lineWidth: 1))
+
+        }
+    }
+
+    private var keysSummary: String {
+        var parts: [String] = []
+        if Keys.askOpeningZecky { parts.append("Opening Zecky") }
+        if Keys.wait > 0 { parts.append("\(Keys.wait) s pause") }
+        if Keys.askOpeningLock { parts.append("It's you") }
+        if WalletVault.hasCode { parts.append("Zecky code") }
+        return parts.isEmpty ? "Touch ID once per session" : parts.joined(separator: " · ")
+    }
+
+    private var addressSummary: String {
+        let n = Contacts.all.count
+        let saved = n == 0 ? "None saved" : "\(n) saved"
+        return Contacts.onlySaved ? saved + " · only these" : saved
+    }
+
+    private func group<Content: View>(_ title: String, @ViewBuilder _ rows: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased()).font(Theme.text(11, weight: .semibold)).tracking(2).foregroundStyle(Theme.gold)
+                .padding(.leading, 4)
+            VStack(spacing: 0) { rows() }
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+        }
+    }
+
+    private func row(_ target: Page, _ title: String, _ icon: String, _ detail: String) -> some View {
+        Button { page = target } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon).font(.system(size: 14)).foregroundStyle(Theme.gold).frame(width: 22)
+                Text(title).font(Theme.text(14, weight: .medium)).foregroundStyle(Theme.text)
+                Spacer(minLength: 12)
+                Text(detail).font(Theme.text(12)).foregroundStyle(Theme.muted).lineLimit(1)
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+            }
+            .padding(.horizontal, 14).frame(height: 46)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1).padding(.leading, 48) }
+    }
+
+    @ViewBuilder private var keysPage: some View {
             card("Keys to the lock", icon: "key.fill") {
                 VStack(alignment: .leading, spacing: 14) {
                     keyRow(1, "Opening Zecky",
@@ -129,6 +237,9 @@ struct SettingsView: View {
                 }
             }
 
+    }
+
+    @ViewBuilder private var timeLockPage: some View {
             card("Time lock", icon: "clock") {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Opening the lock has to be asked for this long ahead. Why: for Zcash you mean to keep, a wait of days protects you against pressure and impulse. Turning it off or shorter waits as long as the current time lock. In an emergency you can break the glass. It does not stop someone who has your 24 words.")
@@ -161,6 +272,9 @@ struct SettingsView: View {
                 }
             }
 
+    }
+
+    @ViewBuilder private var phrasePage: some View {
             card("Recovery phrase", icon: "doc.text.magnifyingglass") {
                 HStack(alignment: .center, spacing: 14) {
                     Text(sealNote + " Why: the 24 words are the wallet. Sealed in the chip, they cannot be read from a copy of this Mac's files.")
@@ -171,13 +285,17 @@ struct SettingsView: View {
                 }
             }
 
-            section("Address book", "Addresses you trust, to release to by name.")
+    }
+
+    @ViewBuilder private var addressBookPage: some View {
             card("Saved addresses", icon: "person.crop.circle") {
                 ContactsCard(guarded: { reason, action in Task { await guarded(reason, action) } },
                              changed: { model.timeLockChanged += 1 })
             }
 
-            section("Display", "How Lock it looks on this Mac.")
+    }
+
+    @ViewBuilder private var displayPage: some View {
             card("Appearance", icon: "circle.lefthalf.filled") {
                 HStack(spacing: 6) {
                     ForEach(Theme.Mode.allCases) { mode in
@@ -197,7 +315,9 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            section("Network", "Where Lock it gets the Zcash chain from.")
+    }
+
+    @ViewBuilder private var networkPage: some View {
             card("Server", icon: "server.rack") {
                 FlowChips(items: Server.presets.indices.map { ($0, Server.presets[$0].label) } + [(-1, "Your own")],
                           selected: serverChoice) { serverChoice = $0 }
@@ -223,7 +343,9 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            section("About", nil)
+    }
+
+    @ViewBuilder private var aboutPage: some View {
             card("About", icon: "info.circle") {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("ZECKY").font(Theme.text(12, weight: .semibold)).tracking(4).foregroundStyle(Theme.gold)
@@ -233,31 +355,7 @@ struct SettingsView: View {
                     .font(Theme.text(12)).foregroundStyle(Theme.muted)
             }
 
-            section("Erase", nil)
-            // Erase, in its own card with a red edge.
-            VStack(alignment: .leading, spacing: 10) {
-                Label("Erase wallet", systemImage: "trash").font(Theme.text(13, weight: .semibold)).foregroundStyle(Theme.red)
-                Text("Removes the phrase, history and settings from this Mac. Make sure your 24 words are on paper first.")
-                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button { Task { await askErase() } } label: {
-                    Text(erasing ? "Erasing…" : "Erase this wallet…")
-                        .font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.red)
-                        .padding(.horizontal, 14).frame(height: 32)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.red.opacity(0.6)))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(erasing)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.red.opacity(0.45), lineWidth: 1))
-
-            if let problem { Text(problem).font(Theme.text(12)).foregroundStyle(Theme.red) }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        PoolsCard(model: model, engine: model.engine)
     }
 
     /// A quiet header above a group of cards.
@@ -308,6 +406,17 @@ struct SettingsView: View {
         case .remove: return "Remove the code"
         case .erase: return "Erase this wallet"
         case .guarded: return "Confirm it's you"
+        case nil: break
+        }
+        switch page {
+        case .keys?: return "Keys to the lock"
+        case .timeLock?: return "Time lock"
+        case .phrase?: return "Recovery phrase"
+        case .addressBook?: return "Address book"
+        case .display?: return "Display"
+        case .network?: return "Network"
+        case .how?: return "How Zecky works"
+        case .about?: return "About"
         case nil: return "Settings"
         }
     }
@@ -318,6 +427,17 @@ struct SettingsView: View {
         case .phrase, .remove, .erase, .guarded:
             return WalletVault.usesPassword ? "Your Lock it password first." : "Your code, then Touch ID or your Mac password."
         case .setUp, .change: return "Sealed with your phrase in this Mac's Secure Enclave."
+        case nil: break
+        }
+        switch page {
+        case .keys?: return "One, two or three keys: you choose."
+        case .timeLock?: return "A wait of days before the lock opens."
+        case .phrase?: return "Your 24 words, sealed on this Mac."
+        case .addressBook?: return "Addresses you trust, to release to by name."
+        case .display?: return "How Lock it looks on this Mac."
+        case .network?: return "Where Lock it gets the Zcash chain from."
+        case .how?: return "Short chapters. Open the one you want."
+        case .about?: return "Zecky Lock it for Mac."
         case nil: return "Everything stays on this Mac."
         }
     }
@@ -545,6 +665,113 @@ struct FlowChips: View {
             }
             HStack(spacing: 6) {
                 ForEach(items.dropFirst(3), id: \.0) { item in Chip(title: item.1, on: selected == item.0) { pick(item.0) } }
+            }
+        }
+    }
+}
+
+/// Settings › About: your Zcash by pool, from the engine's balance report.
+/// Nothing is stored.
+struct PoolsCard: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var engine: WalletEngine
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Your Zcash by pool", systemImage: "square.stack.3d.up")
+                .font(Theme.text(13, weight: .semibold)).labelStyle(GoldIconLabelStyle())
+            VStack(spacing: 8) {
+                pool("Ironwood", "Current, since NU6.3 (28 July 2026). New Zcash goes here.", engine.pools.ironwood)
+                pool("Orchard", "Withdraw-only since NU6.3. Move it to Ironwood from home.", engine.pools.orchard)
+                pool("Sapling", "Older private pool, still usable.", engine.pools.sapling)
+                pool("Transparent", "Public. Lock it in from home if any arrives.", engine.pools.transparent)
+            }
+            Text("Sprout, the very first pool, is closed to new Zcash; Lock it does not use it.")
+                .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .card(padding: 16)
+    }
+
+    private func pool(_ name: String, _ why: String, _ zats: Int64) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).font(Theme.text(13, weight: .medium))
+                Text(why).font(Theme.text(11)).foregroundStyle(Theme.muted)
+            }
+            Spacer()
+            Text(model.amountsHidden ? Amount.hiddenText : Amount.text(zats, model.unit))
+                .font(Theme.text(13, weight: .semibold))
+                .foregroundStyle(zats > 0 ? Theme.text : Theme.muted)
+        }
+    }
+}
+
+/// How Zecky works: short chapters that open and close. Every sentence
+/// here has to stay true to what the app does; check it with each change.
+struct HowItWorks: View {
+    private let chapters: [(String, String, [String])] = [
+        ("The lock", "lock.fill", [
+            "Lock more gives you a private address. Zcash sent to it locks in by itself and shows on the lock.",
+            "Opening the lock takes a deliberate moment: the pause, your keys, and then Release. The lock closes again after a release, after 2 minutes, or when you hide Lock it.",
+            "Nothing ever leaves without a receipt first: who receives what, the network fee, and what stays locked.",
+        ]),
+        ("Keys to the lock", "key.fill", [
+            "One, two or three keys, you choose: 1 Opening Zecky, 2 Really open the lock?, 3 It's you. The Zecky code adds six digits that this Mac's Secure Enclave checks itself.",
+            "Showing your 24 words and erasing always ask, whatever you choose.",
+            "Making a key stricter goes straight through; weakening one asks you first. Every change is listed in Activity › The lock.",
+        ]),
+        ("Time lock and Break the glass", "clock", [
+            "With a time lock, opening has to be asked for 24 hours, 3 or 7 days ahead. Turning it off or shorter waits as long as the current time lock.",
+            "In an emergency, Break the glass opens straight away after a typed sentence, your Zecky code and Touch ID, and switches the time lock off. It stays on record in Activity.",
+            "A time lock does not stop someone who has your 24 words.",
+        ]),
+        ("Your recovery phrase", "doc.text.magnifyingglass", [
+            "Your 24 words are made on this Mac from the system's secure random generator (256 bits), checked, and mixed with a second source.",
+            "They are sealed with a key inside this Mac's Secure Enclave. Only Touch ID or your Mac password (and your Zecky code, if set) opens the seal. They are never synced, never in a backup, never written to a log, and never sent anywhere.",
+            "They are opened only to sign a release or to show them to you, and let go straight after. While they are on screen, screenshots and screen sharing show an empty window.",
+        ]),
+        ("Privacy", "shield.lefthalf.filled", [
+            "Lock it only hands out shielded addresses: amounts, senders and receivers stay private on the blockchain.",
+            "Once an address has been paid, a fresh one appears, so payments cannot be linked to each other.",
+            "Zcash that arrives on a public address (only possible after restoring) can be locked in with one step.",
+        ]),
+        ("Network", "server.rack", [
+            "Lock it talks to one Zcash server (zec.rocks by default) over an encrypted connection. The server sees this Mac's internet address, never your words or your balance.",
+            "Your own node (Rock it) on a home or Tailscale address is reached without that layer: at home the traffic stays in your network, and Tailscale encrypts it on the way.",
+            "Value is off unless you choose a currency. Then CoinGecko is asked for the price every 5 minutes and sees only this Mac's internet address. There are no accounts, no analytics and no tracking.",
+        ]),
+        ("If you lose this Mac", "arrow.counterclockwise", [
+            "Your 24 words and birthday block restore the wallet in Lock it or any Zcash wallet.",
+            "The Zecky code, time lock, address book and settings live on this Mac only and do not come back with a restore.",
+        ]),
+    ]
+
+    @State private var open: Set<String> = ["The lock"]
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(chapters, id: \.0) { title, icon, lines in
+                VStack(alignment: .leading, spacing: 10) {
+                    Button { if open.contains(title) { open.remove(title) } else { open.insert(title) } } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: icon).foregroundStyle(Theme.gold).frame(width: 20)
+                            Text(title).font(Theme.text(14, weight: .semibold)).foregroundStyle(Theme.text)
+                            Spacer()
+                            Image(systemName: open.contains(title) ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    if open.contains(title) {
+                        ForEach(lines, id: \.self) { line in
+                            Text(line).font(Theme.text(13)).foregroundStyle(Theme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .card(padding: 14)
             }
         }
     }

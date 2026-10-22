@@ -219,7 +219,7 @@ struct ContactsCard: View {
                 Text(onlySaved ? "Needs your Zecky code and Touch ID while the rule is on." : " ")
                     .font(Theme.text(11)).foregroundStyle(Theme.muted)
                 Spacer()
-                SecondaryButton(title: "Cancel") { adding = false; name = ""; address = ""; note = nil }.frame(width: 110)
+                QuietButton(title: "Cancel") { adding = false; name = ""; address = ""; note = nil }.frame(width: 110)
                 PrimaryButton(title: "Save") { save() }.frame(width: 110)
             }
         }

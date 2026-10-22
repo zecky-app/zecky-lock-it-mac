@@ -425,9 +425,13 @@ final class WalletEngine: ObservableObject {
         var total: Int64 = 0
         var orchard: Int64 = 0
         var unshielded: Int64 = 0
+        var sapling: Int64 = 0
+        var ironwood: Int64 = 0
         for balance in state.accountsBalances.values {
             orchard += balance.orchardBalance.total().amount
             unshielded += balance.unshielded.amount
+            sapling += balance.saplingBalance.total().amount
+            ironwood += balance.ironwoodBalance.total().amount
             for pool in [balance.saplingBalance, balance.orchardBalance, balance.ironwoodBalance] {
                 spendable += pool.spendableValue.amount
                 total += pool.total().amount
@@ -439,5 +443,10 @@ final class WalletEngine: ObservableObject {
         self.orchardHeld = orchard
         if state.latestBlockHeight > 0 { self.networkHeight = Int(state.latestBlockHeight) }
         self.outsideTheLock = unshielded
+        self.pools = Pools(ironwood: ironwood, orchard: orchard, sapling: sapling, transparent: unshielded)
     }
+
+    /// Your Zcash by pool, straight from the engine's balance report.
+    struct Pools: Equatable { var ironwood: Int64 = 0, orchard: Int64 = 0, sapling: Int64 = 0, transparent: Int64 = 0 }
+    @Published var pools = Pools()
 }

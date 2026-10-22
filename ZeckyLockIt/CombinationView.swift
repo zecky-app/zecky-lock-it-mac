@@ -165,7 +165,7 @@ struct CodePrompt: View {
                 .frame(height: 18)
             HStack(spacing: 12) {
                 if showsCancel {
-                    SecondaryButton(title: "Keep it locked", action: onCancel).frame(width: 160)
+                    QuietButton(title: "Keep it locked", action: onCancel).frame(width: 160)
                         .keyboardShortcut(.cancelAction)
                 }
                 PrimaryButton(title: working ? "Waiting…" : action, enabled: !working && !accepted && waiting == nil) {
@@ -263,7 +263,7 @@ struct CodeSetupView: View {
             HStack {
                 Text(stepText).font(Theme.text(12)).foregroundStyle(Theme.muted)
                 Spacer()
-                SecondaryButton(title: "Cancel", action: onCancel).frame(width: 120)
+                QuietButton(title: "Cancel", action: onCancel).frame(width: 120)
                 PrimaryButton(title: working ? "Waiting…" : (step == .confirm ? "Set code" : "Next"), enabled: canGo) { next() }
                     .frame(width: 140)
             }
@@ -393,7 +393,7 @@ struct NoMacPasswordView: View {
             .toggleStyle(.checkbox)
             if let note { Text(note).font(Theme.text(12)).foregroundStyle(Theme.red) }
             HStack {
-                SecondaryButton(title: "Back") { choosing = false; first = ""; second = "" }.frame(width: 120)
+                QuietButton(title: "Back") { choosing = false; first = ""; second = "" }.frame(width: 120)
                 Spacer()
                 PrimaryButton(title: "Use this password", enabled: understood) { use() }.frame(width: 200)
             }

@@ -256,7 +256,7 @@ struct SendView: View {
             if let lockNote { note(lockNote, Theme.muted) }
             Spacer(minLength: 0)
             HStack {
-                SecondaryButton(title: "Change") { lockNote = nil; stage = .form }.frame(width: 140)
+                QuietButton(title: "Change") { lockNote = nil; stage = .form }.frame(width: 140)
                 Spacer()
                 PrimaryButton(title: "Release \(Amount.text(plan.amount, unit))") { Task { await send(plan) } }
                     .frame(width: 240)

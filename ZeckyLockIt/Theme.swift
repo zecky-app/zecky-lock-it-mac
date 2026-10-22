@@ -86,45 +86,82 @@ enum Theme {
 }
 
 /// A gold, full-width primary button.
+/// The main action: polished brass with engraved text (the button rule:
+/// brass for the main action, gold text for others, grey for the way back,
+/// red for Erase).
 struct PrimaryButton: View {
     let title: String
     var enabled = true
     let action: () -> Void
 
+    private static func c(_ hex: Int) -> Color {
+        Color(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
+    }
+
     var body: some View {
         Button(action: action) {
             Text(title)
                 .font(Theme.text(14, weight: .semibold))
+                .foregroundStyle(Self.c(0x3A2A0C))
+                .shadow(color: Self.c(0xFFF3D1).opacity(0.55), radius: 0, y: 1)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .background(enabled ? Theme.gold : Theme.gold.opacity(0.35))
-                .foregroundStyle(Theme.onGold)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .contentShape(RoundedRectangle(cornerRadius: 8))
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(LinearGradient(stops: [
+                            .init(color: Self.c(0xF6E2B0), location: 0),
+                            .init(color: Self.c(0xD9AE5F), location: 0.48),
+                            .init(color: Self.c(0xB88A3E), location: 0.52),
+                            .init(color: Self.c(0x9C7330), location: 1),
+                        ], startPoint: .top, endPoint: .bottom))
+                )
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Self.c(0x5E4519).opacity(0.8), lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).inset(by: 1.5).stroke(Self.c(0xFFF3D1).opacity(0.4), lineWidth: 1))
+                .opacity(enabled ? 1 : 0.4)
+                .contentShape(RoundedRectangle(cornerRadius: 9))
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
     }
 }
 
-/// Done / Close / Hide in sheet headers: small, outlined, in Zecky's colours.
+/// The way back (Cancel, Back): quiet grey text.
+struct QuietButton: View {
+    let title: String
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(Theme.text(14, weight: .medium))
+                .foregroundStyle(hover ? Theme.text : Theme.muted)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+    }
+}
+
+/// Done / Back / Hide in sheet headers: the way back, quiet grey text.
 struct HeaderButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(Theme.text(13, weight: .medium))
-            .foregroundStyle(Theme.text)
-            .padding(.horizontal, 14)
+            .foregroundStyle(configuration.isPressed ? Theme.text : Theme.muted)
+            .padding(.horizontal, 10)
             .frame(height: 30)
-            .background(configuration.isPressed ? Theme.surface : Color.clear)
-            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.muted.opacity(0.45)))
-            .contentShape(RoundedRectangle(cornerRadius: 7))
+            .contentShape(Rectangle())
     }
 }
 
-/// A quiet, outlined secondary button.
+/// Other actions: gold text, a soft gold wash on hover.
 struct SecondaryButton: View {
     let title: String
     let action: () -> Void
+    @State private var hover = false
 
     var body: some View {
         Button(action: action) {
@@ -132,11 +169,12 @@ struct SecondaryButton: View {
                 .font(Theme.text(14, weight: .medium))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .foregroundStyle(Theme.text)
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.muted.opacity(0.5)))
+                .foregroundStyle(Theme.gold)
+                .background(Theme.gold.opacity(hover ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 8))
                 .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
+        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hover = h } }
     }
 }
 

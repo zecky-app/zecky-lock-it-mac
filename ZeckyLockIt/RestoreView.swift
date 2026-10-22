@@ -44,7 +44,7 @@ struct RestoreView: View {
             if let message = model.message { Text(message).foregroundStyle(Theme.red) }
             Spacer()
             HStack {
-                SecondaryButton(title: "Back") { model.message = nil; model.screen = .welcome }.frame(width: 140)
+                QuietButton(title: "Back") { model.message = nil; model.screen = .welcome }.frame(width: 140)
                 Spacer()
                 PrimaryButton(title: working ? "Restoring…" : "Restore", enabled: !working && !phrase.isEmpty) {
                     Task { await submit() }
