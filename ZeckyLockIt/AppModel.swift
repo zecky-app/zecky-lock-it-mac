@@ -22,7 +22,7 @@ final class AppModel: ObservableObject {
 
     @Published var screen: Screen = .loading
     /// The sheet over the home screen, also opened from the menu bar.
-    enum Sheet: Identifiable { case receive, send, settings, activity; var id: Self { self } }
+    enum Sheet: Identifiable { case receive, send, settings, activity, ironwood; var id: Self { self } }
     @Published var sheet: Sheet?
     /// The lock on the home screen: asking first, then open while releasing.
     @Published var asking = false

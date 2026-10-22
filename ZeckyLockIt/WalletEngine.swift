@@ -220,6 +220,23 @@ final class WalletEngine: ObservableObject {
     }
 
     /// Prices a payment of `amount` zatoshi, or of everything spendable when nil.
+    // MARK: Orchard → Ironwood
+
+    /// Zcash still in the Orchard pool. Since NU6.3 (Ironwood, 28 July 2026,
+    /// block 3,428,143) Orchard only allows withdrawals; new Zcash lands in
+    /// Ironwood. Only wallets restored from before then can hold Orchard funds.
+    @Published var orchardHeld: Int64 = 0
+
+    /// One move of everything in Orchard to this wallet's own Ironwood
+    /// receiver: the engine's own migration, with the fee taken so no change
+    /// goes back to Orchard. Sapling and Ironwood funds are not touched.
+    func planIronwoodMove() async throws -> SendPlan {
+        guard let synchronizer, let account else { throw EngineError.notReady }
+        let proposal = try await synchronizer.proposeOrchardToIronwoodMigration(accountUUID: account)
+        let fee = proposal.totalFeeRequired().amount
+        return SendPlan(proposal: proposal, to: "Ironwood", amount: max(0, orchardHeld - fee), fee: fee, toSelf: true)
+    }
+
     func plan(to address: String, amount: Int64?) async throws -> SendPlan {
         guard let synchronizer, let account else { throw EngineError.notReady }
         let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -299,6 +316,7 @@ final class WalletEngine: ObservableObject {
         lockedSince = nil
         spendable = 0
         total = 0
+        orchardHeld = 0
         status = .connecting
     }
 
@@ -342,7 +360,9 @@ final class WalletEngine: ObservableObject {
         }
         var spendable: Int64 = 0
         var total: Int64 = 0
+        var orchard: Int64 = 0
         for balance in state.accountsBalances.values {
+            orchard += balance.orchardBalance.total().amount
             for pool in [balance.saplingBalance, balance.orchardBalance, balance.ironwoodBalance] {
                 spendable += pool.spendableValue.amount
                 total += pool.total().amount
@@ -351,5 +371,6 @@ final class WalletEngine: ObservableObject {
         }
         self.spendable = spendable
         self.total = total
+        self.orchardHeld = orchard
     }
 }

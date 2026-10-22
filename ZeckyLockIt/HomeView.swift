@@ -115,6 +115,19 @@ struct HomeView: View {
 
                         VStack(spacing: 3) {
                             Text(heldLine).font(Theme.text(13)).foregroundStyle(Theme.muted)
+                            if engine.orchardHeld > 0 && engine.status == .upToDate {
+                                Button { model.sheet = .ironwood } label: {
+                                    HStack(spacing: 4) {
+                                        Text(model.amountsHidden ? "Part of your Zcash is in the old Orchard pool" : "\(Amount.text(engine.orchardHeld, model.unit)) in the old Orchard pool")
+                                        Text("· Move it to Ironwood").fontWeight(.semibold)
+                                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                                    }
+                                    .font(Theme.text(12)).foregroundStyle(Theme.gold)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.top, 2)
+                            }
                             if let m = milestone, engine.lockedSince != nil {
                                 Text("Next milestone: \(m.name) · in \(m.inDays) \(m.inDays == 1 ? "day" : "days")")
                                     .font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
@@ -235,6 +248,7 @@ struct HomeView: View {
             case .send: SendView(engine: engine, opened: model.takeOpened(), signing: { model.signing = $0 }) { model.sheet = nil }
             case .settings: SettingsView(model: model, prices: prices) { model.sheet = nil }
             case .activity: ActivitySheet(model: model, engine: engine) { model.sheet = nil }
+            case .ironwood: IronwoodSheet(model: model, engine: engine) { model.sheet = nil }
             }
         }
     }
@@ -646,6 +660,137 @@ struct ActivityList: View {
         case .waiting: return "Waiting for a block"
         case .expired: return "Expired · never left the lock"
         case .confirmed: return item.date.map { Self.dateFormat.string(from: $0) } ?? "Confirmed"
+        }
+    }
+}
+
+/// Moving Zcash out of the old Orchard pool into Ironwood, once.
+struct IronwoodSheet: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var engine: WalletEngine
+    let onClose: () -> Void
+
+    private enum Stage { case loading, ready(WalletEngine.SendPlan), code(WalletEngine.SendPlan), moving, done, failed(String) }
+    @State private var stage: Stage = .loading
+    @State private var note: String?
+
+    var body: some View {
+        SheetScaffold(title: "Move to Ironwood",
+                      subtitle: "Once, inside your own wallet.",
+                      closeLabel: "Close", showsClose: !isMoving, height: 560, onClose: onClose) {
+            switch stage {
+            case .loading:
+                VStack { Spacer(); ProgressView().controlSize(.small); Spacer() }.frame(maxWidth: .infinity)
+            case .ready(let plan): ready(plan)
+            case .code(let plan):
+                CodePrompt(action: "Move",
+                           submit: { code in await unseal(code: code) },
+                           onDone: { Task { await move(plan) } },
+                           onCancel: { stage = .ready(plan) })
+            case .moving:
+                VStack(spacing: 14) {
+                    Spacer()
+                    PadlockView(open: true, size: 90)
+                    ProgressView().controlSize(.small)
+                    Text("Moving…").font(Theme.text(13)).foregroundStyle(Theme.muted)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+            case .done:
+                VStack(spacing: 16) {
+                    Spacer()
+                    PadlockView(open: false, size: 100)
+                    Text("Moved. It shows in Ironwood once it is in a block, and stays locked.")
+                        .font(Theme.text(14)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                    Spacer()
+                    PrimaryButton(title: "Done", action: onClose).frame(width: 180).keyboardShortcut(.defaultAction)
+                }
+                .frame(maxWidth: .infinity)
+            case .failed(let why):
+                VStack(spacing: 14) {
+                    Spacer()
+                    Text(why).font(Theme.text(13)).foregroundStyle(Theme.red).multilineTextAlignment(.center)
+                    Text("Nothing was moved.").font(Theme.text(13)).foregroundStyle(Theme.muted)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .task { await load() }
+    }
+
+    private var isMoving: Bool { if case .moving = stage { return true } else { return false } }
+
+    private func ready(_ plan: WalletEngine.SendPlan) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Since the Ironwood upgrade (28 July 2026) the Orchard pool only lets Zcash out; new Zcash goes to Ironwood. Part of yours is still in Orchard. Move it once to Ironwood, in this same wallet, and it stays as private as before. Your other Zcash is not touched.")
+                .font(Theme.text(13)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: 8) {
+                row("In Orchard now", Amount.text(engine.orchardHeld, model.unit))
+                row("Network fee", Amount.text(plan.fee, model.unit))
+                Rectangle().fill(Theme.line).frame(height: 1)
+                row("Arrives in Ironwood", Amount.text(plan.amount, model.unit), strong: true)
+            }
+            .card(padding: 16)
+            if let note { Text(note).font(Theme.text(12)).foregroundStyle(Theme.red) }
+            Spacer(minLength: 0)
+            HStack {
+                Text("Your time lock does not apply: nothing leaves your wallet.")
+                    .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                Spacer()
+                BrassButton(title: "Move to Ironwood", icon: "arrow.right.circle.fill") { Task { await start(plan) } }
+                    .frame(width: 230)
+            }
+        }
+    }
+
+    private func row(_ label: String, _ value: String, strong: Bool = false) -> some View {
+        HStack {
+            Text(label).font(Theme.text(13)).foregroundStyle(Theme.muted)
+            Spacer()
+            Text(model.amountsHidden ? Amount.hiddenText : value)
+                .font(Theme.text(14, weight: strong ? .semibold : .medium))
+                .foregroundStyle(strong ? Theme.gold : Theme.text)
+        }
+    }
+
+    @State private var wallet: StoredWallet?
+
+    private func load() async {
+        do { stage = .ready(try await engine.planIronwoodMove()) }
+        catch { stage = .failed(String(describing: error)) }
+    }
+
+    private func start(_ plan: WalletEngine.SendPlan) async {
+        note = nil
+        if WalletVault.needsSecret { stage = .code(plan); return }
+        if let message = await unseal(code: nil) { note = message; return }
+        await move(plan)
+    }
+
+    private func unseal(code: String?) async -> String? {
+        do {
+            wallet = try await WalletVault.unseal(reason: "move your Zcash to Ironwood", code: code, fresh: false)
+            return nil
+        } catch WalletVault.Failure.cancelled {
+            return "Not confirmed, so nothing was moved."
+        } catch { return String(describing: error) }
+    }
+
+    private func move(_ plan: WalletEngine.SendPlan) async {
+        guard let opened = wallet else { stage = .ready(plan); return }
+        wallet = nil
+        stage = .moving
+        model.signing = true
+        defer { model.signing = false }
+        do {
+            var seed = try Mnemonic.seed(from: opened.phrase)
+            defer { Wipe.bytes(&seed) }
+            _ = try await engine.send(plan, seed: seed)
+            stage = .done
+        } catch {
+            stage = .failed(String(describing: error))
         }
     }
 }
