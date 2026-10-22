@@ -232,7 +232,7 @@ struct HomeView: View {
         .sheet(item: $model.sheet, onDismiss: { model.sheetClosed() }) { sheet in
             switch sheet {
             case .receive: ReceiveView(engine: engine) { model.sheet = nil }
-            case .send: SendView(engine: engine, opened: model.takeOpened()) { model.sheet = nil }
+            case .send: SendView(engine: engine, opened: model.takeOpened(), signing: { model.signing = $0 }) { model.sheet = nil }
             case .settings: SettingsView(model: model, prices: prices) { model.sheet = nil }
             case .activity: ActivitySheet(model: model, engine: engine) { model.sheet = nil }
             }

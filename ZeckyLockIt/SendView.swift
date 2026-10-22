@@ -26,8 +26,12 @@ struct SendView: View {
     @State private var newName = ""
     @State private var savedName: String?
 
-    init(engine: WalletEngine, opened: StoredWallet?, onClose: @escaping () -> Void) {
+    /// Tells the app while signing, so the open lock is not closed mid-way.
+    let signing: (Bool) -> Void
+
+    init(engine: WalletEngine, opened: StoredWallet?, signing: @escaping (Bool) -> Void, onClose: @escaping () -> Void) {
         self.engine = engine
+        self.signing = signing
         self.onClose = onClose
         _opened = State(initialValue: opened)
     }
@@ -337,6 +341,8 @@ struct SendView: View {
             return
         }
         used = true
+        signing(true)
+        defer { signing(false) }
         stage = .sending
         do {
             var seed = try Mnemonic.seed(from: wallet.phrase)

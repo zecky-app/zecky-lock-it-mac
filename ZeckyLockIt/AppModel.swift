@@ -154,8 +154,29 @@ final class AppModel: ObservableObject {
         inactiveSince = nil
     }
 
+    // MARK: The open lock closes by itself
+
+    /// While a release is being signed and handed over, nothing closes it.
+    var signing = false
+    static let openLimit: TimeInterval = 2 * 60
+
+    /// Closes Release and the open lock, and lets go of the unsealed phrase.
+    func closeLock() {
+        guard !signing else { return }
+        if sheet == .send { sheet = nil }
+        opened = nil
+        asking = false
+        askingCode = false
+        lockOpen = false
+    }
+
+    /// Hidden (Command-H) or minimised: the open lock closes. Switching to
+    /// another app for a moment, to copy an address, does not.
+    func wentAway() { if lockOpen || asking || askingCode { closeLock() } }
+
     /// No keyboard or mouse for 5 minutes while Lock it is in front.
     func checkIdle() {
+        if lockOpen, let since = inactiveSince, Date().timeIntervalSince(since) > Self.openLimit { closeLock() }
         guard let any = CGEventType(rawValue: ~0) else { return }
         if CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: any) > Self.idleLimit { lockNow() }
     }
