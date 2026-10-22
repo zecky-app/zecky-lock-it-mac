@@ -235,6 +235,7 @@ final class WalletEngine: ObservableObject {
         let amount: Int64
         let fee: Int64
         let toSelf: Bool
+        var memo: String? = nil
     }
 
     enum SendOutcome {
@@ -246,13 +247,14 @@ final class WalletEngine: ObservableObject {
     }
 
     enum SendError: Error, CustomStringConvertible {
-        case badAddress, tooLittle, notEnough, refused(String)
+        case badAddress, tooLittle, notEnough, noteToPublic, refused(String)
         var description: String {
             switch self {
             case .badAddress: return "That is not a valid Zcash address."
             case .tooLittle: return "Enter an amount above zero."
             case .notEnough: return "Not enough available for this amount plus the fee."
-            case .refused(let why): return "The server refused the payment. Nothing was sent. (\(why))"
+            case .noteToPublic: return "A private note can only go to a private address. Remove the note, or use their private address."
+            case .refused(let why): return "The server refused the release. Nothing left the lock. (\(why))"
             }
         }
     }
@@ -291,10 +293,15 @@ final class WalletEngine: ObservableObject {
         return SendPlan(proposal: proposal, to: "Lock it in", amount: max(0, outsideTheLock - fee), fee: fee, toSelf: true)
     }
 
-    func plan(to address: String, amount: Int64?) async throws -> SendPlan {
+    func plan(to address: String, amount: Int64?, memo text: String? = nil) async throws -> SendPlan {
         guard let synchronizer, let account else { throw EngineError.notReady }
         let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let recipient = try? Recipient(trimmed, network: .mainnet) else { throw SendError.badAddress }
+        var memo: Memo?
+        if let text {
+            switch recipient { case .transparent, .tex: throw SendError.noteToPublic; default: break }
+            memo = try Memo(string: text)
+        }
         let own = Set(AddressBook.load())
             .union([(try? await synchronizer.getUnifiedAddress(accountUUID: account).stringEncoded) ?? ""])
         let toSelf = own.contains(trimmed)
@@ -303,9 +310,9 @@ final class WalletEngine: ObservableObject {
             guard amount > 0 else { throw SendError.tooLittle }
             do {
                 let proposal = try await synchronizer.proposeTransfer(
-                    accountUUID: account, recipient: recipient, amount: Zatoshi(amount), memo: nil)
+                    accountUUID: account, recipient: recipient, amount: Zatoshi(amount), memo: memo)
                 return SendPlan(proposal: proposal, to: trimmed, amount: amount,
-                                fee: proposal.totalFeeRequired().amount, toSelf: toSelf)
+                                fee: proposal.totalFeeRequired().amount, toSelf: toSelf, memo: text)
             } catch {
                 if amount > spendable { throw SendError.notEnough }
                 throw error
@@ -318,10 +325,10 @@ final class WalletEngine: ObservableObject {
             let amount = spendable - fee
             guard amount > 0 else { throw SendError.notEnough }
             let proposal = try await synchronizer.proposeTransfer(
-                accountUUID: account, recipient: recipient, amount: Zatoshi(amount), memo: nil)
+                accountUUID: account, recipient: recipient, amount: Zatoshi(amount), memo: memo)
             let quoted = proposal.totalFeeRequired().amount
             if quoted == fee {
-                return SendPlan(proposal: proposal, to: trimmed, amount: amount, fee: fee, toSelf: toSelf)
+                return SendPlan(proposal: proposal, to: trimmed, amount: amount, fee: fee, toSelf: toSelf, memo: text)
             }
             fee = quoted
         }

@@ -22,6 +22,8 @@ struct SendView: View {
     @State private var lockNote: String?
     @State private var used = false
     @State private var sentTo: String?
+    @State private var showNote = false
+    @State private var memo = ""
     @State private var showBook = false
     @State private var newName = ""
     @State private var savedName: String?
@@ -43,7 +45,7 @@ struct SendView: View {
 
     var body: some View {
         SheetScaffold(title: title, subtitle: subtitle, closeLabel: "Close", showsClose: !isSending,
-                      height: 520, onClose: onClose) {
+                      height: 580, onClose: onClose) {
             switch stage {
             case .form: form
             case .review(let plan): review(plan)
@@ -77,7 +79,7 @@ struct SendView: View {
         case .review: return "Check before releasing"
         case .sending: return "Releasing"
         case .done(.sent): return "Released"
-        case .done(.saved): return "Payment saved"
+        case .done(.saved): return "Release saved"
         }
     }
 
@@ -95,7 +97,8 @@ struct SendView: View {
 
     private var form: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
+            // One card: who, how much, and an optional private note.
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     fieldLabel("TO")
                     Spacer()
@@ -104,13 +107,12 @@ struct SendView: View {
                             .font(Theme.text(11, weight: .semibold)).foregroundStyle(Theme.green)
                     }
                     Button { showBook.toggle() } label: {
-                        Label("Address book", systemImage: "person.crop.circle")
-                            .font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
-                            .padding(.horizontal, 10).frame(height: 24)
-                            .overlay(Capsule().stroke(Theme.gold.opacity(0.5)))
-                            .contentShape(Capsule())
+                        Image(systemName: "person.crop.circle")
+                            .font(.system(size: 15)).foregroundStyle(Theme.gold)
+                            .frame(width: 26, height: 26).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .help("Address book")
                     .popover(isPresented: $showBook, arrowEdge: .bottom) {
                         BookPicker { address in to = address; showBook = false }
                     }
@@ -130,40 +132,66 @@ struct SendView: View {
                         to = Contacts.all[i].address
                     }
                 }
-            }
-            .card(padding: 14)
 
-            VStack(alignment: .leading, spacing: 10) {
+                Rectangle().fill(Theme.line).frame(height: 1).padding(.vertical, 4)
+
                 HStack {
                     fieldLabel("AMOUNT")
                     Spacer()
                     HStack(spacing: 6) {
                         Chip(title: "ZEC", on: unit == .zec) { switchUnit(.zec) }
                         Chip(title: "zats", on: unit == .zats) { switchUnit(.zats) }
-                        Chip(title: "Max", on: max) { max.toggle() }
                     }
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     if max {
                         Text(Amount.number(Swift.max(0, engine.spendable), unit))
-                            .font(Theme.serif(30, weight: .medium)).foregroundStyle(Theme.muted)
+                            .font(Theme.serif(34, weight: .medium)).foregroundStyle(Theme.muted)
                         Text("minus the fee").font(Theme.text(12)).foregroundStyle(Theme.muted)
                     } else {
                         TextField("", text: $amountText, prompt: Text(unit == .zec ? "0.000" : "0").foregroundColor(Theme.muted.opacity(0.6)))
                             .textFieldStyle(.plain)
-                            .font(Theme.serif(30, weight: .medium))
+                            .font(Theme.serif(34, weight: .medium))
                     }
                     Spacer()
                     Text(unit.rawValue).font(Theme.text(14, weight: .medium)).foregroundStyle(Theme.muted)
                 }
-                Rectangle().fill(Theme.line).frame(height: 1)
-                Text("In the lock: \(Amount.text(engine.spendable, unit))")
-                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                HStack {
+                    Text("\(Amount.text(engine.spendable, unit)) available")
+                        .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    Spacer()
+                    Chip(title: "Max", on: max) { max.toggle() }
+                }
+
+                Rectangle().fill(Theme.line).frame(height: 1).padding(.vertical, 4)
+
+                if showNote {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            fieldLabel("PRIVATE NOTE")
+                            Spacer()
+                            Text("\(memo.utf8.count)/512").font(Theme.text(11))
+                                .foregroundStyle(memo.utf8.count > 512 ? Theme.red : Theme.muted)
+                            Button { showNote = false; memo = "" } label: {
+                                Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.muted)
+                            }
+                            .buttonStyle(.plain).help("Remove the note")
+                        }
+                        TextField("", text: $memo, prompt: Text("Only the receiver can read this").foregroundColor(Theme.muted), axis: .vertical)
+                            .textFieldStyle(.plain).font(Theme.text(13)).lineLimit(1...3)
+                    }
+                } else {
+                    Button { showNote = true } label: {
+                        Label("Add a private note", systemImage: "plus").font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Encrypted with the payment; only the receiver can read it")
+                }
             }
-            .card(padding: 14)
+            .card(padding: 16)
 
             if waiting {
-                note("A payment you made is still on its way. Wait for it to arrive before releasing it again.", Theme.gold)
+                note("A release is still on its way. Wait for it to arrive before releasing again.", Theme.gold)
             }
             if notUpToDate {
                 note("Wait until the wallet is up to date. Nothing is created until then.", Theme.gold)
@@ -198,10 +226,13 @@ struct SendView: View {
                         .padding(.bottom, 6)
                         .textSelection(.enabled)
                 }
-                receiptRow("Amount", Amount.text(plan.amount, unit))
+                receiptRow(plan.toSelf ? "Arrives at your address" : "They receive", Amount.text(plan.amount, unit))
                 receiptRow("Network fee", Amount.text(plan.fee, unit))
                 Rectangle().fill(Theme.line).frame(height: 1).padding(.vertical, 8)
                 receiptRow("Total released", Amount.text(total, unit), strong: true)
+                if let note = plan.memo {
+                    receiptRow("Private note", note.count > 40 ? String(note.prefix(40)) + "…" : note)
+                }
                 receiptRow("Stays locked", Amount.text(left, unit), accent: true)
             }
             .card(padding: 18)
@@ -247,7 +278,7 @@ struct SendView: View {
                     saveContact(sentTo)
                 }
             case .saved:
-                Text("The payment was made but could not be delivered yet. Zecky keeps trying until it is in a block or expires (about 40 blocks). Do not send it again.")
+                Text("The release was made but could not be delivered yet. Lock it keeps trying until it is in a block or expires (about 40 blocks). Do not release it again.")
                     .font(Theme.text(14)).foregroundStyle(Theme.gold).multilineTextAlignment(.center)
             }
             Spacer()
@@ -330,7 +361,9 @@ struct SendView: View {
             problem = "Only saved addresses can be used. Pick one above, or change the rule in Settings."
             return
         }
-        do { stage = .review(try await engine.plan(to: to, amount: amount)) }
+        let note = memo.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard note.utf8.count <= 512 else { problem = "The private note is too long (at most 512 bytes)."; return }
+        do { stage = .review(try await engine.plan(to: to, amount: amount, memo: note.isEmpty ? nil : note)) }
         catch { problem = String(describing: error) }
     }
 

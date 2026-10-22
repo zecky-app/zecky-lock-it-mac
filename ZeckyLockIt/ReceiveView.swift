@@ -2,49 +2,31 @@ import AppKit
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 
-/// Lock more: one private address, its QR code with the Z, and Copy.
+/// Lock more: the QR with the Z gets the room; the address as one short
+/// line, click to copy; then Request an amount and All addresses.
 struct ReceiveView: View {
     @ObservedObject var engine: WalletEngine
     let onClose: () -> Void
 
+    private enum Mode { case address, request, all }
+    @State private var mode: Mode = .address
     @State private var address: String?
     @State private var problem: String?
     @State private var copied = false
+    @State private var requestText = ""
+    @State private var usage: [String: Int] = [:]
+    @State private var copiedOther: String?
 
     var body: some View {
-        SheetScaffold(title: "Lock more",
-                      subtitle: "Send Zcash to this private address. It locks in by itself.",
-                      height: 500,
+        SheetScaffold(title: mode == .all ? "All addresses" : "Lock more",
+                      subtitle: mode == .all ? "Every private address this wallet has handed out." : "Send Zcash to this private address. It locks in by itself.",
+                      height: 600,
                       onClose: onClose) {
             if let address {
-                HStack(alignment: .top, spacing: 20) {
-                    qrCard(address)
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("PRIVATE ADDRESS").font(Theme.text(11, weight: .semibold)).tracking(1.4).foregroundStyle(Theme.muted)
-                        Text(grouped(address))
-                            .font(.system(size: 12.5, design: .monospaced))
-                            .lineSpacing(4)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                        PrimaryButton(title: copied ? "Copied ✓" : "Copy address") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(address, forType: .string)
-                            withAnimation { copied = true }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation { copied = false } }
-                        }
-                        .padding(.top, 4)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                switch mode {
+                case .address, .request: main(address)
+                case .all: allAddresses
                 }
-
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "shield.lefthalf.filled").foregroundStyle(Theme.gold)
-                    Text("Shielded: amounts, sender and this address stay private on the blockchain. Once this address has been paid, a fresh one appears here, so payments can't be linked.")
-                        .font(Theme.text(12)).foregroundStyle(Theme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .card(padding: 14)
-                .padding(.top, 20)
             } else if let problem {
                 Text(problem).foregroundStyle(Theme.red)
                 Spacer()
@@ -59,26 +41,136 @@ struct ReceiveView: View {
         }
     }
 
-    private func qrCard(_ address: String) -> some View {
+    // MARK: The address
+
+    private func main(_ address: String) -> some View {
+        let payload = requestURI(address)
+        return VStack(spacing: 14) {
+            qrCard(payload ?? address)
+            if mode == .request {
+                HStack(spacing: 8) {
+                    Text("Ask for").font(Theme.text(13)).foregroundStyle(Theme.muted)
+                    TextField("", text: $requestText, prompt: Text("0.000").foregroundColor(Theme.muted.opacity(0.6)))
+                        .textFieldStyle(.plain).font(Theme.serif(22, weight: .medium))
+                        .multilineTextAlignment(.trailing).frame(width: 120)
+                    Text("ZEC").font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.muted)
+                }
+                .padding(.horizontal, 14).frame(height: 40)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line))
+            }
+            Button { copy(payload ?? address) } label: {
+                VStack(spacing: 4) {
+                    Text(shortGrouped(address))
+                        .font(.system(size: 13, design: .monospaced)).foregroundStyle(Theme.text)
+                    Text(copied ? "Copied ✓" : (payload != nil ? "Click to copy the request" : "Click to copy"))
+                        .font(Theme.text(11, weight: .medium)).foregroundStyle(copied ? Theme.green : Theme.gold)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(grouped(address))
+            HStack(spacing: 18) {
+                link(mode == .request ? "Just the address" : "Request an amount") {
+                    mode = mode == .request ? .address : .request; requestText = ""
+                }
+                Text("·").foregroundStyle(Theme.muted.opacity(0.6))
+                link("All addresses") { mode = .all; Task { usage = (try? await engine.addressUsage()) ?? [:] } }
+            }
+            Spacer(minLength: 0)
+            Label("Shielded: amounts, sender and this address stay private. Once it has been paid, a fresh one appears here.", systemImage: "shield.lefthalf.filled")
+                .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                .labelStyle(GoldIconLabelStyle())
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// ZIP-321 request: "zcash:<address>?amount=0.5". Nil without a valid amount.
+    private func requestURI(_ address: String) -> String? {
+        guard mode == .request else { return nil }
+        let text = requestText.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+        guard let value = Decimal(string: text, locale: Locale(identifier: "en_US")), value > 0, value < 21_000_000,
+              text.range(of: #"^\d+(\.\d{1,8})?$"#, options: .regularExpression) != nil else { return nil }
+        return "zcash:\(address)?amount=\(text)"
+    }
+
+    // MARK: All addresses
+
+    private var allAddresses: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("They all lead to the same lock. A fresh one for each payer keeps payments from being linked to each other; an older one still works.")
+                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(Array(AddressBook.load().enumerated()), id: \.element) { i, a in
+                        if i > 0 { Rectangle().fill(Theme.line).frame(height: 1) }
+                        Button { copy(a); copiedOther = a } label: {
+                            HStack {
+                                Text(shortGrouped(a)).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.text)
+                                Spacer()
+                                let paid = usage[a] ?? 0
+                                Text(copiedOther == a ? "Copied ✓" : (paid == 0 ? "Not paid yet" : "Paid \(paid)×"))
+                                    .font(Theme.text(11, weight: .medium))
+                                    .foregroundStyle(copiedOther == a ? Theme.green : Theme.muted)
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 10)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(grouped(a))
+                    }
+                }
+                .card(padding: 4)
+            }
+            link("Back to Lock more") { mode = .address }
+        }
+    }
+
+    // MARK: Pieces
+
+    private func link(_ title: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        withAnimation { copied = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation { copied = false; copiedOther = nil } }
+    }
+
+    private func qrCard(_ text: String) -> some View {
         ZStack {
-            if let qr = QRCode.image(for: address) {
+            if let qr = QRCode.image(for: text) {
                 Image(nsImage: qr).interpolation(.none).resizable()
-                    .frame(width: 208, height: 208)
+                    .frame(width: 250, height: 250)
             }
             // The Z in the middle; the code is made with high error
             // correction so it still scans.
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Theme.plateInk)
-                .frame(width: 46, height: 46)
-                .overlay(Text("Z").font(Theme.serif(30, weight: .medium)).foregroundStyle(Theme.metalGold).offset(y: -1))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.white, lineWidth: 3))
+                .frame(width: 54, height: 54)
+                .overlay(Text("Z").font(Theme.serif(34, weight: .medium)).foregroundStyle(Theme.metalGold).offset(y: -1))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white, lineWidth: 3))
         }
-        .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.gold.opacity(0.8), lineWidth: 1.5))
+        .padding(16)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.gold.opacity(0.8), lineWidth: 1.5))
         .padding(3)
-        .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(Theme.gold.opacity(0.25), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(Theme.gold.opacity(0.25), lineWidth: 1))
         .accessibilityLabel("QR code of your private address")
+    }
+
+    /// "u1ab cdef … wxyz": a short line in groups of four.
+    private func shortGrouped(_ a: String) -> String {
+        guard a.count > 24 else { return grouped(a) }
+        return grouped(String(a.prefix(12))) + " … " + grouped(String(a.suffix(8)))
     }
 
     /// "u1ab cdef …": groups of four, easier to compare by eye.
