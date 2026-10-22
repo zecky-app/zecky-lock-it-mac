@@ -730,6 +730,7 @@ struct HowItWorks: View {
             "Your 24 words are made on this Mac from the system's secure random generator (256 bits), checked, and mixed with a second source.",
             "They are sealed with a key inside this Mac's Secure Enclave. Only Touch ID or your Mac password (and your Zecky code, if set) opens the seal. They are never synced, never in a backup, never written to a log, and never sent anywhere.",
             "They are opened only to sign a release or to show them to you, and let go straight after. While they are on screen, screenshots and screen sharing show an empty window.",
+            "Your history (amounts and dates, never the words) is kept in Lock it's own protected folder on this Mac and left out of Time Machine. Keep FileVault on (System Settings › Privacy & Security) so the whole disk is encrypted as well.",
         ]),
         ("Privacy", "shield.lefthalf.filled", [
             "Lock it only hands out shielded addresses: amounts, senders and receivers stay private on the blockchain.",
@@ -740,6 +741,7 @@ struct HowItWorks: View {
             "Lock it talks to one Zcash server (zec.rocks by default) over an encrypted connection. The server sees this Mac's internet address, never your words or your balance.",
             "Your own node (Rock it) on a home or Tailscale address is reached without that layer: at home the traffic stays in your network, and Tailscale encrypts it on the way.",
             "Value is off unless you choose a currency. Then CoinGecko is asked for the price every 5 minutes and sees only this Mac's internet address. There are no accounts, no analytics and no tracking.",
+            "Only a wallet that holds Sapling or public Zcash (usually one restored from another app) needs the Zcash parameter files once, about 50 MB from download.z.cash, the Zcash developers' own download server. It sees this Mac's internet address, nothing about your wallet.",
         ]),
         ("If you lose this Mac", "arrow.counterclockwise", [
             "Your 24 words and birthday block restore the wallet in Lock it or any Zcash wallet.",

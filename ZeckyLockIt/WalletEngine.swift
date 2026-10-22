@@ -58,6 +58,14 @@ enum WalletFiles {
         return url
     }
 
+    /// The small folder used to ask the chain height before a wallet exists.
+    /// Holds no wallet data; removed on Erase so nothing is left behind.
+    static func removeChainTip() {
+        guard let url = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+            .appendingPathComponent("ChainTip", isDirectory: true) else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
     static func initializer(base: URL, alias: ZcashSynchronizerAlias) -> Initializer {
         Initializer(
             cacheDbURL: nil,

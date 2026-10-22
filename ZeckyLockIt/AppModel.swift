@@ -292,7 +292,10 @@ final class AppModel: ObservableObject {
     /// Erase wallet: the engine's data, the phrase and every other Keychain
     /// item, and every setting. Back to the welcome screen.
     func erase() async throws {
+        closeLock()
+        WalletVault.endSession()
         try await engine.erase()
+        WalletFiles.removeChainTip()
         try WalletVault.eraseAll()
         TimeLock.erase()
         LockLog.erase()
