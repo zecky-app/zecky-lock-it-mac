@@ -13,12 +13,13 @@ struct HomeView: View {
     @Environment(\.colorScheme) private var scheme
 
     /// The plate on the lock: the value when a currency is chosen, else the state.
-    private var plateText: String {
-        if prices.currency != .none {
-            if model.amountsHidden { return "≈ ••••" }
-            return prices.value(of: engine.total) ?? "…"
-        }
-        return model.lockOpen ? "OPEN" : "LOCKED"
+    /// The plate is engraved: LOCKED or OPEN, never a number that moves.
+    private var plateText: String { model.lockOpen ? "OPEN" : "LOCKED" }
+
+    /// The value in the chosen currency, small under the balance.
+    private var valueLine: String? {
+        guard prices.currency != .none, !model.amountsHidden else { return nil }
+        return prices.value(of: engine.total)
     }
 
     var body: some View {
@@ -88,17 +89,6 @@ struct HomeView: View {
                         }
                         .frame(height: 330)
 
-                        // The plate shows LOCKED / OPEN unless it shows the value.
-                        if prices.currency != .none {
-                            Text(model.lockOpen ? "OPEN" : "LOCKED")
-                                .font(Theme.text(11, weight: .semibold)).tracking(1.6)
-                                .foregroundStyle(model.lockOpen ? Theme.red : Theme.green)
-                                .padding(.horizontal, 12).frame(height: 24)
-                                .background((model.lockOpen ? Theme.red : Theme.green).opacity(0.15))
-                                .clipShape(Capsule())
-                                .padding(.top, 10)
-                        }
-
                         Button { if !model.amountsHidden { model.unit = model.unit == .zec ? .zats : .zec } } label: {
                             VStack(spacing: 2) {
                                 HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -112,9 +102,13 @@ struct HomeView: View {
                         .buttonStyle(.plain)
                         .help(model.amountsHidden ? "" : "Click to show in \(model.unit == .zec ? "zats" : "ZEC")")
                         .accessibilityHint("Switches between ZEC and zats")
+                        if let valueLine {
+                            Text(valueLine).font(Theme.text(13)).foregroundStyle(Theme.muted)
+                                .padding(.top, -4)
+                        }
 
                         VStack(spacing: 3) {
-                            Text(heldLine).font(Theme.text(13)).foregroundStyle(Theme.muted)
+                            heldText
                             if engine.orchardHeld > 0 && engine.status == .upToDate {
                                 Button { model.sheet = .ironwood } label: {
                                     HStack(spacing: 4) {
@@ -128,9 +122,18 @@ struct HomeView: View {
                                 .buttonStyle(.plain)
                                 .padding(.top, 2)
                             }
-                            if let m = milestone, engine.lockedSince != nil {
-                                Text("Next milestone: \(m.name) · in \(m.inDays) \(m.inDays == 1 ? "day" : "days")")
-                                    .font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                            if engine.outsideTheLock > 0 && engine.status == .upToDate {
+                                Button { model.sheet = .lockIn } label: {
+                                    HStack(spacing: 4) {
+                                        Text(model.amountsHidden ? "Zcash waiting outside the lock" : "+\(Amount.text(engine.outsideTheLock, model.unit)) waiting outside the lock")
+                                        Text("· Lock it in").fontWeight(.semibold)
+                                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                                    }
+                                    .font(Theme.text(12)).foregroundStyle(Theme.gold)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.top, 2)
                             }
                         }
                         if engine.status == .upToDate && engine.total > engine.spendable {
@@ -140,21 +143,33 @@ struct HomeView: View {
                                 .font(Theme.text(12)).foregroundStyle(Theme.muted)
                         }
 
-                        BrassButton(title: "Lock more", icon: "lock.fill") { model.sheet = .receive }
-                            .frame(width: 230)
-                            .disabled(engine.status == .connecting)
-                            .padding(.top, 12)
+                        Group {
+                            if model.lockOpen {
+                                HStack(spacing: 12) {
+                                    BrassButton(title: "Release Zcash", icon: "lock.open.fill") { model.sheet = .send }
+                                        .frame(width: 210)
+                                    SecondaryButton(title: "Close the lock") { model.closeLock() }
+                                        .frame(width: 160)
+                                        .keyboardShortcut(.cancelAction)
+                                }
+                            } else {
+                                BrassButton(title: "Lock more", icon: "lock.fill") { model.sheet = .receive }
+                                    .frame(width: 230)
+                                    .disabled(engine.status == .connecting)
+                            }
+                        }
+                        .padding(.top, 12)
                         if let note = model.openNote {
                             Text(note).font(Theme.text(12)).foregroundStyle(Theme.muted)
                         }
                         timeLockLine
 
-                        if let last = engine.activity.first {
+                        if let waiting = engine.activity.first(where: { $0.state == .waiting }) {
                             Button { model.sheet = .activity } label: {
                                 HStack(spacing: 6) {
-                                    Image(systemName: last.kind == .received ? "lock.fill" : "lock.open")
+                                    Image(systemName: waiting.kind == .received ? "lock.fill" : "lock.open")
                                         .font(.system(size: 10))
-                                    Text(lastLine(last))
+                                    Text(waitingLine(waiting))
                                     Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
                                 }
                                 .font(Theme.text(12))
@@ -245,10 +260,11 @@ struct HomeView: View {
         .sheet(item: $model.sheet, onDismiss: { model.sheetClosed() }) { sheet in
             switch sheet {
             case .receive: ReceiveView(engine: engine) { model.sheet = nil }
-            case .send: SendView(engine: engine, opened: model.takeOpened(), signing: { model.signing = $0 }) { model.sheet = nil }
+            case .send: SendView(engine: engine, opened: model.opened, signing: { model.signing = $0 }, onReleased: { model.released = true }) { model.sheet = nil }
             case .settings: SettingsView(model: model, prices: prices) { model.sheet = nil }
             case .activity: ActivitySheet(model: model, engine: engine) { model.sheet = nil }
-            case .ironwood: IronwoodSheet(model: model, engine: engine) { model.sheet = nil }
+            case .ironwood: IronwoodSheet(model: model, engine: engine, kind: .ironwood) { model.sheet = nil }
+            case .lockIn: IronwoodSheet(model: model, engine: engine, kind: .lockIn) { model.sheet = nil }
             }
         }
     }
@@ -272,15 +288,12 @@ struct HomeView: View {
         Milestone.next(after: heldDays ?? 0)
     }
 
-    private func lastLine(_ item: WalletEngine.ActivityItem) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US")
-        f.dateFormat = "MMM d"
-        let what = item.kind == .received ? "Last locked" : "Last released"
-        let when = item.date.map { f.string(from: $0) } ?? "waiting for a block"
-        if model.amountsHidden { return "\(what) · \(when)" }
+    /// Only while a payment waits for a block.
+    private func waitingLine(_ item: WalletEngine.ActivityItem) -> String {
+        let what = item.kind == .received ? "Locking in" : "Releasing"
+        if model.amountsHidden { return "\(what) · waiting for a block" }
         let sign = item.kind == .received ? "+" : "−"
-        return "\(what) \(sign)\(Amount.text(item.amount, model.unit)) · \(when)"
+        return "\(what) \(sign)\(Amount.text(item.amount, model.unit)) · waiting for a block"
     }
 
     private var heldDays: Int? {
@@ -322,15 +335,17 @@ struct HomeView: View {
         }
     }
 
-    private var heldLine: String {
-        guard let since = engine.lockedSince, let days = heldDays else {
-            return engine.total > 0 ? "Locked on this Mac" : "Nothing locked yet. Choose Lock more to begin."
+    /// One line: how long it is locked, and the next milestone in gold.
+    private var heldText: Text {
+        guard engine.lockedSince != nil, let days = heldDays else {
+            return Text(engine.total > 0 ? "Locked on this Mac" : "Nothing locked yet. Choose Lock more to begin.")
+                .font(Theme.text(13)).foregroundColor(Theme.muted)
         }
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US")
-        f.dateFormat = "MMMM d, yyyy"
-        if days == 0 { return "Locked since today" }
-        return "Locked for \(days) \(days == 1 ? "day" : "days") · since \(f.string(from: since))"
+        let held = Text(days == 0 ? "Locked since today" : "Locked for \(days) \(days == 1 ? "day" : "days")")
+            .font(Theme.text(13)).foregroundColor(Theme.muted)
+        guard let m = milestone else { return held }
+        return held + Text(" · \(m.name) in \(m.inDays) \(m.inDays == 1 ? "day" : "days")")
+            .font(Theme.text(13, weight: .medium)).foregroundColor(Theme.gold)
     }
 
     private var statusText: String { baseStatus + (Server.isRockIt ? " · Rock it" : "") }
@@ -666,26 +681,31 @@ struct ActivityList: View {
     }
 }
 
-/// Moving Zcash out of the old Orchard pool into Ironwood, once.
+/// Moves inside the wallet itself: Orchard into Ironwood, or public
+/// (transparent) Zcash locked in to the private pool. Nothing leaves.
 struct IronwoodSheet: View {
     @ObservedObject var model: AppModel
     @ObservedObject var engine: WalletEngine
+    enum Kind { case ironwood, lockIn }
+    let kind: Kind
     let onClose: () -> Void
+
+    private var held: Int64 { kind == .ironwood ? engine.orchardHeld : engine.outsideTheLock }
 
     private enum Stage { case loading, ready(WalletEngine.SendPlan), code(WalletEngine.SendPlan), moving, done, failed(String) }
     @State private var stage: Stage = .loading
     @State private var note: String?
 
     var body: some View {
-        SheetScaffold(title: "Move to Ironwood",
-                      subtitle: "Once, inside your own wallet.",
+        SheetScaffold(title: kind == .ironwood ? "Move to Ironwood" : "Lock it in",
+                      subtitle: kind == .ironwood ? "Once, inside your own wallet." : "From the public address into the lock.",
                       closeLabel: "Close", showsClose: !isMoving, height: 560, onClose: onClose) {
             switch stage {
             case .loading:
                 VStack { Spacer(); ProgressView().controlSize(.small); Spacer() }.frame(maxWidth: .infinity)
             case .ready(let plan): ready(plan)
             case .code(let plan):
-                CodePrompt(action: "Move",
+                CodePrompt(action: kind == .ironwood ? "Move" : "Lock it in",
                            submit: { code in await unseal(code: code) },
                            onDone: { Task { await move(plan) } },
                            onCancel: { stage = .ready(plan) })
@@ -694,7 +714,7 @@ struct IronwoodSheet: View {
                     Spacer()
                     PadlockView(open: true, size: 90)
                     ProgressView().controlSize(.small)
-                    Text("Moving…").font(Theme.text(13)).foregroundStyle(Theme.muted)
+                    Text(kind == .ironwood ? "Moving…" : "Locking in…").font(Theme.text(13)).foregroundStyle(Theme.muted)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
@@ -702,7 +722,7 @@ struct IronwoodSheet: View {
                 VStack(spacing: 16) {
                     Spacer()
                     PadlockView(open: false, size: 100)
-                    Text("Moved. It shows in Ironwood once it is in a block, and stays locked.")
+                    Text(kind == .ironwood ? "Moved. It shows in Ironwood once it is in a block, and stays locked." : "Locking in. Once it is in a block it is locked in ✓, private like the rest.")
                         .font(Theme.text(14)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                     Spacer()
                     PrimaryButton(title: "Done", action: onClose).frame(width: 180).keyboardShortcut(.defaultAction)
@@ -712,7 +732,7 @@ struct IronwoodSheet: View {
                 VStack(spacing: 14) {
                     Spacer()
                     Text(why).font(Theme.text(13)).foregroundStyle(Theme.red).multilineTextAlignment(.center)
-                    Text("Nothing was moved.").font(Theme.text(13)).foregroundStyle(Theme.muted)
+                    Text(kind == .ironwood ? "Nothing was moved." : "Nothing was locked in.").font(Theme.text(13)).foregroundStyle(Theme.muted)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
@@ -725,14 +745,16 @@ struct IronwoodSheet: View {
 
     private func ready(_ plan: WalletEngine.SendPlan) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Since the Ironwood upgrade (28 July 2026) the Orchard pool only lets Zcash out; new Zcash goes to Ironwood. Part of yours is still in Orchard. Move it once to Ironwood, in this same wallet, and it stays as private as before. Your other Zcash is not touched.")
+            Text(kind == .ironwood
+                 ? "Since the Ironwood upgrade (28 July 2026) the Orchard pool only lets Zcash out; new Zcash goes to Ironwood. Part of yours is still in Orchard. Move it once to Ironwood, in this same wallet, and it stays as private as before. Your other Zcash is not touched."
+                 : "This Zcash arrived on a public address of this wallet, so its amount and sender are visible on the blockchain. Lock it in, and from then on it is private like the rest. Lock it never hands out a public address itself.")
                 .font(Theme.text(13)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(spacing: 8) {
-                row("In Orchard now", Amount.text(engine.orchardHeld, model.unit))
+                row(kind == .ironwood ? "In Orchard now" : "Outside the lock", Amount.text(held, model.unit))
                 row("Network fee", Amount.text(plan.fee, model.unit))
                 Rectangle().fill(Theme.line).frame(height: 1)
-                row("Arrives in Ironwood", Amount.text(plan.amount, model.unit), strong: true)
+                row(kind == .ironwood ? "Arrives in Ironwood" : "Locked in", Amount.text(plan.amount, model.unit), strong: true)
             }
             .card(padding: 16)
             if let note { Text(note).font(Theme.text(12)).foregroundStyle(Theme.red) }
@@ -741,7 +763,8 @@ struct IronwoodSheet: View {
                 Text("Your time lock does not apply: nothing leaves your wallet.")
                     .font(Theme.text(11)).foregroundStyle(Theme.muted)
                 Spacer()
-                BrassButton(title: "Move to Ironwood", icon: "arrow.right.circle.fill") { Task { await start(plan) } }
+                BrassButton(title: kind == .ironwood ? "Move to Ironwood" : "Lock it in",
+                            icon: kind == .ironwood ? "arrow.right.circle.fill" : "lock.fill") { Task { await start(plan) } }
                     .frame(width: 230)
             }
         }
@@ -760,7 +783,7 @@ struct IronwoodSheet: View {
     @State private var wallet: StoredWallet?
 
     private func load() async {
-        do { stage = .ready(try await engine.planIronwoodMove()) }
+        do { stage = .ready(try await (kind == .ironwood ? engine.planIronwoodMove() : engine.planLockIn())) }
         catch { stage = .failed(String(describing: error)) }
     }
 
@@ -773,10 +796,10 @@ struct IronwoodSheet: View {
 
     private func unseal(code: String?) async -> String? {
         do {
-            wallet = try await WalletVault.unseal(reason: "move your Zcash to Ironwood", code: code, fresh: false)
+            wallet = try await WalletVault.unseal(reason: kind == .ironwood ? "move your Zcash to Ironwood" : "lock your public Zcash in", code: code, fresh: false)
             return nil
         } catch WalletVault.Failure.cancelled {
-            return "Not confirmed, so nothing was moved."
+            return kind == .ironwood ? "Not confirmed, so nothing was moved." : "Not confirmed, so nothing was locked in."
         } catch { return String(describing: error) }
     }
 

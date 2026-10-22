@@ -237,6 +237,22 @@ final class WalletEngine: ObservableObject {
         return SendPlan(proposal: proposal, to: "Ironwood", amount: max(0, orchardHeld - fee), fee: fee, toSelf: true)
     }
 
+    // MARK: Outside the lock
+
+    /// Zcash on a public (transparent) address. Lock it never hands one out,
+    /// but a wallet restored from another app can have some.
+    @Published var outsideTheLock: Int64 = 0
+
+    /// Locks public Zcash in: shields it into this wallet's private pool.
+    func planLockIn() async throws -> SendPlan {
+        guard let synchronizer, let account else { throw EngineError.notReady }
+        guard let proposal = try await synchronizer.proposeShielding(
+            accountUUID: account, shieldingThreshold: Zatoshi(10_000), memo: .empty, transparentReceiver: nil)
+        else { throw SendError.tooLittle }
+        let fee = proposal.totalFeeRequired().amount
+        return SendPlan(proposal: proposal, to: "Lock it in", amount: max(0, outsideTheLock - fee), fee: fee, toSelf: true)
+    }
+
     func plan(to address: String, amount: Int64?) async throws -> SendPlan {
         guard let synchronizer, let account else { throw EngineError.notReady }
         let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -317,6 +333,7 @@ final class WalletEngine: ObservableObject {
         spendable = 0
         total = 0
         orchardHeld = 0
+        outsideTheLock = 0
         status = .connecting
     }
 
@@ -361,8 +378,10 @@ final class WalletEngine: ObservableObject {
         var spendable: Int64 = 0
         var total: Int64 = 0
         var orchard: Int64 = 0
+        var unshielded: Int64 = 0
         for balance in state.accountsBalances.values {
             orchard += balance.orchardBalance.total().amount
+            unshielded += balance.unshielded.amount
             for pool in [balance.saplingBalance, balance.orchardBalance, balance.ironwoodBalance] {
                 spendable += pool.spendableValue.amount
                 total += pool.total().amount
@@ -372,5 +391,6 @@ final class WalletEngine: ObservableObject {
         self.spendable = spendable
         self.total = total
         self.orchardHeld = orchard
+        self.outsideTheLock = unshielded
     }
 }

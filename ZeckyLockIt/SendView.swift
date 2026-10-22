@@ -29,9 +29,13 @@ struct SendView: View {
     /// Tells the app while signing, so the open lock is not closed mid-way.
     let signing: (Bool) -> Void
 
-    init(engine: WalletEngine, opened: StoredWallet?, signing: @escaping (Bool) -> Void, onClose: @escaping () -> Void) {
+    let onReleased: () -> Void
+
+    init(engine: WalletEngine, opened: StoredWallet?, signing: @escaping (Bool) -> Void,
+         onReleased: @escaping () -> Void, onClose: @escaping () -> Void) {
         self.engine = engine
         self.signing = signing
+        self.onReleased = onReleased
         self.onClose = onClose
         _opened = State(initialValue: opened)
     }
@@ -350,6 +354,7 @@ struct SendView: View {
             stage = .done(try await engine.send(plan, seed: seed))
             if !plan.toSelf { sentTo = plan.to }
             opened = nil
+            onReleased()
         } catch {
             used = false
             problem = String(describing: error); stage = .form

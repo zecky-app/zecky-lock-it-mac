@@ -22,7 +22,7 @@ final class AppModel: ObservableObject {
 
     @Published var screen: Screen = .loading
     /// The sheet over the home screen, also opened from the menu bar.
-    enum Sheet: Identifiable { case receive, send, settings, activity, ironwood; var id: Self { self } }
+    enum Sheet: Identifiable { case receive, send, settings, activity, ironwood, lockIn; var id: Self { self } }
     @Published var sheet: Sheet?
     /// The lock on the home screen: asking first, then open while releasing.
     @Published var asking = false
@@ -94,17 +94,27 @@ final class AppModel: ObservableObject {
         askingCode = false
         if breakingGlass { TimeLock.recordBroken(); breakingGlass = false; timeLockChanged += 1 }
         lockOpen = true
+        released = false
+        // The open lock waits on home; it closes by itself after 2 minutes
+        // unless Release is being filled in.
+        let token = UUID()
+        openToken = token
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 650_000_000)
-            if lockOpen { sheet = .send }
+            try? await Task.sleep(nanoseconds: UInt64(Self.openLimit * 1_000_000_000))
+            if lockOpen && openToken == token && sheet != .send { closeLock() }
         }
     }
+
+    private var openToken: UUID?
+    /// Set once a release was signed; closing Release then closes the lock.
+    var released = false
 
     /// Hands the phrase over for signing, once.
     func takeOpened() -> StoredWallet? { defer { opened = nil }; return opened }
 
-    /// The lock closes again by itself once the release sheet is gone.
-    func sheetClosed() { opened = nil; if lockOpen { lockOpen = false } }
+    /// After a release, the lock closes again once Release is gone. Closing
+    /// Release without releasing leaves the lock open (for up to 2 minutes).
+    func sheetClosed() { if released { released = false; closeLock() } }
     var hasWallet: Bool { if case .home = screen { return !locked } else { return false } }
 
     // MARK: Auto-lock
@@ -168,6 +178,7 @@ final class AppModel: ObservableObject {
     /// Closes Release and the open lock, and lets go of the unsealed phrase.
     func closeLock() {
         guard !signing else { return }
+        openToken = nil
         if sheet == .send { sheet = nil }
         opened = nil
         asking = false

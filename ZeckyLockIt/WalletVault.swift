@@ -220,6 +220,11 @@ enum WalletVault {
             context = LAContext()
         } else if !fresh, let session {
             context = session; own = false
+        } else if !fresh {
+            // No confirmation yet in this session: this one starts it, so
+            // opening the lock does not ask again until Lock it locks.
+            context = try await confirmOwner(reason: reason)
+            session = context; own = false
         } else {
             context = try await confirmOwner(reason: reason)
         }
