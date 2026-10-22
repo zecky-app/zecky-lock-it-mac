@@ -4,6 +4,7 @@ import SwiftUI
 /// before anything leaves the lock.
 struct SendView: View {
     @ObservedObject var engine: WalletEngine
+    @ObservedObject var prices: PriceFeed
     /// The phrase the owner unsealed when opening the lock. Used once.
     @State private var opened: StoredWallet?
     let onClose: () -> Void
@@ -23,6 +24,8 @@ struct SendView: View {
     @State private var used = false
     @State private var sentTo: String?
     @State private var showNote = false
+    /// The amount is typed in the currency chosen under Settings › Value.
+    @State private var fiat = false
     @State private var memo = ""
     @State private var showBook = false
     @State private var newName = ""
@@ -33,9 +36,10 @@ struct SendView: View {
 
     let onReleased: () -> Void
 
-    init(engine: WalletEngine, opened: StoredWallet?, signing: @escaping (Bool) -> Void,
+    init(engine: WalletEngine, prices: PriceFeed, opened: StoredWallet?, signing: @escaping (Bool) -> Void,
          onReleased: @escaping () -> Void, onClose: @escaping () -> Void) {
         self.engine = engine
+        self.prices = prices
         self.signing = signing
         self.onReleased = onReleased
         self.onClose = onClose
@@ -139,8 +143,11 @@ struct SendView: View {
                     fieldLabel("AMOUNT")
                     Spacer()
                     HStack(spacing: 6) {
-                        Chip(title: "ZEC", on: unit == .zec) { switchUnit(.zec) }
-                        Chip(title: "zats", on: unit == .zats) { switchUnit(.zats) }
+                        Chip(title: "ZEC", on: !fiat && unit == .zec) { switchUnit(.zec) }
+                        Chip(title: "zats", on: !fiat && unit == .zats) { switchUnit(.zats) }
+                        if rate != nil {
+                            Chip(title: prices.currency.short, on: fiat) { switchToFiat() }
+                        }
                     }
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -154,10 +161,17 @@ struct SendView: View {
                             .font(Theme.serif(34, weight: .medium))
                     }
                     Spacer()
-                    Text(unit.rawValue).font(Theme.text(14, weight: .medium)).foregroundStyle(Theme.muted)
+                    Text(fiat && !max ? prices.currency.short : unit.rawValue)
+                        .font(Theme.text(14, weight: .medium)).foregroundStyle(Theme.muted)
+                }
+                if fiat && !max {
+                    Text(zatoshi(amountText).map { "= \(Amount.text($0, unit)) at CoinGecko's price of a few minutes ago; the exact amount is on the next screen" }
+                         ?? "Type an amount in \(prices.currency.short)")
+                        .font(Theme.text(12)).foregroundStyle(Theme.gold)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack {
-                    Text("\(Amount.text(engine.spendable, unit)) available")
+                    Text("\(Amount.text(engine.spendable, unit)) available" + (prices.value(of: engine.spendable).map { " · \($0)" } ?? ""))
                         .font(Theme.text(12)).foregroundStyle(Theme.muted)
                     Spacer()
                     Chip(title: "Max", on: max) { max.toggle() }
@@ -226,14 +240,14 @@ struct SendView: View {
                         .padding(.bottom, 6)
                         .textSelection(.enabled)
                 }
-                receiptRow(plan.toSelf ? "Arrives at your address" : "They receive", Amount.text(plan.amount, unit))
+                receiptRow(plan.toSelf ? "Arrives at your address" : "They receive", money(plan.amount))
                 receiptRow("Network fee", Amount.text(plan.fee, unit))
                 Rectangle().fill(Theme.line).frame(height: 1).padding(.vertical, 8)
-                receiptRow("Total released", Amount.text(total, unit), strong: true)
+                receiptRow("Total released", money(total), strong: true)
                 if let note = plan.memo {
                     receiptRow("Private note", note.count > 40 ? String(note.prefix(40)) + "…" : note)
                 }
-                receiptRow("Stays locked", Amount.text(left, unit), accent: true)
+                receiptRow("Stays locked", money(left), accent: true)
             }
             .card(padding: 18)
             if plan.toSelf {
@@ -324,15 +338,43 @@ struct SendView: View {
     }
 
     /// Keeps the typed amount when switching units.
+    /// ZEC per one unit of the chosen currency, when a price is known.
+    private var rate: Double? {
+        guard prices.currency != .none else { return nil }
+        return prices.rates[prices.currency.rawValue]
+    }
+
     private func switchUnit(_ next: Amount.Unit) {
-        guard next != unit else { return }
-        if let z = zatoshi(amountText) { amountText = next == .zec ? Amount.zec(z).replacingOccurrences(of: ",", with: "") : String(z) }
+        guard fiat || next != unit else { return }
+        let z = zatoshi(amountText)
+        fiat = false
         unit = next
+        if let z { amountText = next == .zec ? Amount.zec(z).replacingOccurrences(of: ",", with: "") : String(z) }
+    }
+
+    private func switchToFiat() {
+        guard !fiat, let rate else { return }
+        let z = zatoshi(amountText)
+        fiat = true
+        if let z {
+            let value = Double(z) / 100_000_000 * rate
+            amountText = prices.currency == .btc ? String(format: "%.8f", value) : String(format: "%.2f", value)
+        }
+    }
+
+    /// "0.5 ZEC · ≈ $12.30" when a currency is chosen.
+    private func money(_ zatoshi: Int64) -> String {
+        Amount.text(zatoshi, unit) + (prices.value(of: zatoshi).map { "  \($0)" } ?? "")
     }
 
     /// "1.25" ZEC → 125,000,000; "1,500" zats → 1,500. US style.
     private func zatoshi(_ text: String) -> Int64? {
         let cleaned = text.replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces)
+        if fiat {
+            guard let rate, rate > 0, let value = Double(cleaned), value > 0 else { return nil }
+            let z = (value / rate * 100_000_000).rounded()
+            return z >= 1 ? Int64(z) : nil
+        }
         if unit == .zats {
             guard let v = Int64(cleaned), v > 0 else { return nil }
             return v
@@ -352,7 +394,7 @@ struct SendView: View {
         var amount: Int64?
         if !max {
             guard let parsed = zatoshi(amountText) else {
-                problem = unit == .zec ? "Enter the amount as a number, like 0.5 (at most 8 decimals)." : "Enter a whole number of zats."
+                problem = fiat ? "Enter an amount in \(prices.currency.short), like 25.00." : (unit == .zec ? "Enter the amount as a number, like 0.5 (at most 8 decimals)." : "Enter a whole number of zats.")
                 return
             }
             amount = parsed
