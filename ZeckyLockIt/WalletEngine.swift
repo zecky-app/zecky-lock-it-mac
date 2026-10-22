@@ -326,21 +326,41 @@ final class WalletEngine: ObservableObject {
                 throw error
             }
         }
-        // Max: the fee depends on how many notes are used, so start from the
-        // minimum and adjust until amount + fee is exactly the spendable balance.
+        // Max: everything spendable leaves, minus exactly the fee, so nothing
+        // is left behind. The fee depends on how many notes are spent and on
+        // whether a change output is needed, so try, read the engine's quote,
+        // and adjust: a rejected try means the fee was too low (one more
+        // ZIP-317 action is 5,000 zats); a lower quote means change would be
+        // left over, so the amount can go up.
         var fee: Int64 = 10_000
-        for _ in 0..<12 {
+        var tried = Set<Int64>()
+        var closest: SendPlan?
+        var lastError: Error?
+        for _ in 0..<24 {
             let amount = spendable - fee
-            guard amount > 0 else { throw SendError.notEnough }
-            let proposal = try await synchronizer.proposeTransfer(
-                accountUUID: account, recipient: recipient, amount: Zatoshi(amount), memo: memo)
-            let quoted = proposal.totalFeeRequired().amount
-            if quoted == fee {
-                return SendPlan(proposal: proposal, to: trimmed, amount: amount, fee: fee, toSelf: toSelf, memo: text)
+            guard amount > 0 else { break }
+            guard tried.insert(fee).inserted else { break }
+            do {
+                let proposal = try await synchronizer.proposeTransfer(
+                    accountUUID: account, recipient: recipient, amount: Zatoshi(amount), memo: memo)
+                let quoted = proposal.totalFeeRequired().amount
+                let plan = SendPlan(proposal: proposal, to: trimmed, amount: amount, fee: quoted, toSelf: toSelf, memo: text)
+                if quoted == fee { return plan }
+                if quoted < fee {
+                    // Works, but (fee - quoted) would stay behind as change.
+                    if closest == nil || amount > closest!.amount { closest = plan }
+                    fee = quoted
+                } else {
+                    fee = quoted
+                }
+            } catch {
+                lastError = error
+                fee += 5_000
             }
-            fee = quoted
         }
-        throw SendError.notEnough
+        if let closest { return closest }
+        if spendable <= 10_000 { throw SendError.notEnough }
+        throw lastError ?? SendError.notEnough
     }
 
     /// Signs with a key derived from the seed for this payment only, and
