@@ -103,6 +103,27 @@ final class ZeckyLockItTests: XCTestCase {
         }
     }
 
+    // MARK: Waiting for confirmations (same numbers as the iPhone)
+
+    func testWaitingCountsDownLikeTheIPhone() {
+        typealias Item = WalletEngine.ActivityItem
+        let received = Item(id: Data([1]), kind: .received, amount: 1, date: Date(), state: .confirmed, minedHeight: 100)
+        let own = Item(id: Data([2]), kind: .sent, amount: 1, date: Date(), state: .confirmed, minedHeight: 100)
+        let pending = Item(id: Data([3]), kind: .received, amount: 1, date: nil, state: .waiting, minedHeight: nil)
+
+        // In block 100, network at 103: 4 of 10, 6 blocks × 75 s ≈ 8 minutes.
+        XCTAssertEqual(WalletEngine.slowestWaiting([received], networkHeight: 103),
+                       .init(confirmations: 4, needed: 10, minutes: 8))
+        XCTAssertEqual(WalletEngine.waitingText(.init(confirmations: 4, needed: 10, minutes: 8)),
+                       "usable in about 8 minutes · 4/10 confirmations")
+        // Own change needs 3: at 102 it is done.
+        XCTAssertNil(WalletEngine.slowestWaiting([own], networkHeight: 102))
+        // Not in a block yet: the slowest wins.
+        XCTAssertEqual(WalletEngine.slowestWaiting([received, pending], networkHeight: 103)?.confirmations, 0)
+        XCTAssertEqual(WalletEngine.waitingText(nil), "usable within about 12 minutes")
+        XCTAssertNil(WalletEngine.slowestWaiting([received], networkHeight: 0))
+    }
+
     func testAddressesAreGroupedInFours() {
         XCTAssertEqual(Contacts.grouped("abcdefghij"), "abcd efgh ij")
     }

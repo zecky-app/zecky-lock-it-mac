@@ -115,6 +115,44 @@ final class WalletEngine: ObservableObject {
         let amount: Int64
         let date: Date?
         let state: State
+        var minedHeight: Int? = nil
+    }
+
+    /// The network's latest block, from the engine's state.
+    @Published var networkHeight: Int = 0
+
+    // How long until Zcash that is still confirming can be used, as on the
+    // iPhone (src/lib/confirmations.ts): 10 confirmations for Zcash from
+    // someone else, 3 for the wallet's own change; a block takes about 75 s.
+    nonisolated static let confirmationsReceived = 10
+    nonisolated static let confirmationsOwn = 3
+    nonisolated static let blockSeconds = 75
+
+    struct Waiting: Equatable { let confirmations: Int; let needed: Int; let minutes: Int }
+
+    /// The payment that becomes usable last, or nil.
+    nonisolated static func slowestWaiting(_ items: [ActivityItem], networkHeight: Int) -> Waiting? {
+        guard networkHeight > 0 else { return nil }
+        var best: (w: Waiting, left: Int)?
+        for item in items where item.state != .expired {
+            let needed = item.kind == .received ? confirmationsReceived : confirmationsOwn
+            let confirmations = item.minedHeight.map { max(0, min(needed, networkHeight - $0 + 1)) } ?? 0
+            guard confirmations < needed else { continue }
+            let left = needed - confirmations
+            if best == nil || left > best!.left {
+                best = (Waiting(confirmations: confirmations, needed: needed,
+                                minutes: max(1, Int((Double(left * blockSeconds) / 60).rounded()))), left)
+            }
+        }
+        return best?.w
+    }
+
+    /// "usable in about 6 minutes · 4/10 confirmations"
+    nonisolated static func waitingText(_ w: Waiting?) -> String {
+        guard let w else { return "usable within about 12 minutes" }
+        let time = w.minutes <= 1 ? "about a minute" : "about \(w.minutes) minutes"
+        let progress = w.confirmations == 0 ? "waiting for a block" : "\(w.confirmations)/\(w.needed) confirmations"
+        return "usable in \(time) · \(progress)"
     }
 
     private var synchronizer: SDKSynchronizer?
@@ -347,7 +385,8 @@ final class WalletEngine: ObservableObject {
             else if tx.isExpiredUmined == true { state = .expired }
             else { state = .waiting }
             return ActivityItem(id: tx.rawID, kind: kind, amount: Int64(tx.value.amount.magnitude),
-                                date: tx.blockTime.map { Date(timeIntervalSince1970: $0) }, state: state)
+                                date: tx.blockTime.map { Date(timeIntervalSince1970: $0) }, state: state,
+                                minedHeight: tx.minedHeight.map { Int($0) })
         }
         .sorted { ($0.date ?? .distantFuture) > ($1.date ?? .distantFuture) }
 
@@ -368,7 +407,7 @@ final class WalletEngine: ObservableObject {
     private func apply(_ state: SynchronizerState) {
         switch state.syncStatus {
         case .unprepared: status = .connecting
-        case .syncing(let progress, _): status = .syncing(Int((progress * 100).rounded(.down)))
+        case .syncing(let progress, _): status = .syncing(max(0, min(100, Int((progress * 100).rounded(.down)))))
         case .upToDate:
             status = .upToDate
             Task { await refreshActivity() }
@@ -391,6 +430,7 @@ final class WalletEngine: ObservableObject {
         self.spendable = spendable
         self.total = total
         self.orchardHeld = orchard
+        if state.latestBlockHeight > 0 { self.networkHeight = Int(state.latestBlockHeight) }
         self.outsideTheLock = unshielded
     }
 }

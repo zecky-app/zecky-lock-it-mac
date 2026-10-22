@@ -137,10 +137,11 @@ struct HomeView: View {
                             }
                         }
                         if engine.status == .upToDate && engine.total > engine.spendable {
+                            let wait = WalletEngine.waitingText(WalletEngine.slowestWaiting(engine.activity, networkHeight: engine.networkHeight))
                             Text(model.amountsHidden
-                                 ? "Part of your balance locks in within a few minutes"
-                                 : "\(Amount.text(engine.total - engine.spendable, model.unit)) locks in within a few minutes")
-                                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                                 ? "Part of your balance: \(wait)"
+                                 : "\(Amount.text(engine.total - engine.spendable, model.unit)) locking in · \(wait)")
+                                .font(Theme.text(12)).foregroundStyle(Theme.gold)
                         }
 
                         Group {
