@@ -109,7 +109,7 @@ struct SettingsView: View {
             }
             group("This Mac") {
                 row(.display, "Display", "circle.lefthalf.filled", "\(model.themeMode.label) · Value \(prices.currency.short)")
-                row(.network, "Network", "server.rack", Server.isRockIt ? "Rock it · \(Server.host)" : Server.host)
+                row(.network, "Network", "server.rack", Server.nodeLabel ?? Server.host)
             }
             group("Lock it") {
                 row(.how, "How Zecky works", "book.closed", "The lock, the keys, your privacy")
@@ -136,6 +136,20 @@ struct SettingsView: View {
             .background(Theme.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.red.opacity(0.45), lineWidth: 1))
 
+        }
+    }
+
+    /// What the chosen server can and cannot prove, in plain words.
+    private var networkNote: String {
+        switch Server.nodeKind(Server.host) {
+        case .homeNetwork?:
+            return "Rock it on your home network, without TLS: the traffic stays inside your home. Lock it cannot check that this address is really your node. On another Wi-Fi, a stranger's device with the same numbers could answer: it cannot take anything, but it could hide or delay payments. Away from home, use Rock it's Tailscale address."
+        case .tailscaleIP?:
+            return "Rock it through Tailscale: the connection is encrypted by Tailscale and only reaches your tailnet. A 100.x address is a Tailscale IP; Lock it cannot prove it is your node, so only use the one Rock it shows you."
+        case .thisMac?:
+            return "A node on this Mac itself, without TLS."
+        case nil:
+            return "Encrypted (TLS). The server sees this Mac's internet address, never your phrase or balance. Your own node on a home or Tailscale address is used as Rock it."
         }
     }
 
@@ -396,9 +410,7 @@ struct SettingsView: View {
                     SecondaryButton(title: "Use this server") { Task { await applyServer() } }.frame(width: 170)
                     if let serverNote { Text(serverNote).font(Theme.text(12)).foregroundStyle(Theme.muted) }
                 }
-                Text(Server.isRockIt
-                     ? "Rock it, your own node. On a home address there is no TLS layer: the traffic stays in your home network, and Tailscale encrypts it on the way."
-                     : "Encrypted (TLS). The server sees this Mac's internet address, never your phrase or balance. Your own node on a home or Tailscale address is used as Rock it.")
+                Text(networkNote)
                     .font(Theme.text(12)).foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -805,7 +817,7 @@ struct HowItWorks: View {
         ]),
         ("Network", "server.rack", [
             "Lock it talks to one Zcash server (zec.rocks by default) over an encrypted connection. The server sees this Mac's internet address, never your words or your balance.",
-            "Your own node (Rock it) on a home or Tailscale address is reached without that layer: at home the traffic stays in your network, and Tailscale encrypts it on the way.",
+            "Your own node (Rock it) on a home or Tailscale address is reached without that layer: at home the traffic stays in your network, and Tailscale encrypts it on the way. A home address cannot prove it is your node: on another Wi-Fi a different device could answer. It cannot take funds, but it could hide payments, so away from home use Rock it's Tailscale address. The status line says which one you use.",
             "Value is off unless you choose a currency. Then CoinGecko is asked for the price every 5 minutes and sees only this Mac's internet address. There are no accounts, no analytics and no tracking.",
             "Only a wallet that holds Sapling or public Zcash (usually one restored from another app) needs the Zcash parameter files once, about 50 MB from download.z.cash, the Zcash developers' own download server. It sees this Mac's internet address, nothing about your wallet.",
         ]),

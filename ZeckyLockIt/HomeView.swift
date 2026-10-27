@@ -349,7 +349,7 @@ struct HomeView: View {
             .font(Theme.text(13, weight: .medium)).foregroundColor(Theme.gold)
     }
 
-    private var statusText: String { baseStatus + (Server.isRockIt ? " · Rock it" : "") }
+    private var statusText: String { baseStatus + (Server.nodeLabel.map { " · \($0)" } ?? "") }
 
     private var baseStatus: String {
         switch engine.status {

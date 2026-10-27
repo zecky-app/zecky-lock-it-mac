@@ -103,6 +103,15 @@ final class ZeckyLockItTests: XCTestCase {
         }
     }
 
+    func testOwnNodeIsLabelledHonestly() {
+        XCTAssertEqual(Server.nodeKind("192.168.1.20"), .homeNetwork)
+        XCTAssertEqual(Server.nodeKind("10.0.0.5"), .homeNetwork)
+        XCTAssertEqual(Server.nodeKind("100.101.2.3"), .tailscaleIP)
+        XCTAssertEqual(Server.nodeKind("127.0.0.1"), .thisMac)
+        XCTAssertNil(Server.nodeKind("zec.rocks"))
+        XCTAssertNil(Server.nodeKind("10.0.0.1.example.com"))
+    }
+
     // MARK: Waiting for confirmations (same numbers as the iPhone)
 
     func testWaitingCountsDownLikeTheIPhone() {

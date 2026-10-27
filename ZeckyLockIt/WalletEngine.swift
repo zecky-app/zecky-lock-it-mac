@@ -33,6 +33,29 @@ enum Server {
 
     static var isRockIt: Bool { isHomeNode(host) }
 
+    /// Where your own node is reached. None of these proves it is really
+    /// your node: a home address can be answered by another network's
+    /// device with the same numbers, and a 100.x address is only a
+    /// Tailscale IP. Said so plainly, as on the iPhone (self-audit N2, R4).
+    enum NodeKind { case homeNetwork, tailscaleIP, thisMac }
+    static func nodeKind(_ host: String) -> NodeKind? {
+        guard isHomeNode(host) else { return nil }
+        let n = host.split(separator: ".").compactMap { Int($0) }
+        if n.first == 127 { return .thisMac }
+        if n.first == 100 { return .tailscaleIP }
+        return .homeNetwork
+    }
+
+    /// "Rock it · home network" for the status line and Settings.
+    static var nodeLabel: String? {
+        switch nodeKind(host) {
+        case .homeNetwork?: return "Rock it · home network"
+        case .tailscaleIP?: return "Rock it · Tailscale IP"
+        case .thisMac?: return "Rock it · this Mac"
+        case nil: return nil
+        }
+    }
+
     static func set(host: String, port: Int) {
         UserDefaults.standard.set(host, forKey: "server.host")
         UserDefaults.standard.set(port, forKey: "server.port")
