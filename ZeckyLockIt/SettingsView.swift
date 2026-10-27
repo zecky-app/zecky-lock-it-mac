@@ -35,7 +35,7 @@ struct SettingsView: View {
                       subtitle: sheetSubtitle,
                       closeLabel: showingPhrase ? "Hide" : (codeStep != nil || page != nil ? "Back" : "Done"),
                       height: 740,
-                      onClose: { if showingPhrase { revealed = nil } else if codeStep != nil { codeStep = nil } else if page != nil { page = nil } else { onClose() } }) {
+                      onClose: { if showingPhrase { revealed = nil } else if codeStep != nil { codeStep = nil } else if keyPage != nil { keyPage = nil } else if page != nil { page = nil } else { onClose() } }) {
             if let revealed {
                 PhraseView(wallet: revealed)
             } else if let codeStep {
@@ -141,10 +141,9 @@ struct SettingsView: View {
 
     private var keysSummary: String {
         var parts: [String] = []
-        if Keys.askOpeningZecky { parts.append("Opening Zecky") }
-        if Keys.wait > 0 { parts.append("\(Keys.wait) s pause") }
-        if Keys.askOpeningLock { parts.append("It's you") }
-        if WalletVault.hasCode { parts.append("Zecky code") }
+        if Keys.askOpeningZecky { parts.append("① Opening Zecky") }
+        if Keys.askOpeningLock || WalletVault.hasCode { parts.append("② Opening the lock") }
+        if Keys.wait > 0 { parts.append("③ \(Keys.wait) s") }
         return parts.isEmpty ? "Touch ID once per session" : parts.joined(separator: " · ")
     }
 
@@ -180,63 +179,124 @@ struct SettingsView: View {
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1).padding(.leading, 48) }
     }
 
+    /// Keys to the lock: an overview of the numbered keys, each with its
+    /// state; a key opens its own page. Same order as on the iPhone.
+    enum KeyPage: Hashable { case openingZecky, openingLock, pause }
+    @State private var keyPage: KeyPage?
+
     @ViewBuilder private var keysPage: some View {
-            card("Keys to the lock", icon: "key.fill") {
-                VStack(alignment: .leading, spacing: 14) {
-                    keyRow(1, "Opening Zecky",
-                           "Touch ID or your Mac password when Lock it starts, and after it locked itself. Why: your balance and history stay private on a shared or unattended Mac.") {
-                        Toggle("Ask", isOn: Binding(get: { askZecky }, set: { changeAskZecky($0) }))
-                            .toggleStyle(.switch).labelsHidden()
-                    }
-                    Rectangle().fill(Theme.line).frame(height: 1)
-                    keyRow(2, "Really open the lock?",
-                           "A short pause with a question before the lock opens. Why: scams work by rushing you; a few seconds is often enough to notice.") {
-                        HStack(spacing: 6) {
-                            ForEach(Keys.waits, id: \.self) { w in
-                                Chip(title: Keys.waitLabel(w), on: wait == w) { changeWait(w) }
-                            }
-                        }
-                    }
-                    Rectangle().fill(Theme.line).frame(height: 1)
-                    keyRow(3, "It's you",
-                           "Touch ID or your Mac password again when you open the lock, even right after opening Zecky. Why: someone at your unlocked Mac still cannot take anything out.") {
-                        Toggle("Ask", isOn: Binding(get: { askLock }, set: { changeAskLock($0) }))
-                            .toggleStyle(.switch).labelsHidden()
-                    }
-                    if WalletVault.canUseCode {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Label("Zecky code", systemImage: "lock.rotation")
-                                    .font(Theme.text(13, weight: .semibold)).labelStyle(GoldIconLabelStyle())
-                                Spacer()
-                                Text(WalletVault.hasCode ? "On" : "Off")
-                                    .font(Theme.text(12, weight: .semibold))
-                                    .foregroundStyle(WalletVault.hasCode ? Theme.green : Theme.muted)
-                            }
-                            Text("Six digits on the brass dials, asked together with Touch ID. Why: someone who knows your Mac password still cannot open the lock. This Mac's Secure Enclave checks the code itself.")
-                                .font(Theme.text(12)).foregroundStyle(Theme.muted)
-                                .fixedSize(horizontal: false, vertical: true)
-                            if let codeNote { Text(codeNote).font(Theme.text(12)).foregroundStyle(Theme.green) }
-                            HStack(spacing: 10) {
-                                Spacer()
-                                if WalletVault.hasCode {
-                                    SecondaryButton(title: "Remove code") { codeNote = nil; codeStep = .remove }.frame(width: 150)
-                                    SecondaryButton(title: "Change code") { codeNote = nil; codeStep = .change }.frame(width: 150)
-                                } else {
-                                    SecondaryButton(title: "Set a Zecky code") { codeNote = nil; codeStep = .setUp }.frame(width: 190)
-                                }
-                            }
-                        }
-                        .padding(12)
-                        .background(Theme.ink, in: RoundedRectangle(cornerRadius: 10))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line))
-                    }
-                    Text("Always asked, whatever you choose: showing the recovery phrase and erasing. Making a key stricter needs nothing; weakening one asks you first.")
-                        .font(Theme.text(11)).foregroundStyle(Theme.muted)
+        switch keyPage {
+        case nil: keysOverview
+        case .openingZecky?: openingZeckyPage
+        case .openingLock?: openingLockPage
+        case .pause?: pausePage
+        }
+    }
+
+    private var keysOverview: some View {
+        let _ = model.timeLockChanged
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("One, two or three keys: you choose. Each one has to be passed before the lock opens.")
+                .font(Theme.text(13)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: 0) {
+                keyLink(1, "Opening Zecky", askZecky ? "Touch ID or Mac password" : "Off", on: askZecky) { keyPage = .openingZecky }
+                keyLink(2, "Opening the lock", openingLockState, on: askLock || WalletVault.hasCode) { keyPage = .openingLock }
+                keyLink(3, "Really open the lock?", wait == 0 ? "Don't ask" : "Wait \(wait) seconds", on: wait > 0) { keyPage = .pause }
+            }
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+            Text("Always asked, whatever you choose: showing the recovery phrase and erasing. Making a key stricter needs nothing; weakening one asks you first. The time lock is its own setting under Security.")
+                .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var openingLockState: String {
+        var parts: [String] = []
+        parts.append(askLock ? "Touch ID again" : "Touch ID once per session")
+        if WalletVault.hasCode { parts.append("Zecky code") }
+        return parts.joined(separator: " + ")
+    }
+
+    private func keyLink(_ n: Int, _ title: String, _ state: String, on: Bool, _ open: @escaping () -> Void) -> some View {
+        Button(action: open) {
+            HStack(spacing: 12) {
+                Text("\(n)").font(Theme.serif(16, weight: .medium)).foregroundStyle(on ? Theme.gold : Theme.muted)
+                    .frame(width: 26, height: 26)
+                    .overlay(Circle().stroke((on ? Theme.gold : Theme.muted).opacity(0.5)))
+                Text(title).font(Theme.text(14, weight: .medium)).foregroundStyle(Theme.text)
+                Spacer(minLength: 12)
+                Text(state).font(Theme.text(12)).foregroundStyle(on ? Theme.green : Theme.muted).lineLimit(1)
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+            }
+            .padding(.horizontal, 14).frame(height: 50)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1).padding(.leading, 52) }
+    }
+
+    private var openingZeckyPage: some View {
+        card("1 · Opening Zecky", icon: "key.fill") {
+            HStack(alignment: .top, spacing: 14) {
+                Text("Touch ID or your Mac password when Lock it starts, and after it locked itself (sleep, screen lock, 5 minutes away). Why: your balance and history stay private on a shared or unattended Mac.")
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Toggle("Ask", isOn: Binding(get: { askZecky }, set: { changeAskZecky($0) }))
+                    .toggleStyle(.switch).labelsHidden()
+            }
+        }
+    }
+
+    @ViewBuilder private var openingLockPage: some View {
+        card("2 · Opening the lock", icon: "lock.open") {
+            HStack(alignment: .top, spacing: 14) {
+                Text("Touch ID or your Mac password again when you open the lock, even right after opening Zecky. Off: the confirmation from opening Zecky counts, once per session. Why: someone at your unlocked Mac still cannot take anything out.")
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Toggle("Ask", isOn: Binding(get: { askLock }, set: { changeAskLock($0) }))
+                    .toggleStyle(.switch).labelsHidden()
+            }
+        }
+        if WalletVault.canUseCode {
+            card("Zecky code", icon: "lock.rotation") {
+                HStack {
+                    Text("Six digits on the brass dials, asked together with Touch ID. Why: anyone who knows your Mac password passes Touch ID too; the code is a secret only you know. This Mac's Secure Enclave checks it itself.")
+                        .font(Theme.text(12)).foregroundStyle(Theme.muted)
                         .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Text(WalletVault.hasCode ? "On" : "Off")
+                        .font(Theme.text(12, weight: .semibold))
+                        .foregroundStyle(WalletVault.hasCode ? Theme.green : Theme.muted)
+                }
+                if let codeNote { Text(codeNote).font(Theme.text(12)).foregroundStyle(Theme.green) }
+                HStack(spacing: 10) {
+                    Spacer()
+                    if WalletVault.hasCode {
+                        SecondaryButton(title: "Remove code") { codeNote = nil; codeStep = .remove }.frame(width: 150)
+                        SecondaryButton(title: "Change code") { codeNote = nil; codeStep = .change }.frame(width: 150)
+                    } else {
+                        SecondaryButton(title: "Set a Zecky code") { codeNote = nil; codeStep = .setUp }.frame(width: 190)
+                    }
                 }
             }
+        }
+    }
 
+    private var pausePage: some View {
+        card("3 · Really open the lock?", icon: "hourglass") {
+            Text("A short pause with a question before the lock opens. Why: scams work by rushing you; a few seconds is often enough to notice.")
+                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                ForEach(Keys.waits, id: \.self) { w in
+                    Chip(title: Keys.waitLabel(w), on: wait == w) { changeWait(w) }
+                }
+            }
+        }
     }
 
     @ViewBuilder private var timeLockPage: some View {
@@ -409,7 +469,13 @@ struct SettingsView: View {
         case nil: break
         }
         switch page {
-        case .keys?: return "Keys to the lock"
+        case .keys?:
+            switch keyPage {
+            case .openingZecky?: return "Opening Zecky"
+            case .openingLock?: return "Opening the lock"
+            case .pause?: return "Really open the lock?"
+            case nil: return "Keys to the lock"
+            }
         case .timeLock?: return "Time lock"
         case .phrase?: return "Recovery phrase"
         case .addressBook?: return "Address book"
@@ -717,7 +783,7 @@ struct HowItWorks: View {
             "Nothing ever leaves without a receipt first: who receives what, the network fee, and what stays locked.",
         ]),
         ("Keys to the lock", "key.fill", [
-            "One, two or three keys, you choose: 1 Opening Zecky, 2 Really open the lock?, 3 It's you. The Zecky code adds six digits that this Mac's Secure Enclave checks itself.",
+            "One, two or three keys, you choose: 1 Opening Zecky, 2 Opening the lock, 3 Really open the lock?. The Zecky code adds six digits to key 2 that this Mac's Secure Enclave checks itself.",
             "Showing your 24 words and erasing always ask, whatever you choose.",
             "Making a key stricter goes straight through; weakening one asks you first. Every change is listed in Activity › The lock.",
         ]),
