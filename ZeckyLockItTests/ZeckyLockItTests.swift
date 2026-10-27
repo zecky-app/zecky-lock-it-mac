@@ -133,6 +133,22 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertNil(WalletEngine.slowestWaiting([received], networkHeight: 0))
     }
 
+    // MARK: Payment requests (ZIP-321)
+
+    func testPaymentRequestsOneRecipientOnly() throws {
+        let r = try PaymentRequest.parse("zcash:u1abc?amount=0.5&memo=SGVsbG8&label=Coffee%20shop")
+        XCTAssertEqual(r, PaymentRequest(address: "u1abc", amount: "0.5", memo: "Hello", label: "Coffee shop"))
+        XCTAssertEqual(try PaymentRequest.parse("zcash:?address=u1abc&amount=1").address, "u1abc")
+        XCTAssertEqual(try PaymentRequest.parse("zcash:u1abc").amount, nil)
+        XCTAssertThrowsError(try PaymentRequest.parse("zcash:?address=u1a&amount=1&address.1=u1b&amount.1=2")) {
+            XCTAssertEqual($0 as? PaymentRequest.Problem, .severalRecipients)
+        }
+        XCTAssertThrowsError(try PaymentRequest.parse("zcash:u1abc?amount=0.123456789"))
+        XCTAssertThrowsError(try PaymentRequest.parse("zcash:u1abc?req-unknown=1"))
+        XCTAssertThrowsError(try PaymentRequest.parse("u1abc"))
+        XCTAssertTrue(PaymentRequest.isRequest("  ZCASH:u1abc"))
+    }
+
     func testAddressesAreGroupedInFours() {
         XCTAssertEqual(Contacts.grouped("abcdefghij"), "abcd efgh ij")
     }

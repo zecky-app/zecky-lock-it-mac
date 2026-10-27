@@ -26,6 +26,8 @@ struct SendView: View {
     @State private var showNote = false
     /// The amount is typed in the currency chosen under Settings › Value.
     @State private var fiat = false
+    /// Filled from a pasted zcash: payment request.
+    @State private var requestNote: String?
     @State private var memo = ""
     @State private var showBook = false
     @State private var newName = ""
@@ -122,10 +124,15 @@ struct SendView: View {
                     }
                 }
                 if !Contacts.onlySaved {
-                    TextField("", text: $to, prompt: Text("Zcash address").foregroundColor(Theme.muted))
+                    TextField("", text: $to, prompt: Text("Zcash address or payment request").foregroundColor(Theme.muted))
                         .textFieldStyle(.plain)
                         .font(.system(size: 13, design: .monospaced))
                         .autocorrectionDisabled()
+                        .onChange(of: to) { text in applyRequest(text) }
+                    if let requestNote {
+                        Label(requestNote, systemImage: "doc.text")
+                            .font(Theme.text(11, weight: .medium)).foregroundStyle(Theme.gold)
+                    }
                 } else if Contacts.all.isEmpty {
                     Text("Only saved addresses can be used, and none are saved yet. Add one in Settings › Address book.")
                         .font(Theme.text(12)).foregroundStyle(Theme.muted)
@@ -338,6 +345,26 @@ struct SendView: View {
     }
 
     /// Keeps the typed amount when switching units.
+    /// A pasted zcash: request fills the address, amount and note.
+    private func applyRequest(_ text: String) {
+        guard PaymentRequest.isRequest(text) else { return }
+        do {
+            let r = try PaymentRequest.parse(text)
+            to = r.address
+            if let amount = r.amount { fiat = false; unit = .zec; max = false; amountText = amount }
+            if let memo = r.memo { self.memo = memo; showNote = true }
+            problem = nil
+            var parts = ["Payment request"]
+            if let label = r.label, !label.isEmpty { parts.append(label) }
+            if let amount = r.amount { parts.append("\(amount) ZEC") }
+            requestNote = parts.joined(separator: " · ") + ". Check it on the next screen."
+        } catch {
+            to = ""
+            requestNote = nil
+            problem = String(describing: error)
+        }
+    }
+
     /// ZEC per one unit of the chosen currency, when a price is known.
     private var rate: Double? {
         guard prices.currency != .none else { return nil }

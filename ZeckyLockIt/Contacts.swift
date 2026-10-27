@@ -260,3 +260,71 @@ struct ContactsCard: View {
         changed()
     }
 }
+
+/// A ZIP-321 payment request ("zcash:<address>?amount=0.5&memo=…"), as made
+/// by Lock more's Request an amount and by other Zcash wallets. Lock it
+/// pays one recipient per release, so a request for several is refused
+/// instead of quietly paying only the first (self-audit F4).
+struct PaymentRequest: Equatable {
+    var address: String
+    var amount: String?
+    var memo: String?
+    var label: String?
+
+    enum Problem: Error, Equatable, CustomStringConvertible {
+        case notARequest, severalRecipients, noAddress, badAmount, badMemo
+        var description: String {
+            switch self {
+            case .notARequest: return "That is not a Zcash payment request."
+            case .severalRecipients: return "This request pays several recipients. Lock it releases to one at a time: ask for a request per recipient. Nothing was filled in."
+            case .noAddress: return "This payment request has no address."
+            case .badAmount: return "The amount in this payment request is not valid."
+            case .badMemo: return "The note in this payment request could not be read."
+            }
+        }
+    }
+
+    static func isRequest(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("zcash:")
+    }
+
+    static func parse(_ text: String) throws -> PaymentRequest {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isRequest(t) else { throw Problem.notARequest }
+        let rest = String(t.dropFirst("zcash:".count))
+        let parts = rest.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        var address = String(parts.first ?? "")
+        var amount: String?, memo: String?, label: String?
+        if parts.count == 2 {
+            for pair in parts[1].split(separator: "&") {
+                let kv = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                let rawKey = String(kv[0])
+                let value = kv.count > 1 ? String(kv[1]) : ""
+                // An index (address.1, amount.2, …) means more than one recipient.
+                if rawKey.contains(".") { throw Problem.severalRecipients }
+                switch rawKey {
+                case "address":
+                    guard address.isEmpty else { throw Problem.severalRecipients }
+                    address = value
+                case "amount":
+                    guard value.range(of: #"^\d+(\.\d{1,8})?$"#, options: .regularExpression) != nil,
+                          let v = Decimal(string: value, locale: Locale(identifier: "en_US")), v > 0, v <= 21_000_000
+                    else { throw Problem.badAmount }
+                    amount = value
+                case "memo":
+                    var b64 = value.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+                    while b64.count % 4 != 0 { b64.append("=") }
+                    guard let data = Data(base64Encoded: b64), data.count <= 512 else { throw Problem.badMemo }
+                    memo = String(decoding: data, as: UTF8.self).trimmingCharacters(in: CharacterSet(charactersIn: "\0"))
+                case "label", "message":
+                    label = value.removingPercentEncoding ?? value
+                default:
+                    // Unknown "req-" parameters must be understood, others may be ignored.
+                    if rawKey.hasPrefix("req-") { throw Problem.notARequest }
+                }
+            }
+        }
+        guard !address.isEmpty else { throw Problem.noAddress }
+        return PaymentRequest(address: address, amount: amount, memo: memo?.isEmpty == true ? nil : memo, label: label)
+    }
+}
