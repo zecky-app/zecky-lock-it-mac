@@ -201,8 +201,22 @@ struct HomeView: View {
 
                 HStack {
                     HStack(spacing: 8) {
-                        Circle().fill(dotColor).frame(width: 8, height: 8)
-                        Text(statusText).font(Theme.text(12)).foregroundStyle(Theme.muted)
+                        Circle().fill(unreachable ? Theme.red : dotColor).frame(width: 8, height: 8)
+                        if unreachable {
+                            Button { model.openNetworkSettings() } label: {
+                                HStack(spacing: 4) {
+                                    Text("Can't reach \(Server.nodeLabel ?? Server.host)")
+                                    Text("· Choose another server").fontWeight(.semibold)
+                                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                                }
+                                .font(Theme.text(12)).foregroundStyle(Theme.red)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help(failedDetail)
+                        } else {
+                            Text(statusText).font(Theme.text(12)).foregroundStyle(Theme.muted)
+                        }
                         Text("·").foregroundStyle(Theme.muted.opacity(0.6))
                         Label("Shielded", systemImage: "shield.lefthalf.filled")
                             .labelStyle(.titleAndIcon)
@@ -258,6 +272,7 @@ struct HomeView: View {
         .animation(.easeInOut(duration: 0.2), value: model.asking)
         .animation(.easeInOut(duration: 0.2), value: model.askingCode)
         .animation(.easeInOut(duration: 0.2), value: model.timeLockShown)
+        .onReceive(clock) { now = $0 }
         .sheet(item: $model.sheet, onDismiss: { model.sheetClosed() }) { sheet in
             switch sheet {
             case .receive: ReceiveView(engine: engine, prices: prices) { model.sheet = nil }
@@ -347,6 +362,14 @@ struct HomeView: View {
         guard let m = milestone else { return held }
         return held + Text(" · \(m.name) in \(m.inDays) \(m.inDays == 1 ? "day" : "days")")
             .font(Theme.text(13, weight: .medium)).foregroundColor(Theme.gold)
+    }
+
+    @State private var now = Date()
+    private let clock = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
+    private var unreachable: Bool { let _ = now; return engine.serverUnreachable(now: now) }
+    private var failedDetail: String {
+        if case .failed(let text) = engine.status { return "Technical detail: \(text)" }
+        return "No answer from the server for more than 30 seconds."
     }
 
     private var statusText: String { baseStatus + (Server.nodeLabel.map { " · \($0)" } ?? "") }

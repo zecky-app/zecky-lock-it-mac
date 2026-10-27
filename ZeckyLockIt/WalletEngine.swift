@@ -129,7 +129,26 @@ final class WalletEngine: ObservableObject {
         case failed(String)
     }
 
-    @Published private(set) var status: Status = .connecting
+    @Published private(set) var status: Status = .connecting {
+        didSet {
+            if status == .connecting { if connectingSince == nil { connectingSince = Date() } }
+            else { connectingSince = nil }
+        }
+    }
+    /// Since when the engine is trying to reach the server, to say so
+    /// instead of "Connecting…" forever (iPhone t16).
+    @Published private(set) var connectingSince: Date? = Date()
+
+    /// True when the server has not answered for 30 seconds, or the engine
+    /// reported a connection error.
+    func serverUnreachable(now: Date = Date()) -> Bool {
+        if let since = connectingSince, now.timeIntervalSince(since) > 30 { return true }
+        if case .failed(let text) = status {
+            let t = text.lowercased()
+            return ["unavailable", "timed out", "timeout", "connect", "grpc", "network", "deadline", "unreachable", "refused"].contains { t.contains($0) }
+        }
+        return false
+    }
     @Published private(set) var spendable: Int64 = 0
     @Published private(set) var total: Int64 = 0
     @Published private(set) var activity: [ActivityItem] = []

@@ -24,6 +24,9 @@ final class AppModel: ObservableObject {
     /// The sheet over the home screen, also opened from the menu bar.
     enum Sheet: Identifiable { case receive, send, settings, activity, ironwood, lockIn; var id: Self { self } }
     @Published var sheet: Sheet?
+    /// Open Settings straight at a page (for "Choose another server").
+    var settingsPage: SettingsView.Page?
+    func openNetworkSettings() { settingsPage = .network; sheet = .settings }
     /// The lock on the home screen: asking first, then open while releasing.
     @Published var asking = false
     /// ZEC or zats, and amounts hidden for bystanders. Remembered.

@@ -49,6 +49,7 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
             revealed = nil
         }
+        .onAppear { if let p = model.settingsPage { page = p; model.settingsPage = nil } }
         .alert(timeLockQuestion, isPresented: Binding(get: { confirmTimeLock != nil }, set: { if !$0 { confirmTimeLock = nil } })) {
             Button("Cancel", role: .cancel) { confirmTimeLock = nil }
             Button(timeLockAction) {
