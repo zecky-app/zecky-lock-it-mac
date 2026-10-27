@@ -798,6 +798,7 @@ struct HowItWorks: View {
         ("Keys to the lock", "key.fill", [
             "One, two or three keys, you choose: 1 Opening Zecky, 2 Opening the lock, 3 Really open the lock?. The Zecky code adds six digits to key 2 that this Mac's Secure Enclave checks itself.",
             "Showing your 24 words and erasing always ask, whatever you choose.",
+            "Touch ID always falls back to your Mac password, so anyone who knows that password passes Touch ID too. The Zecky code is the secret only you know.",
             "Making a key stricter goes straight through; weakening one asks you first. Every change is listed in Activity › The lock.",
         ]),
         ("Time lock and Break the glass", "clock", [
@@ -809,6 +810,7 @@ struct HowItWorks: View {
             "Your 24 words are made on this Mac from the system's secure random generator (256 bits), checked, and mixed with a second source.",
             "They are sealed with a key inside this Mac's Secure Enclave. Only Touch ID or your Mac password (and your Zecky code, if set) opens the seal. They are never synced, never in a backup, never written to a log, and never sent anywhere.",
             "They are opened only to sign a release or to show them to you, and let go straight after. While they are on screen, screenshots and screen sharing show an empty window.",
+            "The Zcash engine that makes keys and signs is the Zcash developers' own build, version 3.0.0. It is checked against the checksum in their release every time it is downloaded.",
             "Your history (amounts and dates, never the words) is kept in Lock it's own protected folder on this Mac and left out of Time Machine. Keep FileVault on (System Settings › Privacy & Security) so the whole disk is encrypted as well.",
         ]),
         ("Privacy", "shield.lefthalf.filled", [
@@ -825,6 +827,7 @@ struct HowItWorks: View {
         ("If you lose this Mac", "arrow.counterclockwise", [
             "Your 24 words and birthday block restore the wallet in Lock it or any Zcash wallet.",
             "The Zecky code, time lock, address book and settings live on this Mac only and do not come back with a restore.",
+            "Moving Lock it to the Trash does not remove the wallet: its sealed words, settings and history stay on this Mac. To remove it, use Settings › Erase first.",
         ]),
     ]
 
