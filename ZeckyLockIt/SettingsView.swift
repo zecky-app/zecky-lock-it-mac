@@ -159,6 +159,7 @@ struct SettingsView: View {
         if Keys.askOpeningZecky { parts.append("① Opening Zecky") }
         if Keys.askOpeningLock || WalletVault.hasCode { parts.append("② Opening the lock") }
         if Keys.wait > 0 { parts.append("③ \(Keys.wait) s") }
+        if SecurityKeys.hasKeys { parts.append("④ Security key") }
         return parts.isEmpty ? "Touch ID once per session" : parts.joined(separator: " · ")
     }
 
@@ -196,7 +197,7 @@ struct SettingsView: View {
 
     /// Keys to the lock: an overview of the numbered keys, each with its
     /// state; a key opens its own page. Same order as on the iPhone.
-    enum KeyPage: Hashable { case openingZecky, openingLock, pause }
+    enum KeyPage: Hashable { case openingZecky, openingLock, pause, securityKey }
     @State private var keyPage: KeyPage?
 
     @ViewBuilder private var keysPage: some View {
@@ -205,19 +206,21 @@ struct SettingsView: View {
         case .openingZecky?: openingZeckyPage
         case .openingLock?: openingLockPage
         case .pause?: pausePage
+        case .securityKey?: securityKeyPage
         }
     }
 
     private var keysOverview: some View {
         let _ = model.timeLockChanged
         return VStack(alignment: .leading, spacing: 12) {
-            Text("One, two or three keys: you choose. Each one has to be passed before the lock opens.")
+            Text("Up to four keys: you choose. Each one has to be passed before the lock opens.")
                 .font(Theme.text(13)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(spacing: 0) {
                 keyLink(1, "Opening Zecky", askZecky ? "Touch ID or Mac password" : "Off", on: askZecky) { keyPage = .openingZecky }
                 keyLink(2, "Opening the lock", openingLockState, on: askLock || WalletVault.hasCode) { keyPage = .openingLock }
                 keyLink(3, "Really open the lock?", wait == 0 ? "Don't ask" : "Wait \(wait) seconds", on: wait > 0) { keyPage = .pause }
+                keyLink(4, "Security key", securityKeyState, on: SecurityKeys.hasKeys) { keyPage = .securityKey }
             }
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
@@ -311,6 +314,80 @@ struct SettingsView: View {
                     Chip(title: Keys.waitLabel(w), on: wait == w) { changeWait(w) }
                 }
             }
+        }
+    }
+
+    // MARK: ④ Security key
+
+    @State private var keyNote: String?
+    @State private var keyProblem: String?
+    @State private var keyBusy = false
+    @State private var keysVersion = 0
+
+    private var securityKeyState: String {
+        let _ = keysVersion
+        let n = SecurityKeys.keys.count
+        if n == 0 { return SecurityKeys.hasKeys ? "Can't read" : "Off" }
+        return n == 1 ? "1 key" : "\(n) keys"
+    }
+
+    private var securityKeyPage: some View {
+        let _ = keysVersion
+        let keys = SecurityKeys.keys
+        return card("4 · Security key", icon: "key.horizontal") {
+            Text("A hardware key, such as a YubiKey, plugged into this Mac or held to it, touched before each release. Why: Touch ID, your Mac password and the Zecky code all live on this Mac; a key you carry is something a thief of the Mac does not have.")
+                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            if keys.isEmpty {
+                Text("No key added. Adding one asks you first.").font(Theme.text(12)).foregroundStyle(Theme.muted)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(keys) { key in
+                        HStack(spacing: 10) {
+                            Image(systemName: "key.horizontal.fill").foregroundStyle(Theme.gold)
+                            Text(key.role == .main ? "Security key" : "Backup key").font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.text)
+                            Text("added \(key.added.formatted(date: .abbreviated, time: .omitted))").font(Theme.text(11)).foregroundStyle(Theme.muted)
+                            Spacer()
+                            Button("Remove") { runKey { try await SecurityKeys.remove(key.id); keyNote = "Key removed." } }
+                                .buttonStyle(.plain).font(Theme.text(12)).foregroundStyle(Theme.red).disabled(keyBusy)
+                        }
+                        .padding(.vertical, 8)
+                    }
+                }
+            }
+            if let keyNote { Text(keyNote).font(Theme.text(12)).foregroundStyle(Theme.green) }
+            if let keyProblem { Text(keyProblem).font(Theme.text(12)).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true) }
+            HStack(spacing: 10) {
+                Spacer()
+                if !keys.isEmpty {
+                    SecondaryButton(title: "Test my key") { runKey { try await SecurityKeys.check(); keyNote = "Your key answered correctly." } }
+                        .frame(width: 150).disabled(keyBusy)
+                }
+                SecondaryButton(title: keys.isEmpty ? "Add a security key" : "Add a backup key") { addKey(first: keys.isEmpty) }
+                    .frame(width: 190).disabled(keyBusy)
+            }
+            Text("Removing a key asks one of your keys. Lost them? A way to remove all keys after 48 hours is coming in this version.")
+                .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func addKey(first: Bool) {
+        let role: SecurityKeys.Role = first ? .main : .backup
+        let add = { runKey { try await SecurityKeys.add(role: role); keyNote = first ? "Key added. It is asked before each release." : "Backup key added." } }
+        // The first key asks the owner; more keys ask an existing key (inside add).
+        if LockRules.keyAction(first ? .addFirst : .addMore, keyCount: SecurityKeys.keys.count) == .owner {
+            Task { await guarded("add a security key", add) }
+        } else { add() }
+    }
+
+    private func runKey(_ work: @escaping () async throws -> Void) {
+        keyNote = nil; keyProblem = nil; keyBusy = true
+        Task { @MainActor in
+            defer { keyBusy = false; keysVersion += 1; model.timeLockChanged += 1 }
+            do { try await work() }
+            catch SecurityKeys.Failure.cancelled { }
+            catch { keyProblem = String(describing: error) }
         }
     }
 
@@ -487,6 +564,7 @@ struct SettingsView: View {
             case .openingZecky?: return "Opening Zecky"
             case .openingLock?: return "Opening the lock"
             case .pause?: return "Really open the lock?"
+            case .securityKey?: return "Security key"
             case nil: return "Keys to the lock"
             }
         case .timeLock?: return "Time lock"
@@ -796,7 +874,8 @@ struct HowItWorks: View {
             "Nothing ever leaves without a receipt first: who receives what, the network fee, and what stays locked.",
         ]),
         ("Keys to the lock", "key.fill", [
-            "One, two or three keys, you choose: 1 Opening Zecky, 2 Opening the lock, 3 Really open the lock?. The Zecky code adds six digits to key 2 that this Mac's Secure Enclave checks itself.",
+            "Up to four keys, you choose: 1 Opening Zecky, 2 Opening the lock, 3 Really open the lock?. The Zecky code adds six digits to key 2 that this Mac's Secure Enclave checks itself.",
+            "Key 4 is a security key, such as a YubiKey, touched before each release. Lock it checks its signature itself against the key saved when pairing; nothing goes over the internet. A key made for Lock it on this Mac is not the one from your iPhone: pair it on each device.",
             "Showing your 24 words and erasing always ask, whatever you choose.",
             "Touch ID always falls back to your Mac password, so anyone who knows that password passes Touch ID too. The Zecky code is the secret only you know.",
             "Making a key stricter goes straight through; weakening one asks you first. Every change is listed in Activity › The lock.",

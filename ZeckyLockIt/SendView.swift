@@ -447,6 +447,12 @@ struct SendView: View {
             return
         }
         used = true
+        // Key ④: with a security key added, it must be touched first.
+        // Unreadable key data counts as "keys present" and stops here.
+        if SecurityKeys.hasKeys {
+            do { try await SecurityKeys.check() }
+            catch { used = false; problem = String(describing: error); return }
+        }
         signing(true)
         defer { signing(false) }
         stage = .sending

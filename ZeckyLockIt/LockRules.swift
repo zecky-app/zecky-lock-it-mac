@@ -50,6 +50,45 @@ enum LockRules {
     /// "Really open the lock?": a longer wait is stricter, a shorter one
     /// (or Don't ask, 0) is weaker.
     static func wait(from current: Int, to new: Int) -> Need { new >= current ? .nothing : .owner }
+
+    // MARK: Security keys (as on the iPhone, src/lib/keyRules.ts)
+
+    enum KeyAction { case addFirst, addMore, remove, phraseOn, phraseOff, startRemoval, cancelRemoval, test }
+    enum KeyNeed: Equatable { case key, owner, nothing }
+
+    /// What an action on the security keys asks first. Anything that weakens
+    /// the keys asks a key, so someone who knows the Mac password cannot
+    /// simply take them away. A new key also asks an existing one. The only
+    /// way around a key is the 48-hour removal.
+    static func keyAction(_ action: KeyAction, keyCount: Int) -> KeyNeed {
+        switch action {
+        case .addFirst, .startRemoval: return .owner
+        case .addMore, .remove, .phraseOff, .cancelRemoval: return keyCount > 0 ? .key : .owner
+        case .phraseOn, .test: return .nothing
+        }
+    }
+
+    /// Asking the key for the phrase needs a backup key first.
+    static let phraseKeyMinKeys = 2
+    /// 48 hours of Zcash blocks (one about every 75 seconds) and of clock.
+    static let removalBlocks = 2304
+    static let removalSeconds: TimeInterval = 48 * 3600
+    /// A server may lag a few blocks behind another; more is suspect.
+    static let behindTolerance = 10
+
+    /// Where a removal starts counting: never below the highest height seen
+    /// while synced (R1). Nil when the server is clearly behind.
+    static func removalStartHeight(synced: Int, seen: Int) -> Int? {
+        guard synced > 0 else { return nil }
+        if seen > 0 && synced < seen - behindTolerance { return nil }
+        return Swift.max(synced, seen)
+    }
+
+    static func removalDue(_ removal: SecurityKeys.Removal?, now: Date, networkHeight: Int) -> Bool {
+        guard let removal, removal.startHeight > 0 else { return false }
+        return now.timeIntervalSince(removal.startedAt) >= removalSeconds
+            && networkHeight >= removal.startHeight + removalBlocks
+    }
 }
 
 /// Keys to the lock: which checks the owner wants, kept in the Keychain

@@ -304,6 +304,7 @@ final class AppModel: ObservableObject {
         LockLog.erase()
         Keys.erase()
         Contacts.erase()
+        SecurityKeys.erase()
         AddressBook.clear()
         Server.reset()
         Amount.resetChoices()

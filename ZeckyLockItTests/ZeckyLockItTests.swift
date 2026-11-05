@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import ZeckyLockIt
 
@@ -151,5 +152,75 @@ final class ZeckyLockItTests: XCTestCase {
 
     func testAddressesAreGroupedInFours() {
         XCTAssertEqual(Contacts.grouped("abcdefghij"), "abcd efgh ij")
+    }
+    // MARK: Security keys (WebAuthn answers, checked with a made-up key)
+
+    private func cbor(_ items: [UInt8]...) -> Data { Data(items.joined()) }
+    private func bytesHead(_ major: UInt8, _ n: Int) -> [UInt8] { n < 24 ? [major << 5 | UInt8(n)] : [major << 5 | 24, UInt8(n)] }
+
+    private func clientData(_ type: String, _ challenge: Data) -> Data {
+        let c = challenge.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        return Data("{\"type\":\"\(type)\",\"challenge\":\"\(c)\",\"origin\":\"https://zecky.app\"}".utf8)
+    }
+
+    private func authData(rp: String = "zecky.app", flags: UInt8, count: UInt32, id: Data? = nil, key: P256.Signing.PublicKey? = nil) -> Data {
+        var d = Data(SHA256.hash(data: Data(rp.utf8)))
+        d.append(flags)
+        d.append(contentsOf: [UInt8(count >> 24 & 0xff), UInt8(count >> 16 & 0xff), UInt8(count >> 8 & 0xff), UInt8(count & 0xff)])
+        if let id, let key {
+            d.append(Data(count: 16)) // AAGUID
+            d.append(contentsOf: [UInt8(id.count >> 8), UInt8(id.count & 0xff)])
+            d.append(id)
+            let raw = [UInt8](key.x963Representation)
+            // {1: 2, 3: -7, -1: 1, -2: x, -3: y}
+            d.append(cbor([0xa5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21], bytesHead(2, 32), Array(raw[1...32]), [0x22], bytesHead(2, 32), Array(raw[33...64])))
+        }
+        return d
+    }
+
+    func testSecurityKeyPairingAndAnswers() throws {
+        let key = P256.Signing.PrivateKey()
+        let id = SecurityKeys.randomBytes(16)
+        let challenge = SecurityKeys.randomBytes(32)
+        let auth = authData(flags: 0x41, count: 0, id: id, key: key.publicKey)
+        // {"fmt": "none", "attStmt": {}, "authData": auth}
+        let att = cbor([0xa3, 0x63], Array("fmt".utf8), [0x64], Array("none".utf8), [0x67], Array("attStmt".utf8), [0xa0],
+                       [0x68], Array("authData".utf8), [0x59, UInt8(auth.count >> 8), UInt8(auth.count & 0xff)], [UInt8](auth))
+        let paired = try WebAuthn.readRegistration(credentialId: id, attestationObject: att,
+                                                   clientDataJSON: clientData("webauthn.create", challenge), challenge: challenge)
+        XCTAssertEqual(paired.publicKey, key.publicKey.x963Representation)
+        XCTAssertThrowsError(try WebAuthn.readRegistration(credentialId: id, attestationObject: att,
+                                                            clientDataJSON: clientData("webauthn.create", SecurityKeys.randomBytes(32)), challenge: challenge))
+
+        func answer(_ count: UInt32, rp: String = "zecky.app", flags: UInt8 = 0x01, signer: P256.Signing.PrivateKey? = nil, type: String = "webauthn.get") throws -> UInt32 {
+            let a = authData(rp: rp, flags: flags, count: count)
+            let cd = clientData(type, challenge)
+            var msg = a; msg.append(contentsOf: SHA256.hash(data: cd))
+            let sig = try (signer ?? key).signature(for: msg).derRepresentation
+            return try WebAuthn.readAssertion(credentialId: id, authenticatorData: a, clientDataJSON: cd, signature: sig,
+                                              challenge: challenge, keys: [WebAuthn.Paired(id: id, publicKey: paired.publicKey, signCount: 5)]).1
+        }
+        XCTAssertEqual(try answer(6), 6)
+        XCTAssertThrowsError(try answer(5), "counter must go up")
+        XCTAssertThrowsError(try answer(7, rp: "evil.example"))
+        XCTAssertThrowsError(try answer(7, flags: 0x00), "key must be touched")
+        XCTAssertThrowsError(try answer(7, signer: P256.Signing.PrivateKey()), "wrong key")
+        XCTAssertThrowsError(try answer(7, type: "webauthn.create"))
+    }
+
+    func testSecurityKeyRules() {
+        XCTAssertEqual(LockRules.keyAction(.addFirst, keyCount: 0), .owner)
+        XCTAssertEqual(LockRules.keyAction(.addMore, keyCount: 1), .key)
+        XCTAssertEqual(LockRules.keyAction(.remove, keyCount: 2), .key)
+        XCTAssertEqual(LockRules.keyAction(.phraseOn, keyCount: 2), .nothing)
+        XCTAssertEqual(LockRules.keyAction(.startRemoval, keyCount: 1), .owner)
+        XCTAssertNil(LockRules.removalStartHeight(synced: 0, seen: 100))
+        XCTAssertNil(LockRules.removalStartHeight(synced: 80, seen: 100))
+        XCTAssertEqual(LockRules.removalStartHeight(synced: 95, seen: 100), 100)
+        let r = SecurityKeys.Removal(startedAt: Date(timeIntervalSince1970: 0), startHeight: 1000)
+        XCTAssertFalse(LockRules.removalDue(r, now: Date(timeIntervalSince1970: 47 * 3600), networkHeight: 5000))
+        XCTAssertFalse(LockRules.removalDue(r, now: Date(timeIntervalSince1970: 49 * 3600), networkHeight: 3000))
+        XCTAssertTrue(LockRules.removalDue(r, now: Date(timeIntervalSince1970: 49 * 3600), networkHeight: 3304))
     }
 }
