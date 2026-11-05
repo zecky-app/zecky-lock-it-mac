@@ -153,7 +153,7 @@ struct HomeView: View {
                             }
                         }
                         if engine.status == .upToDate && engine.total > engine.spendable {
-                            let wait = WalletEngine.waitingText(WalletEngine.slowestWaiting(engine.activity, networkHeight: engine.networkHeight))
+                            let wait = WalletEngine.waitingText(WalletEngine.slowestWaiting(engine.activity, networkHeight: engine.networkHeight), networkHeight: engine.networkHeight)
                             Text(model.amountsHidden
                                  ? "Part of your balance: \(wait)"
                                  : "\(Amount.text(engine.total - engine.spendable, model.unit)) locking in · \(wait)")
@@ -161,6 +161,12 @@ struct HomeView: View {
                         }
                         }
 
+                        if model.lockOpen && engine.networkHeight > 0 && NetworkUpgrade.releasesPaused(networkHeight: engine.networkHeight) {
+                            Text(NetworkUpgrade.pausedText)
+                                .font(Theme.text(12)).foregroundStyle(Theme.gold)
+                                .multilineTextAlignment(.center).frame(maxWidth: 420)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         Group {
                             if model.lockOpen {
                                 HStack(spacing: 12) {

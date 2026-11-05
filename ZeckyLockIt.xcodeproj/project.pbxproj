@@ -45,6 +45,7 @@
 		A10000000000000000000077 /* CombinationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000076 /* CombinationView.swift */; };
 		A10000000000000000000079 /* TimeLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000078 /* TimeLock.swift */; };
 		A1000000000000000000008F /* SecurityKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008E /* SecurityKeys.swift */; };
+		A100000000000000000000A9 /* NetworkUpgrade.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A8 /* NetworkUpgrade.swift */; };
 		A1000000000000000000007B /* Contacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000007A /* Contacts.swift */; };
 		A10000000000000000000095 /* SealItCBOR.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000090 /* SealItCBOR.swift */; };
 		A10000000000000000000096 /* SealItUR.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000091 /* SealItUR.swift */; };
@@ -108,6 +109,7 @@
 		A10000000000000000000076 /* CombinationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CombinationView.swift; sourceTree = "<group>"; };
 		A10000000000000000000078 /* TimeLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeLock.swift; sourceTree = "<group>"; };
 		A1000000000000000000008E /* SecurityKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityKeys.swift; sourceTree = "<group>"; };
+		A100000000000000000000A8 /* NetworkUpgrade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkUpgrade.swift; sourceTree = "<group>"; };
 		A1000000000000000000007A /* Contacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Contacts.swift; sourceTree = "<group>"; };
 		A10000000000000000000090 /* SealItCBOR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SealItCBOR.swift; sourceTree = "<group>"; };
 		A10000000000000000000091 /* SealItUR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SealItUR.swift; sourceTree = "<group>"; };
@@ -175,6 +177,7 @@
 				A10000000000000000000076 /* CombinationView.swift */,
 				A10000000000000000000078 /* TimeLock.swift */,
 				A1000000000000000000008E /* SecurityKeys.swift */,
+				A100000000000000000000A8 /* NetworkUpgrade.swift */,
 				A10000000000000000000090 /* SealItCBOR.swift */,
 				A10000000000000000000091 /* SealItUR.swift */,
 				A10000000000000000000092 /* SealItQRViews.swift */,
@@ -331,6 +334,7 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libzcashlc.framework",
 			);
 			name = "Fix libzcashlc layout for macOS";
 			outputFileListPaths = (
@@ -339,7 +343,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# The Zcash engine (libzcashlc) is a static library, already linked into\n# the app. Its macOS package uses the flat iPhone framework layout, which\n# macOS rejects. Xcode still embeds a copy (with a small stub binary), so\n# rebuild that copy in the Mac layout (Versions/A) and sign it again.\n# Works whatever state the copy is in, so it is safe on every build.\nset -e\nF=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/libzcashlc.framework\"\n[ -d \"$F\" ] || exit 0\nT=\"${DERIVED_FILE_DIR}/libzcashlc-fix\"\nrm -rf \"$T\" && mkdir -p \"$T\"\nif [ -f \"$F/libzcashlc\" ] && [ ! -L \"$F/libzcashlc\" ]; then cp \"$F/libzcashlc\" \"$T/bin\"\nelif [ -f \"$F/Versions/A/libzcashlc\" ]; then cp \"$F/Versions/A/libzcashlc\" \"$T/bin\"\nelse echo \"error: libzcashlc binary not found in $F\"; exit 1; fi\nif [ -f \"$F/Info.plist\" ] && [ ! -L \"$F/Info.plist\" ]; then cp \"$F/Info.plist\" \"$T/Info.plist\"\nelif [ -f \"$F/Versions/A/Resources/Info.plist\" ]; then cp \"$F/Versions/A/Resources/Info.plist\" \"$T/Info.plist\"\nelse echo \"error: libzcashlc Info.plist not found in $F\"; exit 1; fi\nrm -rf \"$F\"\nmkdir -p \"$F/Versions/A/Resources\"\nmv \"$T/bin\" \"$F/Versions/A/libzcashlc\"\nmv \"$T/Info.plist\" \"$F/Versions/A/Resources/Info.plist\"\nln -s A \"$F/Versions/Current\"\nln -s Versions/Current/libzcashlc \"$F/libzcashlc\"\nln -s Versions/Current/Resources \"$F/Resources\"\nP=\"$F/Versions/A/Resources/Info.plist\"\n/usr/bin/plutil -replace CFBundleSupportedPlatforms -json '[\"MacOSX\"]' \"$P\"\n/usr/bin/plutil -replace CFBundlePackageType -string FMWK \"$P\"\n/usr/bin/plutil -remove MinimumOSVersion \"$P\" 2>/dev/null || true\n/usr/bin/plutil -replace LSMinimumSystemVersion -string \"${MACOSX_DEPLOYMENT_TARGET}\" \"$P\"\n/usr/bin/codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" --timestamp=none \"$F/Versions/A\"\n";
+			shellScript = "# The Zcash engine (libzcashlc) is a static library, already linked into\n# the app. Its macOS package uses the flat iPhone framework layout, which\n# macOS rejects. Xcode still embeds a copy (with a small stub binary), so\n# rebuild that copy in the Mac layout (Versions/A) and sign it again.\n# Works whatever state the copy is in, so it is safe on every build.\nset -e\nF=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/libzcashlc.framework\"\n[ -d \"$F\" ] || exit 0\n# Already in the Mac layout (an earlier build): leave it, so Xcode's own\n# signing of this copy never meets a half-rebuilt framework.\nif [ -L \"$F/libzcashlc\" ] && [ -f \"$F/Versions/A/libzcashlc\" ]; then exit 0; fi\n# A fresh flat copy: wait until Xcode has signed it (at most 60 s).\nfor i in $(seq 1 120); do [ -f \"$F/_CodeSignature/CodeResources\" ] && break; sleep 0.5; done\nT=\"${DERIVED_FILE_DIR}/libzcashlc-fix\"\nrm -rf \"$T\" && mkdir -p \"$T\"\nif [ -f \"$F/libzcashlc\" ] && [ ! -L \"$F/libzcashlc\" ]; then cp \"$F/libzcashlc\" \"$T/bin\"\nelif [ -f \"$F/Versions/A/libzcashlc\" ]; then cp \"$F/Versions/A/libzcashlc\" \"$T/bin\"\nelse echo \"error: libzcashlc binary not found in $F\"; exit 1; fi\nif [ -f \"$F/Info.plist\" ] && [ ! -L \"$F/Info.plist\" ]; then cp \"$F/Info.plist\" \"$T/Info.plist\"\nelif [ -f \"$F/Versions/A/Resources/Info.plist\" ]; then cp \"$F/Versions/A/Resources/Info.plist\" \"$T/Info.plist\"\nelse echo \"error: libzcashlc Info.plist not found in $F\"; exit 1; fi\nrm -rf \"$F\"\nmkdir -p \"$F/Versions/A/Resources\"\nmv \"$T/bin\" \"$F/Versions/A/libzcashlc\"\nmv \"$T/Info.plist\" \"$F/Versions/A/Resources/Info.plist\"\nln -s A \"$F/Versions/Current\"\nln -s Versions/Current/libzcashlc \"$F/libzcashlc\"\nln -s Versions/Current/Resources \"$F/Resources\"\nP=\"$F/Versions/A/Resources/Info.plist\"\n/usr/bin/plutil -replace CFBundleSupportedPlatforms -json '[\"MacOSX\"]' \"$P\"\n/usr/bin/plutil -replace CFBundlePackageType -string FMWK \"$P\"\n/usr/bin/plutil -remove MinimumOSVersion \"$P\" 2>/dev/null || true\n/usr/bin/plutil -replace LSMinimumSystemVersion -string \"${MACOSX_DEPLOYMENT_TARGET}\" \"$P\"\n/usr/bin/codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" --timestamp=none \"$F/Versions/A\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -363,6 +367,7 @@
 				A10000000000000000000077 /* CombinationView.swift in Sources */,
 				A10000000000000000000079 /* TimeLock.swift in Sources */,
 				A1000000000000000000008F /* SecurityKeys.swift in Sources */,
+				A100000000000000000000A9 /* NetworkUpgrade.swift in Sources */,
 				A10000000000000000000095 /* SealItCBOR.swift in Sources */,
 				A10000000000000000000096 /* SealItUR.swift in Sources */,
 				A10000000000000000000097 /* SealItQRViews.swift in Sources */,

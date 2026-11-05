@@ -117,20 +117,26 @@ final class ZeckyLockItTests: XCTestCase {
 
     func testWaitingCountsDownLikeTheIPhone() {
         typealias Item = WalletEngine.ActivityItem
-        let received = Item(id: Data([1]), kind: .received, amount: 1, date: Date(), state: .confirmed, minedHeight: 100)
-        let own = Item(id: Data([2]), kind: .sent, amount: 1, date: Date(), state: .confirmed, minedHeight: 100)
+        // Heights just before NU7 (75-second blocks) and well after it (25 s).
+        let b = 3_500_100, n = 3_600_100
+        let received = Item(id: Data([1]), kind: .received, amount: 1, date: Date(), state: .confirmed, minedHeight: b)
+        let own = Item(id: Data([2]), kind: .sent, amount: 1, date: Date(), state: .confirmed, minedHeight: b)
         let pending = Item(id: Data([3]), kind: .received, amount: 1, date: nil, state: .waiting, minedHeight: nil)
 
-        // In block 100, network at 103: 4 of 10, 6 blocks × 75 s ≈ 8 minutes.
-        XCTAssertEqual(WalletEngine.slowestWaiting([received], networkHeight: 103),
+        // In block b, network at b+3: 4 of 10, 6 blocks × 75 s ≈ 8 minutes.
+        XCTAssertEqual(WalletEngine.slowestWaiting([received], networkHeight: b + 3),
                        .init(confirmations: 4, needed: 10, minutes: 8))
         XCTAssertEqual(WalletEngine.waitingText(.init(confirmations: 4, needed: 10, minutes: 8)),
                        "usable in about 8 minutes · 4/10 confirmations")
-        // Own change needs 3: at 102 it is done.
-        XCTAssertNil(WalletEngine.slowestWaiting([own], networkHeight: 102))
+        // After NU7: 6 blocks × 25 s ≈ 3 minutes.
+        let receivedAfter = Item(id: Data([4]), kind: .received, amount: 1, date: Date(), state: .confirmed, minedHeight: n)
+        XCTAssertEqual(WalletEngine.slowestWaiting([receivedAfter], networkHeight: n + 3)?.minutes, 3)
+        // Own change needs 3: at b+2 it is done.
+        XCTAssertNil(WalletEngine.slowestWaiting([own], networkHeight: b + 2))
         // Not in a block yet: the slowest wins.
-        XCTAssertEqual(WalletEngine.slowestWaiting([received, pending], networkHeight: 103)?.confirmations, 0)
+        XCTAssertEqual(WalletEngine.slowestWaiting([received, pending], networkHeight: b + 3)?.confirmations, 0)
         XCTAssertEqual(WalletEngine.waitingText(nil), "usable within about 12 minutes")
+        XCTAssertEqual(WalletEngine.waitingText(nil, networkHeight: n), "usable within about 4 minutes")
         XCTAssertNil(WalletEngine.slowestWaiting([received], networkHeight: 0))
     }
 
@@ -218,9 +224,51 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertNil(LockRules.removalStartHeight(synced: 0, seen: 100))
         XCTAssertNil(LockRules.removalStartHeight(synced: 80, seen: 100))
         XCTAssertEqual(LockRules.removalStartHeight(synced: 95, seen: 100), 100)
-        let r = SecurityKeys.Removal(startedAt: Date(timeIntervalSince1970: 0), startHeight: 1000)
-        XCTAssertFalse(LockRules.removalDue(r, now: Date(timeIntervalSince1970: 47 * 3600), networkHeight: 5000))
-        XCTAssertFalse(LockRules.removalDue(r, now: Date(timeIntervalSince1970: 49 * 3600), networkHeight: 3000))
-        XCTAssertTrue(LockRules.removalDue(r, now: Date(timeIntervalSince1970: 49 * 3600), networkHeight: 3304))
+        // 48 hours = 2,304 blocks of 75 s before NU7, 6,912 of 25 s after it.
+        let t48 = Date(timeIntervalSince1970: 49 * 3600)
+        let before = SecurityKeys.Removal(startedAt: Date(timeIntervalSince1970: 0), startHeight: 3_400_000)
+        XCTAssertFalse(LockRules.removalDue(before, now: Date(timeIntervalSince1970: 47 * 3600), networkHeight: 3_500_000))
+        XCTAssertFalse(LockRules.removalDue(before, now: t48, networkHeight: 3_402_303))
+        XCTAssertTrue(LockRules.removalDue(before, now: t48, networkHeight: 3_402_304))
+        let after = SecurityKeys.Removal(startedAt: Date(timeIntervalSince1970: 0), startHeight: 3_600_000)
+        XCTAssertFalse(LockRules.removalDue(after, now: t48, networkHeight: 3_602_304), "2,304 blocks are only 16 hours after NU7")
+        XCTAssertTrue(LockRules.removalDue(after, now: t48, networkHeight: 3_606_912))
+        // Crossing NU7: 1,404 blocks of 75 s, then 2,700 of 25 s.
+        let across = SecurityKeys.Removal(startedAt: Date(timeIntervalSince1970: 0), startHeight: 3_542_000)
+        XCTAssertFalse(LockRules.removalDue(across, now: t48, networkHeight: 3_546_103))
+        XCTAssertTrue(LockRules.removalDue(across, now: t48, networkHeight: 3_546_104))
+    }
+    // MARK: NU7
+
+    func testBlockTimesAcrossNU7() {
+        XCTAssertEqual(BlockTime.spacing(at: 3_543_404), 75)
+        XCTAssertEqual(BlockTime.spacing(at: 3_543_405), 25)
+        XCTAssertEqual(BlockTime.seconds(from: 3_543_400, to: 3_543_410), 4 * 75 + 6 * 25)
+        XCTAssertEqual(BlockTime.blocksBack(seconds: 3600, from: 3_500_000), 48)
+        XCTAssertEqual(BlockTime.blocksBack(seconds: 3600, from: 3_700_000), 144)
+        // A year back from a tip after NU7: the blocks since NU7, then 75 s ones.
+        let tip = 3_543_405 + 999
+        XCTAssertEqual(BlockTime.blocksBack(seconds: 25_000 + 75 * 100, from: tip), 1000 + 100)
+    }
+
+    func testRestoreFromDateAfterNU7StartsEarlyEnough() {
+        // On 30 Nov 2026, 24.5 days after NU7 (84,672 blocks of 25 s), a
+        // wallet from November must start before 1 Nov, which was about
+        // 4.5 days of 75-second blocks before NU7. Counting everything at
+        // 75 s would start some 48,000 blocks too late and miss funds.
+        let now = DateComponents(calendar: Calendar(identifier: .gregorian), timeZone: TimeZone(identifier: "UTC"),
+                                 year: 2026, month: 11, day: 30).date!
+        let tip = 3_543_405 + 84_672
+        let start = Birthday.estimate(year: 2026, month: 11, tip: tip, now: now)
+        XCTAssertLessThanOrEqual(start, 3_543_405 - 5_184)
+    }
+
+    func testReleasesPauseAtNU7WithTheOldEngine() {
+        XCTAssertFalse(NetworkUpgrade.engineKnowsNU7, "this build still runs engine 3.0.0")
+        XCTAssertFalse(NetworkUpgrade.releasesPaused(networkHeight: 3_543_300))
+        XCTAssertTrue(NetworkUpgrade.releasesPaused(networkHeight: 3_543_364))
+        XCTAssertTrue(NetworkUpgrade.releasesPaused(networkHeight: 3_543_405))
+        XCTAssertTrue(NetworkUpgrade.releasesPaused(networkHeight: 0), "unknown height counts as paused")
+        XCTAssertThrowsError(try NetworkUpgrade.checkReleases(networkHeight: 3_600_000))
     }
 }

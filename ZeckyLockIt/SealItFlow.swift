@@ -112,6 +112,7 @@ final class SealItFlow: ObservableObject {
             let memoValue: Memo? = try memo.flatMap { $0.isEmpty ? nil : try Memo(string: $0) }
 
             step = .preparing("Building the payment…")
+            try NetworkUpgrade.checkReleases(networkHeight: (try? await synchronizer.latestHeight()) ?? 0)
             let proposal = try await synchronizer.proposeTransfer(
                 accountUUID: account,
                 recipient: recipient,
@@ -145,6 +146,7 @@ final class SealItFlow: ObservableObject {
             step = .preparing("Finishing the proofs…")
             let proven = try await provingTask.value
 
+            try NetworkUpgrade.checkReleases(networkHeight: (try? await synchronizer.latestHeight()) ?? 0)
             step = .broadcasting
             let results = try await synchronizer.createTransactionFromPCZT(
                 pcztWithProofs: proven,

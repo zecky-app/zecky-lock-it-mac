@@ -70,8 +70,8 @@ enum LockRules {
 
     /// Asking the key for the phrase needs a backup key first.
     static let phraseKeyMinKeys = 2
-    /// 48 hours of Zcash blocks (one about every 75 seconds) and of clock.
-    static let removalBlocks = 2304
+    /// 48 hours of clock, and 48 hours of Zcash blocks (75 s each, 25 s
+    /// from NU7: about 2,304 blocks before it, 6,912 after).
     static let removalSeconds: TimeInterval = 48 * 3600
     /// A server may lag a few blocks behind another; more is suspect.
     static let behindTolerance = 10
@@ -87,7 +87,7 @@ enum LockRules {
     static func removalDue(_ removal: SecurityKeys.Removal?, now: Date, networkHeight: Int) -> Bool {
         guard let removal, removal.startHeight > 0 else { return false }
         return now.timeIntervalSince(removal.startedAt) >= removalSeconds
-            && networkHeight >= removal.startHeight + removalBlocks
+            && Double(BlockTime.seconds(from: removal.startHeight, to: networkHeight)) >= removalSeconds
     }
 }
 

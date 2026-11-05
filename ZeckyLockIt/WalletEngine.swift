@@ -173,10 +173,10 @@ final class WalletEngine: ObservableObject {
 
     // How long until Zcash that is still confirming can be used, as on the
     // iPhone (src/lib/confirmations.ts): 10 confirmations for Zcash from
-    // someone else, 3 for the wallet's own change; a block takes about 75 s.
+    // someone else, 3 for the wallet's own change. A block takes about 75 s,
+    // and 25 s from NU7 (BlockTime).
     nonisolated static let confirmationsReceived = 10
     nonisolated static let confirmationsOwn = 3
-    nonisolated static let blockSeconds = 75
 
     struct Waiting: Equatable { let confirmations: Int; let needed: Int; let minutes: Int }
 
@@ -191,15 +191,18 @@ final class WalletEngine: ObservableObject {
             let left = needed - confirmations
             if best == nil || left > best!.left {
                 best = (Waiting(confirmations: confirmations, needed: needed,
-                                minutes: max(1, Int((Double(left * blockSeconds) / 60).rounded()))), left)
+                                minutes: max(1, Int((Double(BlockTime.seconds(from: networkHeight, to: networkHeight + left)) / 60).rounded()))), left)
             }
         }
         return best?.w
     }
 
     /// "usable in about 6 minutes · 4/10 confirmations"
-    nonisolated static func waitingText(_ w: Waiting?) -> String {
-        guard let w else { return "usable within about 12 minutes" }
+    nonisolated static func waitingText(_ w: Waiting?, networkHeight: Int = 0) -> String {
+        guard let w else {
+            let minutes = networkHeight >= NetworkUpgrade.nu7Height ? 4 : 12
+            return "usable within about \(minutes) minutes"
+        }
         let time = w.minutes <= 1 ? "about a minute" : "about \(w.minutes) minutes"
         let progress = w.confirmations == 0 ? "waiting for a block" : "\(w.confirmations)/\(w.needed) confirmations"
         return "usable in \(time) · \(progress)"
@@ -387,6 +390,7 @@ final class WalletEngine: ObservableObject {
     /// goes back to Orchard. Sapling and Ironwood funds are not touched.
     func planIronwoodMove() async throws -> SendPlan {
         guard let synchronizer, let account else { throw EngineError.notReady }
+        try NetworkUpgrade.checkReleases(networkHeight: networkHeight)
         let proposal = try await synchronizer.proposeOrchardToIronwoodMigration(accountUUID: account)
         let fee = proposal.totalFeeRequired().amount
         return SendPlan(proposal: proposal, to: "Ironwood", amount: max(0, orchardHeld - fee), fee: fee, toSelf: true)
@@ -401,6 +405,7 @@ final class WalletEngine: ObservableObject {
     /// Locks public Zcash in: shields it into this wallet's private pool.
     func planLockIn() async throws -> SendPlan {
         guard let synchronizer, let account else { throw EngineError.notReady }
+        try NetworkUpgrade.checkReleases(networkHeight: networkHeight)
         guard let proposal = try await synchronizer.proposeShielding(
             accountUUID: account, shieldingThreshold: Zatoshi(10_000), memo: .empty, transparentReceiver: nil)
         else { throw SendError.tooLittle }
@@ -410,6 +415,7 @@ final class WalletEngine: ObservableObject {
 
     func plan(to address: String, amount: Int64?, memo text: String? = nil) async throws -> SendPlan {
         guard let synchronizer, let account = current else { throw EngineError.notReady }
+        try NetworkUpgrade.checkReleases(networkHeight: networkHeight)
         let spendable = focusSpendable
         let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let recipient = try? Recipient(trimmed, network: .mainnet) else { throw SendError.badAddress }
@@ -475,6 +481,9 @@ final class WalletEngine: ObservableObject {
     /// hands the result to the server. The caller wipes the seed after.
     func send(_ plan: SendPlan, seed: [UInt8]) async throws -> SendOutcome {
         guard let synchronizer else { throw EngineError.notReady }
+        // Checked again right before signing: the upgrade may have come
+        // closer while the payment was being reviewed.
+        try NetworkUpgrade.checkReleases(networkHeight: networkHeight)
         let key = try DerivationTool(networkType: .mainnet)
             .deriveUnifiedSpendingKey(seed: seed, accountIndex: Zip32AccountIndex(0))
         var outcome: SendOutcome = .sent

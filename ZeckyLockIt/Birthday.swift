@@ -5,8 +5,9 @@ enum Birthday {
     /// Sapling activation: the earliest block a Zecky wallet can have funds in.
     static let earliest = 419_200
 
-    // A block every 75 s since Blossom (block 653,600, 11 Dec 2019), 150 s before.
-    private static let blossomHeight = 653_600
+    // A block every 75 s since Blossom (block 653,600, 11 Dec 2019), 150 s
+    // before, and 25 s since NU7 (block 3,543,405, 5 Nov 2026).
+    private static let blossomHeight = NetworkUpgrade.blossomHeight
     private static let blossomTime = DateComponents(
         calendar: Calendar(identifier: .gregorian), timeZone: TimeZone(identifier: "UTC"),
         year: 2019, month: 12, day: 11, hour: 18).date!
@@ -15,9 +16,15 @@ enum Birthday {
     private static let margin = 1.03
     private static let extraBlocks = 2_000
 
+    // NU7's expected day; the exact moment depends on the blocks.
+    private static let nu7Time = DateComponents(
+        calendar: Calendar(identifier: .gregorian), timeZone: TimeZone(identifier: "UTC"),
+        year: 2026, month: 11, day: 5, hour: 12).date!
+
     /// A rough chain height for "now", for when the network can't be asked.
     static func estimatedTip(now: Date = Date()) -> Int {
-        blossomHeight + Int(now.timeIntervalSince(blossomTime) / 75)
+        if now >= nu7Time { return NetworkUpgrade.nu7Height + Int(now.timeIntervalSince(nu7Time) / 25) }
+        return min(NetworkUpgrade.nu7Height - 1, blossomHeight + Int(now.timeIntervalSince(blossomTime) / 75))
     }
 
     /// The block to start from for a wallet created in `year`/`month` (1–12).
@@ -28,7 +35,7 @@ enum Birthday {
         var height: Int
         if target >= blossomTime {
             let secondsBack = max(0, now.timeIntervalSince(target))
-            height = tip - Int((secondsBack / 75 * margin).rounded(.up))
+            height = tip - BlockTime.blocksBack(seconds: secondsBack * margin, from: tip)
         } else {
             let secondsBefore = blossomTime.timeIntervalSince(target)
             height = blossomHeight - Int((secondsBefore / 150 * margin).rounded(.up))
