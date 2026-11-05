@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import ZcashLightClientKit
 
 /// Which screen is showing, and the wallet behind it.
 @MainActor
@@ -22,7 +23,7 @@ final class AppModel: ObservableObject {
 
     @Published var screen: Screen = .loading
     /// The sheet over the home screen, also opened from the menu bar.
-    enum Sheet: Identifiable { case receive, send, settings, activity, ironwood, lockIn; var id: Self { self } }
+    enum Sheet: Identifiable { case receive, send, settings, activity, ironwood, lockIn, signer, addWallet, walletWords; var id: Self { self } }
     @Published var sheet: Sheet?
     /// Open Settings straight at a page (for "Choose another server").
     var settingsPage: SettingsView.Page?
@@ -35,6 +36,38 @@ final class AppModel: ObservableObject {
     /// Dark (default), light, or the same as this Mac. Remembered.
     @Published var themeMode: Theme.Mode = Theme.mode { didSet { Theme.mode = themeMode } }
     @Published var lockOpen = false
+
+    /// The key ring: nil is the main wallet on this Mac, otherwise an extra
+    /// wallet on this Mac or a Seal it wallet.
+    @Published var selectedWallet: AccountUUID? {
+        didSet { engine.focus = selectedWallet }
+    }
+    /// Open the Seal it sheet straight at pairing (from "+ Add").
+    var sealItPairing = false
+    var isSealedSelected: Bool {
+        guard let id = selectedWallet else { return false }
+        return engine.sealedWallets.contains { $0.id == id }
+    }
+
+    /// Adding a wallet to this Mac first opens the main lock: the new words
+    /// are sealed with a key that only exists while it is open.
+    enum Adding: Equatable { case new, restore }
+    @Published var adding: Adding?
+    func startAdding(_ kind: Adding) {
+        adding = kind
+        askToOpen()
+    }
+    /// Showing an extra wallet's words: they open with the main lock.
+    @Published var showingWords = false
+    func startShowingWords(_ id: AccountUUID) {
+        selectedWallet = id
+        showingWords = true
+        askToOpen()
+    }
+
+    /// The main wallet's words while the lock is open, for the key ring vault.
+    var openedPhrase: String? { mainOpened?.phrase }
+    private var mainOpened: StoredWallet?
 
     /// After the countdown: the code on the dials (when the lock has one).
     @Published var askingCode = false
@@ -58,7 +91,7 @@ final class AppModel: ObservableObject {
         case .notAsked, .waiting: timeLockShown = true
         }
     }
-    func keepLocked() { asking = false; askingCode = false; timeLockShown = false; breakingGlass = false }
+    func keepLocked() { asking = false; askingCode = false; timeLockShown = false; breakingGlass = false; adding = nil; showingWords = false }
     func startTimeLockWait() { TimeLock.askToOpen(); timeLockShown = false; timeLockChanged += 1 }
     func cancelTimeLockRequest() { TimeLock.cancelRequest(); timeLockShown = false; timeLockChanged += 1 }
 
@@ -84,7 +117,13 @@ final class AppModel: ObservableObject {
     /// Unseals for this opening. Returns what to show, or nil when open.
     func unsealToOpen(code: String?) async -> String? {
         do {
-            opened = try await WalletVault.unseal(reason: "open the lock", code: code, fresh: Keys.askOpeningLock)
+            let main = try await WalletVault.unseal(reason: "open the lock", code: code, fresh: Keys.askOpeningLock)
+            mainOpened = main
+            opened = main
+            // An extra wallet on this Mac: its words open with the main ones.
+            if adding == nil, let id = selectedWallet, KeyRingVault.contains(id) {
+                opened = try KeyRingVault.open(id: id, mainPhrase: main.phrase)
+            }
             return nil
         } catch WalletVault.Failure.cancelled {
             return "Not confirmed, so the lock stayed closed."
@@ -98,13 +137,21 @@ final class AppModel: ObservableObject {
         if breakingGlass { TimeLock.recordBroken(); breakingGlass = false; timeLockChanged += 1 }
         lockOpen = true
         released = false
+        if adding != nil {
+            // The lock opened to add a wallet: that sheet closes it again.
+            released = true
+            sheet = .addWallet
+        } else if showingWords {
+            released = true
+            sheet = .walletWords
+        }
         // The open lock waits on home; it closes by itself after 2 minutes
         // unless Release is being filled in.
         let token = UUID()
         openToken = token
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(Self.openLimit * 1_000_000_000))
-            if lockOpen && openToken == token && sheet != .send { closeLock() }
+            if lockOpen && openToken == token && sheet != .send && sheet != .signer && sheet != .addWallet && sheet != .walletWords { closeLock() }
         }
     }
 
@@ -136,6 +183,9 @@ final class AppModel: ObservableObject {
         WalletVault.endSession()
         sheet = nil
         opened = nil
+        mainOpened = nil
+        adding = nil
+        showingWords = false
         askingCode = false
         timeLockShown = false
         asking = false
@@ -182,8 +232,11 @@ final class AppModel: ObservableObject {
     func closeLock() {
         guard !signing else { return }
         openToken = nil
-        if sheet == .send { sheet = nil }
+        if sheet == .send || sheet == .signer || sheet == .addWallet || sheet == .walletWords { sheet = nil }
         opened = nil
+        mainOpened = nil
+        adding = nil
+        showingWords = false
         asking = false
         askingCode = false
         lockOpen = false
@@ -303,6 +356,8 @@ final class AppModel: ObservableObject {
         TimeLock.erase()
         LockLog.erase()
         Keys.erase()
+        KeyRingVault.erase()
+        WalletNames.erase()
         Contacts.erase()
         SecurityKeys.erase()
         AddressBook.clear()
@@ -313,6 +368,7 @@ final class AppModel: ObservableObject {
         unit = .zec
         amountsHidden = false
         sheet = nil
+        selectedWallet = nil
         asking = false
         lockOpen = false
         locked = false

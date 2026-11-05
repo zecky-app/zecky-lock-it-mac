@@ -159,7 +159,7 @@ struct SendView: View {
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     if max {
-                        Text(Amount.number(Swift.max(0, engine.spendable), unit))
+                        Text(Amount.number(Swift.max(0, engine.focusSpendable), unit))
                             .font(Theme.serif(34, weight: .medium)).foregroundStyle(Theme.muted)
                         Text("minus the fee").font(Theme.text(12)).foregroundStyle(Theme.muted)
                     } else {
@@ -178,7 +178,7 @@ struct SendView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack {
-                    Text("\(Amount.text(engine.spendable, unit)) available" + (prices.value(of: engine.spendable).map { " · \($0)" } ?? ""))
+                    Text("\(Amount.text(engine.focusSpendable, unit)) available" + (prices.value(of: engine.focusSpendable).map { " · \($0)" } ?? ""))
                         .font(Theme.text(12)).foregroundStyle(Theme.muted)
                     Spacer()
                     Chip(title: "Max", on: max) { max.toggle() }
@@ -236,7 +236,7 @@ struct SendView: View {
 
     private func review(_ plan: WalletEngine.SendPlan) -> some View {
         let total = plan.amount + plan.fee
-        let left = Swift.max(0, engine.spendable - total)
+        let left = Swift.max(0, engine.focusSpendable - total)
         return VStack(alignment: .leading, spacing: 14) {
             VStack(spacing: 0) {
                 receiptRow("To", plan.toSelf ? "Yourself" : (Contacts.name(for: plan.to) ?? "New address"), strong: true)

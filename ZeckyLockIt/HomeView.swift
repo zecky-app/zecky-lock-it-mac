@@ -1,5 +1,6 @@
 import Combine
 import SwiftUI
+import ZcashLightClientKit
 
 /// The main screen: the lock, what is locked and for how long.
 /// Lock more is easy; opening the lock takes a deliberate moment.
@@ -14,12 +15,18 @@ struct HomeView: View {
 
     /// The plate on the lock: the value when a currency is chosen, else the state.
     /// The plate is engraved: LOCKED or OPEN, never a number that moves.
-    private var plateText: String { model.lockOpen ? "OPEN" : "LOCKED" }
+    private var plateText: String { model.lockOpen ? "OPEN" : (model.isSealedSelected ? "SEALED" : "LOCKED") }
+
+    /// The balance of the wallet chosen on the key ring.
+    private var shownTotal: Int64 {
+        guard let id = model.selectedWallet else { return engine.total }
+        return engine.signerBalances[id]?.total ?? 0
+    }
 
     /// The value in the chosen currency, small under the balance.
     private var valueLine: String? {
         guard prices.currency != .none, !model.amountsHidden else { return nil }
-        return prices.value(of: engine.total)
+        return prices.value(of: shownTotal)
     }
 
     var body: some View {
@@ -69,6 +76,8 @@ struct HomeView: View {
                     }
 
                     VStack(spacing: 8) {
+                        KeyRing(model: model, engine: engine)
+                            .padding(.top, 4)
                         ZStack {
                             Medallion(tilt: tilt, diameter: 760)
                                 .animation(.easeOut(duration: 0.6), value: tilt)
@@ -107,6 +116,13 @@ struct HomeView: View {
                                 .padding(.top, -4)
                         }
 
+                        if model.isSealedSelected {
+                            Text("Keys in Seal it")
+                                .font(Theme.text(13)).foregroundStyle(Theme.muted)
+                        } else if model.selectedWallet != nil {
+                            Text(shownTotal > 0 ? "Locked on this Mac" : "Nothing locked yet. Choose Lock more to begin.")
+                                .font(Theme.text(13)).foregroundStyle(Theme.muted)
+                        } else {
                         VStack(spacing: 3) {
                             heldText
                             if engine.orchardHeld > 0 && engine.status == .upToDate {
@@ -143,18 +159,31 @@ struct HomeView: View {
                                  : "\(Amount.text(engine.total - engine.spendable, model.unit)) locking in · \(wait)")
                                 .font(Theme.text(12)).foregroundStyle(Theme.gold)
                         }
+                        }
 
                         Group {
                             if model.lockOpen {
                                 HStack(spacing: 12) {
-                                    BrassButton(title: "Release Zcash", icon: "lock.open.fill") { model.sheet = .send }
+                                    BrassButton(title: model.isSealedSelected ? "Write it, seal it" : "Release Zcash",
+                                                icon: model.isSealedSelected ? "envelope.fill" : "lock.open.fill") {
+                                        if model.isSealedSelected {
+                                            // Sealed wallet: the phone signs; the lock closes when done.
+                                            model.released = true
+                                            model.sheet = .signer
+                                        } else {
+                                            model.sheet = .send
+                                        }
+                                    }
                                         .frame(width: 210)
                                     SecondaryButton(title: "Close the lock") { model.closeLock() }
                                         .frame(width: 160)
                                         .keyboardShortcut(.cancelAction)
                                 }
                             } else {
-                                BrassButton(title: "Lock more", icon: "lock.fill") { model.sheet = .receive }
+                                BrassButton(title: model.isSealedSelected ? "Seal more" : "Lock more",
+                                            icon: model.isSealedSelected ? "envelope.fill" : "lock.fill") {
+                                    model.sheet = model.isSealedSelected ? .signer : .receive
+                                }
                                     .frame(width: 230)
                                     .disabled(engine.status == .connecting)
                             }
@@ -281,13 +310,16 @@ struct HomeView: View {
             case .activity: ActivitySheet(model: model, engine: engine) { model.sheet = nil }
             case .ironwood: IronwoodSheet(model: model, engine: engine, kind: .ironwood) { model.sheet = nil }
             case .lockIn: IronwoodSheet(model: model, engine: engine, kind: .lockIn) { model.sheet = nil }
+            case .signer: SignerSheet(model: model, engine: engine) { model.sheet = nil }
+            case .addWallet: AddWalletSheet(model: model, engine: engine, kind: model.adding ?? .new) { model.sheet = nil }
+            case .walletWords: WalletWordsSheet(model: model, engine: engine) { model.sheet = nil }
             }
         }
     }
 
     /// Calendar days, so a payment from yesterday evening counts as 1 day.
     private var balanceText: String {
-        model.amountsHidden ? Amount.hiddenText : Amount.number(engine.total, model.unit)
+        model.amountsHidden ? Amount.hiddenText : Amount.number(shownTotal, model.unit)
     }
 
     /// Long zats amounts shrink to stay on one line, like on iPhone.
@@ -389,6 +421,117 @@ struct HomeView: View {
         case .failed: return Theme.red
         default: return Theme.gold
         }
+    }
+}
+
+/// The key ring: the wallet on this Mac and every Seal it wallet, with "+".
+/// The lock in the middle opens whichever wallet is chosen here.
+private struct KeyRing: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var engine: WalletEngine
+
+    var body: some View {
+        HStack(spacing: 8) {
+            chip(title: "This Mac", icon: "lock.fill", on: model.selectedWallet == nil) { choose(nil) }
+            ForEach(engine.macWallets, id: \.id) { wallet in
+                chip(title: WalletNames.name(for: wallet, fallback: "Wallet"), icon: "lock.fill", on: model.selectedWallet == wallet.id) {
+                    choose(wallet.id)
+                }
+                .contextMenu {
+                    Button("Rename…") { newName = WalletNames.name(for: wallet, fallback: ""); renaming = wallet }
+                    Button("Show its words…") { model.startShowingWords(wallet.id) }
+                    Divider()
+                    Button("Remove from Lock it…") { removing = wallet }
+                }
+            }
+            ForEach(engine.sealedWallets, id: \.id) { wallet in
+                chip(title: WalletNames.name(for: wallet, fallback: "Seal it"), icon: "envelope.fill", on: model.selectedWallet == wallet.id) {
+                    choose(wallet.id)
+                }
+                .contextMenu {
+                    Button("Rename…") { newName = WalletNames.name(for: wallet, fallback: ""); renaming = wallet }
+                    Divider()
+                    Button("Remove from Lock it…") { removing = wallet }
+                }
+            }
+            Menu {
+                Button("Pair Seal it (offline phone)") {
+                    model.sealItPairing = true
+                    model.sheet = .signer
+                }
+                Divider()
+                Button("New wallet on this Mac") { model.startAdding(.new) }
+                Button("Restore a wallet with 24 words") { model.startAdding(.restore) }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.gold)
+                    .frame(width: 26, height: 26)
+                    .overlay(Circle().stroke(Theme.gold.opacity(0.5), lineWidth: 1))
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Add a wallet to the key ring")
+        }
+        .disabled(model.lockOpen)
+        .onAppear { Task { await engine.refreshSealedWallets() } }
+        .confirmationDialog(removeTitle, isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
+            Button("Remove", role: .destructive) {
+                guard let wallet = removing else { return }
+                Task {
+                    if model.selectedWallet == wallet.id { model.selectedWallet = nil }
+                    try? await engine.removeWallet(wallet.id)
+                    KeyRingVault.remove(id: wallet.id)
+                    WalletNames.forget(wallet.id)
+                }
+            }
+            Button("Keep it", role: .cancel) {}
+        } message: {
+            Text(removeMessage)
+        }
+        .alert("Rename wallet", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Name", text: $newName)
+            Button("Rename") {
+                if let wallet = renaming { WalletNames.rename(wallet.id, to: newName) }
+                renaming = nil
+                Task { await engine.refreshSealedWallets() }
+            }
+            Button("Cancel", role: .cancel) { renaming = nil }
+        }
+    }
+
+    @State private var removing: Account?
+    @State private var renaming: Account?
+    @State private var newName = ""
+
+    private var removeTitle: String { "Remove \"\(removing?.name ?? "this wallet")\" from Lock it?" }
+
+    private var removeMessage: String {
+        guard let removing else { return "" }
+        if SealItFlow.isSealIt(removing) {
+            return "Its keys and Zcash stay on your Seal it phone. You can pair it again at any time."
+        }
+        return "Its words are deleted from this Mac. Only remove it if you have its 24 words written down, or it is empty."
+    }
+
+    private func choose(_ id: AccountUUID?) {
+        guard !model.lockOpen else { return }
+        withAnimation(.easeInOut(duration: 0.2)) { model.selectedWallet = id }
+    }
+
+    private func chip(title: String, icon: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 10, weight: .semibold))
+                Text(title).font(Theme.text(12, weight: on ? .semibold : .regular))
+            }
+            .foregroundStyle(on ? Theme.onGold : Theme.text)
+            .padding(.horizontal, 12).frame(height: 26)
+            .background(on ? Theme.gold : Theme.surface, in: Capsule())
+            .overlay(Capsule().stroke(Theme.line, lineWidth: on ? 0 : 1))
+        }
+        .buttonStyle(.plain)
     }
 }
 

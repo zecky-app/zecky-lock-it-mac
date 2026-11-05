@@ -237,18 +237,83 @@ final class WalletEngine: ObservableObject {
                 status = .failed("The wallet data on this Mac belongs to other words. Erase and restore with your 24 words.")
                 return true
             }
-            guard let first = try await synchronizer.listAccounts().first?.id else {
+            // The wallet's own account: the one made from the 24 words, not a
+            // Seal it watch-only account imported next to it.
+            let all = try await synchronizer.listAccounts()
+            guard let first = (all.first(where: { $0.keySource == nil })
+                               ?? all.first(where: { !SealItFlow.isSealIt($0) && $0.keySource != Self.macKeySource }))?.id else {
                 if seed == nil { return false }
                 status = .failed("The wallet account could not be created.")
                 return true
             }
             account = first
+            await refreshSealedWallets()
             try await synchronizer.start(retry: false)
         } catch {
             status = .failed(String(describing: error))
         }
         return true
     }
+
+    /// The engine and the wallet's own account, for the Seal it flow.
+    var sdk: SDKSynchronizer? { synchronizer }
+    var mainAccount: AccountUUID? { account }
+
+    /// Balance of the signer's watch-only account(s), kept apart from the lock.
+    @Published private(set) var signerSpendable: Int64 = 0
+    @Published private(set) var signerTotal: Int64 = 0
+    /// The Seal it wallets on the key ring, in the order they were added.
+    @Published private(set) var sealedWallets: [Account] = []
+    /// Extra wallets with their keys on this Mac (words in the key ring vault).
+    @Published private(set) var macWallets: [Account] = []
+
+    nonisolated static let macKeySource = "lockit"
+
+    func refreshSealedWallets() async {
+        guard let synchronizer else { sealedWallets = []; macWallets = []; return }
+        let all = (try? await synchronizer.listAccounts()) ?? []
+        sealedWallets = all.filter { SealItFlow.isSealIt($0) }
+        macWallets = all.filter { $0.keySource == Self.macKeySource }
+    }
+
+    /// The wallet on the key ring the screens show: nil is the main wallet.
+    @Published var focus: AccountUUID? {
+        didSet { if focus != oldValue { Task { await refreshActivity() } } }
+    }
+
+    private var current: AccountUUID? { focus ?? account }
+
+    /// What the chosen wallet can spend now.
+    var focusSpendable: Int64 {
+        guard let focus else { return spendable }
+        return signerBalances[focus]?.spendable ?? 0
+    }
+
+    /// Adds a wallet with its own 24 words on this Mac. Returns its account.
+    func addMacWallet(name: String, phrase: String, birthday: Int) async throws -> AccountUUID {
+        guard let synchronizer else { throw EngineError.notReady }
+        var seed = try Mnemonic.seed(from: phrase)
+        defer { Wipe.bytes(&seed) }
+        let tool = DerivationTool(networkType: .mainnet)
+        let usk = try tool.deriveUnifiedSpendingKey(seed: seed, accountIndex: Zip32AccountIndex(0))
+        let ufvk = try tool.deriveUnifiedFullViewingKey(from: usk)
+        let id = try await synchronizer.importAccount(
+            ufvk: ufvk.stringEncoded, seedFingerprint: nil, zip32AccountIndex: Zip32AccountIndex(0),
+            purpose: .spending, name: name, keySource: Self.macKeySource, birthday: BlockHeight(birthday))
+        await refreshSealedWallets()
+        return id
+    }
+
+    /// Removes a wallet from the key ring (never the main one).
+    func removeWallet(_ id: AccountUUID) async throws {
+        guard let synchronizer, id != account else { return }
+        if focus == id { focus = nil }
+        try await synchronizer.deleteAccount(id)
+        await refreshSealedWallets()
+    }
+
+    /// Per sealed wallet: (usable, total) in zatoshi.
+    @Published private(set) var signerBalances: [AccountUUID: (spendable: Int64, total: Int64)] = [:]
 
     enum EngineError: Error, CustomStringConvertible {
         case notReady
@@ -258,15 +323,15 @@ final class WalletEngine: ObservableObject {
     /// A new shielded-only address (Sapling + Orchard, no transparent part).
     /// Every one belongs to the same account and the same balance.
     func freshShieldedAddress() async throws -> String {
-        guard let synchronizer, let account else { throw EngineError.notReady }
-        return try await synchronizer.getCustomUnifiedAddress(accountUUID: account, receivers: [.sapling, .orchard]).stringEncoded
+        guard let synchronizer, let current else { throw EngineError.notReady }
+        return try await synchronizer.getCustomUnifiedAddress(accountUUID: current, receivers: [.sapling, .orchard]).stringEncoded
     }
 
     /// How many incoming payments each of the wallet's own addresses received.
     func addressUsage() async throws -> [String: Int] {
         guard let synchronizer else { throw EngineError.notReady }
         var counts: [String: Int] = [:]
-        for tx in try await synchronizer.allTransactions() where !tx.isSentTransaction {
+        for tx in try await synchronizer.allTransactions() where !tx.isSentTransaction && tx.accountUUID == current {
             var paidTo = Set<String>()
             for output in await synchronizer.getTransactionOutputs(for: tx) where !output.isChange {
                 if case .address(let recipient) = output.recipient { paidTo.insert(recipient.stringEncoded) }
@@ -344,7 +409,8 @@ final class WalletEngine: ObservableObject {
     }
 
     func plan(to address: String, amount: Int64?, memo text: String? = nil) async throws -> SendPlan {
-        guard let synchronizer, let account else { throw EngineError.notReady }
+        guard let synchronizer, let account = current else { throw EngineError.notReady }
+        let spendable = focusSpendable
         let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let recipient = try? Recipient(trimmed, network: .mainnet) else { throw SendError.badAddress }
         var memo: Memo?
@@ -443,6 +509,12 @@ final class WalletEngine: ObservableObject {
         synchronizer.stop()
         for try await _ in synchronizer.wipe().values {}
         account = nil
+        signerSpendable = 0
+        signerTotal = 0
+        signerBalances = [:]
+        sealedWallets = []
+        macWallets = []
+        focus = nil
         activity = []
         lockedSince = nil
         spendable = 0
@@ -455,7 +527,7 @@ final class WalletEngine: ObservableObject {
     /// Re-reads the wallet's payments, newest first.
     func refreshActivity() async {
         guard let synchronizer, let txs = try? await synchronizer.allTransactions() else { return }
-        activity = txs.map { tx in
+        activity = txs.filter { $0.accountUUID == current }.map { tx in
             let kind: ActivityItem.Kind = tx.isSentTransaction ? .sent : .received
             let state: ActivityItem.State
             if tx.minedHeight != nil { state = .confirmed }
@@ -497,7 +569,26 @@ final class WalletEngine: ObservableObject {
         var unshielded: Int64 = 0
         var sapling: Int64 = 0
         var ironwood: Int64 = 0
-        for balance in state.accountsBalances.values {
+        // Only the wallet's own account counts for the lock; a signer's
+        // account (Seal it) is shown on its own sheet.
+        var signerSpendable: Int64 = 0
+        var signerTotal: Int64 = 0
+        var perSigner: [AccountUUID: (spendable: Int64, total: Int64)] = [:]
+        for (id, balance) in state.accountsBalances where id != account {
+            var usable: Int64 = 0
+            var all: Int64 = balance.unshielded.amount
+            for pool in [balance.saplingBalance, balance.orchardBalance, balance.ironwoodBalance] {
+                usable += pool.spendableValue.amount
+                all += pool.total().amount
+            }
+            perSigner[id] = (usable, all)
+            signerSpendable += usable
+            signerTotal += all
+        }
+        self.signerSpendable = signerSpendable
+        self.signerTotal = signerTotal
+        self.signerBalances = perSigner
+        for (id, balance) in state.accountsBalances where id == account {
             orchard += balance.orchardBalance.total().amount
             unshielded += balance.unshielded.amount
             sapling += balance.saplingBalance.total().amount

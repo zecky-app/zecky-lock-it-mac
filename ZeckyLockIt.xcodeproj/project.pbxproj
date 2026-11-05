@@ -46,6 +46,15 @@
 		A10000000000000000000079 /* TimeLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000078 /* TimeLock.swift */; };
 		A1000000000000000000008F /* SecurityKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008E /* SecurityKeys.swift */; };
 		A1000000000000000000007B /* Contacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000007A /* Contacts.swift */; };
+		A10000000000000000000095 /* SealItCBOR.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000090 /* SealItCBOR.swift */; };
+		A10000000000000000000096 /* SealItUR.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000091 /* SealItUR.swift */; };
+		A10000000000000000000097 /* SealItQRViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000092 /* SealItQRViews.swift */; };
+		A10000000000000000000098 /* SealItFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000093 /* SealItFlow.swift */; };
+		A10000000000000000000099 /* SignerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000094 /* SignerSheet.swift */; };
+		A100000000000000000000A1 /* URFountain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A0 /* URFountain.swift */; };
+		A100000000000000000000A3 /* SealMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A2 /* SealMark.swift */; };
+		A100000000000000000000A5 /* KeyRingVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A4 /* KeyRingVault.swift */; };
+		A100000000000000000000A7 /* AddWalletSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A6 /* AddWalletSheet.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -100,6 +109,15 @@
 		A10000000000000000000078 /* TimeLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeLock.swift; sourceTree = "<group>"; };
 		A1000000000000000000008E /* SecurityKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityKeys.swift; sourceTree = "<group>"; };
 		A1000000000000000000007A /* Contacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Contacts.swift; sourceTree = "<group>"; };
+		A10000000000000000000090 /* SealItCBOR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SealItCBOR.swift; sourceTree = "<group>"; };
+		A10000000000000000000091 /* SealItUR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SealItUR.swift; sourceTree = "<group>"; };
+		A10000000000000000000092 /* SealItQRViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SealItQRViews.swift; sourceTree = "<group>"; };
+		A10000000000000000000093 /* SealItFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SealItFlow.swift; sourceTree = "<group>"; };
+		A10000000000000000000094 /* SignerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignerSheet.swift; sourceTree = "<group>"; };
+		A100000000000000000000A0 /* URFountain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URFountain.swift; sourceTree = "<group>"; };
+		A100000000000000000000A2 /* SealMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SealMark.swift; sourceTree = "<group>"; };
+		A100000000000000000000A4 /* KeyRingVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyRingVault.swift; sourceTree = "<group>"; };
+		A100000000000000000000A6 /* AddWalletSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddWalletSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -157,6 +175,15 @@
 				A10000000000000000000076 /* CombinationView.swift */,
 				A10000000000000000000078 /* TimeLock.swift */,
 				A1000000000000000000008E /* SecurityKeys.swift */,
+				A10000000000000000000090 /* SealItCBOR.swift */,
+				A10000000000000000000091 /* SealItUR.swift */,
+				A10000000000000000000092 /* SealItQRViews.swift */,
+				A10000000000000000000093 /* SealItFlow.swift */,
+				A10000000000000000000094 /* SignerSheet.swift */,
+				A100000000000000000000A6 /* AddWalletSheet.swift */,
+				A100000000000000000000A4 /* KeyRingVault.swift */,
+				A100000000000000000000A2 /* SealMark.swift */,
+				A100000000000000000000A0 /* URFountain.swift */,
 				A1000000000000000000007A /* Contacts.swift */,
 				A1000000000000000000007C /* LockRules.swift */,
 				A10000000000000000000072 /* PriceFeed.swift */,
@@ -336,6 +363,15 @@
 				A10000000000000000000077 /* CombinationView.swift in Sources */,
 				A10000000000000000000079 /* TimeLock.swift in Sources */,
 				A1000000000000000000008F /* SecurityKeys.swift in Sources */,
+				A10000000000000000000095 /* SealItCBOR.swift in Sources */,
+				A10000000000000000000096 /* SealItUR.swift in Sources */,
+				A10000000000000000000097 /* SealItQRViews.swift in Sources */,
+				A10000000000000000000098 /* SealItFlow.swift in Sources */,
+				A10000000000000000000099 /* SignerSheet.swift in Sources */,
+				A100000000000000000000A7 /* AddWalletSheet.swift in Sources */,
+				A100000000000000000000A5 /* KeyRingVault.swift in Sources */,
+				A100000000000000000000A3 /* SealMark.swift in Sources */,
+				A100000000000000000000A1 /* URFountain.swift in Sources */,
 				A1000000000000000000007B /* Contacts.swift in Sources */,
 				A1000000000000000000007D /* LockRules.swift in Sources */,
 				A10000000000000000000073 /* PriceFeed.swift in Sources */,
@@ -461,6 +497,7 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "zecky.app";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "To reach your own Zcash node (Rock it) on your home network.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "To read QR codes from Zecky Seal it on your offline phone.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -491,6 +528,7 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "zecky.app";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "To reach your own Zcash node (Rock it) on your home network.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "To read QR codes from Zecky Seal it on your offline phone.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
