@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -294,7 +294,7 @@
 			);
 			mainGroup = A10000000000000000000002;
 			packageReferences = (
-				A10000000000000000000017 /* XCRemoteSwiftPackageReference "zcash-swift-wallet-sdk" */,
+				A10000000000000000000017 /* XCLocalSwiftPackageReference "../ZeckyEngine/zecky-engine" */,
 			);
 			productRefGroup = A10000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -578,21 +578,17 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		A10000000000000000000017 /* XCRemoteSwiftPackageReference "zcash-swift-wallet-sdk" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/zcash/zcash-swift-wallet-sdk";
-			requirement = {
-				kind = exactVersion;
-				version = 3.0.0;
-			};
+/* Begin XCLocalSwiftPackageReference section */
+		A10000000000000000000017 /* XCLocalSwiftPackageReference "../ZeckyEngine/zecky-engine" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../ZeckyEngine/zecky-engine;
 		};
-/* End XCRemoteSwiftPackageReference section */
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		A10000000000000000000018 /* ZcashLightClientKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A10000000000000000000017 /* XCRemoteSwiftPackageReference "zcash-swift-wallet-sdk" */;
+			package = A10000000000000000000017 /* XCLocalSwiftPackageReference "../ZeckyEngine/zecky-engine" */;
 			productName = ZcashLightClientKit;
 		};
 /* End XCSwiftPackageProductDependency section */

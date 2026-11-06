@@ -159,10 +159,6 @@ final class QRCameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutpu
             } else if let text = observation.payloadStringValue {
                 payload = text
             } else { continue }
-            #if DEBUG
-            print("[SealIt] QR seen:", payload.prefix(40).debugDescription,
-                  "raw:", raw.map { $0.prefix(24).map { String(format: "%02x", $0) }.joined() } ?? "nil")
-            #endif
             // Vision sometimes reports half-read codes as empty; skip those.
             guard !payload.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters)).isEmpty,
                   payload != lastPayload else { continue }

@@ -173,8 +173,7 @@ struct ReceiveView: View {
     }
 
     private func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        ReceiveAddress.copy(text)
         withAnimation { copied = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation { copied = false; copiedOther = nil } }
     }
@@ -227,5 +226,14 @@ enum QRCode {
         let image = NSImage(size: rep.size)
         image.addRepresentation(rep)
         return image
+    }
+}
+
+/// The one place Lock it uses the clipboard: copying a receive address
+/// (also for a sealed wallet). Nothing secret is ever copied.
+enum ReceiveAddress {
+    static func copy(_ address: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(address, forType: .string)
     }
 }

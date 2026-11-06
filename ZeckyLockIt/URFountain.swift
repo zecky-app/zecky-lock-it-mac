@@ -961,7 +961,6 @@ final class FountainDecoder {
 
         // Keep track of how many parts we've processed
         processedPartsCount += 1
-        //printPartEnd()
         return true
     }
 
@@ -969,49 +968,15 @@ final class FountainDecoder {
         queuedParts.append(part)
     }
 
-    func printPartEnd() {
-        let parts = expectedFragmentCount != nil ? String(expectedFragmentCount) : "nil"
-        let percent = Int((estimatedPercentComplete * 100).rounded())
-        print("processed: \(processedPartsCount), expected: \(parts), received: \(receivedFragmentIndexes.count), percent: \(percent)%")
-    }
-
-    func printPart(_ part: Part) {
-        let indexes = Array(part.fragmentIndexes).sorted()
-        print("part indexes: \(indexes)")
-    }
-
-    private func resultDescription() -> String {
-        let desc: String
-        switch result {
-        case nil:
-            desc = "nil"
-        case let .success(message)?:
-            desc = "\(message.count) bytes"
-        case let .failure(error)?:
-            desc = error.localizedDescription
-        }
-        return desc
-    }
-
-    func printState() {
-        let parts = expectedFragmentCount != nil ? String(expectedFragmentCount) : "nil"
-        let received = Array(receivedFragmentIndexes).sorted()
-        let mixed = mixedParts.keys.map( { Array($0).sorted() } ).sorted(by: { $0.lexicographicallyPrecedes($1) } )
-        let queued = queuedParts.count
-        print("parts: \(parts), received: \(received), mixed: \(mixed), queued: \(queued), result: \(resultDescription())")
-    }
-
     private func processQueue() {
         // Process the queue until we're done or the queue is empty
         while result == nil && !queuedParts.isEmpty {
             let part = queuedParts.removeFirst()
-            //printPart(part)
             if part.isSimple {
                 processSimplePart(part)
             } else {
                 processMixedPart(part)
             }
-            //printState()
         }
     }
 

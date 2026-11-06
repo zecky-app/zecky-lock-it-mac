@@ -286,8 +286,7 @@ private struct SealContent: View {
                         Text(address).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted)
                             .lineLimit(1).truncationMode(.middle)
                         Button(copied ? "Copied" : "Copy") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(address, forType: .string)
+                            ReceiveAddress.copy(address)
                             copied = true
                         }
                         .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
