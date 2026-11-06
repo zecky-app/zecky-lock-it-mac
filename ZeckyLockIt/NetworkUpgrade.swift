@@ -7,11 +7,11 @@ enum NetworkUpgrade {
     static let blossomHeight = 653_600
     static let nu7Height = 3_543_405
 
-    /// Whether this build's engine builds NU7 transactions. The engine in
-    /// this build (zcash-swift-wallet-sdk 3.0.0) does not: after the
-    /// upgrade its transactions would be refused. Set to true together with
-    /// the switch to the NU7 engine (zecky-engine).
-    static let engineKnowsNU7 = false
+    /// Whether this build's engine builds NU7 transactions. True since the
+    /// Zecky engine v4.0.0-zecky.2 (commit 3a69cb0), checked at every build
+    /// (scripts/check-engine.sh) and in WalletSelfTest. Kept as a switch for
+    /// the next network upgrade: an engine that does not know it pauses here.
+    static let engineKnowsNU7 = true
 
     /// The old engine's transactions stay valid for 40 blocks. Pausing that
     /// many blocks early means none is still waiting when the upgrade comes.

@@ -263,12 +263,13 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertLessThanOrEqual(start, 3_543_405 - 5_184)
     }
 
-    func testReleasesPauseAtNU7WithTheOldEngine() {
-        XCTAssertFalse(NetworkUpgrade.engineKnowsNU7, "this build still runs engine 3.0.0")
-        XCTAssertFalse(NetworkUpgrade.releasesPaused(networkHeight: 3_543_300))
-        XCTAssertTrue(NetworkUpgrade.releasesPaused(networkHeight: 3_543_364))
-        XCTAssertTrue(NetworkUpgrade.releasesPaused(networkHeight: 3_543_405))
-        XCTAssertTrue(NetworkUpgrade.releasesPaused(networkHeight: 0), "unknown height counts as paused")
-        XCTAssertThrowsError(try NetworkUpgrade.checkReleases(networkHeight: 3_600_000))
+    func testTheEngineKnowsNU7SoReleasesAreNotPaused() {
+        XCTAssertTrue(NetworkUpgrade.engineKnowsNU7, "this build runs the Zecky engine with NU7")
+        XCTAssertEqual(WalletSelfTest.engineBranch(at: 3_543_404), 0x37A5_165B, "NU6.3 (Ironwood) the block before")
+        XCTAssertEqual(WalletSelfTest.engineBranch(at: 3_543_405), 0x7719_0AD9, "NU7 from its activation")
+        XCTAssertEqual(WalletSelfTest.engineBranch(at: 4_000_000), 0x7719_0AD9)
+        XCTAssertFalse(NetworkUpgrade.releasesPaused(networkHeight: 3_543_364))
+        XCTAssertFalse(NetworkUpgrade.releasesPaused(networkHeight: 3_600_000))
+        XCTAssertNoThrow(try NetworkUpgrade.checkReleases(networkHeight: 3_600_000))
     }
 }

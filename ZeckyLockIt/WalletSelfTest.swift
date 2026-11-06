@@ -1,4 +1,5 @@
 import Foundation
+import libzcashlc
 
 /// Checks the wallet building blocks against known answers. Uses only
 /// public BIP39 test vectors and fresh random values: never a real phrase,
@@ -18,6 +19,12 @@ enum WalletSelfTest {
                phrase: Array(repeating: "zoo", count: 23).joined(separator: " ") + " vote",
                seedHex: "dd48c104698c30cfe2b6142103248622fb7bb0ff692eebb00089b32d22484e1613912f0a5b694407be899ffd31ed3992c456cdf60f5d4564b8ba3f05a69890ad"),
     ]
+
+    /// The consensus branch the engine builds transactions for at `height`
+    /// on mainnet (network id 1).
+    static func engineBranch(at height: Int) -> UInt32 {
+        UInt32(bitPattern: zcashlc_branch_id_for_height(Int32(height), 1))
+    }
 
     static func run() -> String {
         do {
@@ -43,7 +50,13 @@ enum WalletSelfTest {
                        Birthday.estimate(year: 2026, month: 10, tip: 3_524_515, now: now),
                        Birthday.estimate(year: 2016, month: 1, tip: 3_524_515, now: now)]
             guard got == [2_308_070, 536_652, 3_499_377, 419_200] else { return "Wallet: birthday estimates differ \(got)" }
-            return "Wallet: OK (BIP39 vectors, new phrases, birthdays)"
+            // The linked engine picks NU7 from its mainnet activation height:
+            // NU6.3 (Ironwood) at the block before, NU7 from 3,543,405.
+            guard engineBranch(at: NetworkUpgrade.nu7Height - 1) == 0x37A5_165B,
+                  engineBranch(at: NetworkUpgrade.nu7Height) == 0x7719_0AD9 else {
+                return "Wallet: the engine does not know NU7"
+            }
+            return "Wallet: OK (BIP39 vectors, new phrases, birthdays, NU7)"
         } catch {
             return "Wallet: \(error)"
         }

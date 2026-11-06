@@ -246,6 +246,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A10000000000000000000012 /* Build configuration list for PBXNativeTarget "ZeckyLockIt" */;
 			buildPhases = (
+				A100000000000000000000AA /* Check Zecky engine */,
 				A1000000000000000000000D /* Sources */,
 				A1000000000000000000000E /* Frameworks */,
 				A1000000000000000000000F /* Resources */,
@@ -325,6 +326,25 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		A100000000000000000000AA /* Check Zecky engine */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Check Zecky engine";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"$PROJECT_DIR/scripts/check-engine.sh\"\n";
+		};
 		A10000000000000000000019 /* Fix libzcashlc layout for macOS */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;

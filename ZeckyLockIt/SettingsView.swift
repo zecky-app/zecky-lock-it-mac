@@ -889,7 +889,7 @@ struct HowItWorks: View {
             "Your 24 words are made on this Mac from the system's secure random generator (256 bits), checked, and mixed with a second source.",
             "They are sealed with a key inside this Mac's Secure Enclave. Only Touch ID or your Mac password (and your Zecky code, if set) opens the seal. They are never synced, never in a backup, never written to a log, and never sent anywhere.",
             "They are opened only to sign a release or to show them to you, and let go straight after. While they are on screen, screenshots and screen sharing show an empty window.",
-            "The Zcash engine that makes keys and signs is the Zcash developers' own build, version 3.0.0. It is checked against the checksum in their release every time it is downloaded.",
+            "Keys, proofs, signatures and payments are made by librustzcash, the Zcash developers' own core (NU7 releases), not by Lock it. The Zecky engine only connects Lock it to it: release v4.0.0-zecky.2, the same as Lock it for iPhone. Every build of Lock it checks the engine's commit and fingerprint, and the app checks that it signs for NU7.",
             "Your history (amounts and dates, never the words) is kept in Lock it's own protected folder on this Mac and left out of Time Machine. Keep FileVault on (System Settings › Privacy & Security) so the whole disk is encrypted as well.",
         ]),
         ("Privacy", "shield.lefthalf.filled", [
