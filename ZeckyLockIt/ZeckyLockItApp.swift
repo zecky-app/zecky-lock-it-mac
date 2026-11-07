@@ -27,7 +27,7 @@ struct ZeckyLockItApp: App {
             }
             CommandGroup(replacing: .newItem) {}
             CommandMenu("Lock") {
-                Button("Lock more") { model.sheet = .receive }
+                Button("Receive") { model.sheet = .receive }
                     .keyboardShortcut("l", modifiers: .command)
                     .disabled(!model.hasWallet)
                 Button("Open the lock…") { model.askToOpen() }

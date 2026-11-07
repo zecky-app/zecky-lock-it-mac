@@ -371,8 +371,8 @@ final class WalletEngine: ObservableObject {
             case .badAddress: return "That is not a valid Zcash address."
             case .tooLittle: return "Enter an amount above zero."
             case .notEnough: return "Not enough available for this amount plus the fee."
-            case .noteToPublic: return "A private note can only go to a private address. Remove the note, or use their private address."
-            case .refused(let why): return "The server refused the release. Nothing left the lock. (\(why))"
+            case .noteToPublic: return "A private note can only go to a shielded address. Remove the note, or use their shielded address."
+            case .refused(let why): return "The server refused the payment. Nothing was sent. (\(why))"
             }
         }
     }

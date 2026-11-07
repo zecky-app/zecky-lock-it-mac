@@ -199,7 +199,7 @@ final class SealItFlow: ObservableObject {
             case .saplingRecipient:
                 return "Seal it can't sign to an old Sapling-only address. Use a u1… or t1… address."
             case .noteToPublic:
-                return "A note can only go to a private address. Remove the note, or use their u1… address."
+                return "A private note can only go to a shielded address. Remove the note, or use their u1… address."
             case .noPendingTransaction:
                 return "No payment is waiting for this signature. Start again."
             case .submit(let reason):

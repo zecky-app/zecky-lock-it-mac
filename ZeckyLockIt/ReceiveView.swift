@@ -22,8 +22,8 @@ struct ReceiveView: View {
     @State private var copiedOther: String?
 
     var body: some View {
-        SheetScaffold(title: mode == .all ? "All addresses" : "Lock more",
-                      subtitle: mode == .all ? "Every private address this wallet has handed out." : "Send Zcash to this private address. It locks in by itself.",
+        SheetScaffold(title: mode == .all ? "All addresses" : "Receive",
+                      subtitle: mode == .all ? "Every shielded address this wallet has handed out." : "Your shielded address: amount and sender stay hidden. Zcash sent here locks in by itself.",
                       height: 600,
                       onClose: onClose) {
             if let address {
@@ -159,7 +159,7 @@ struct ReceiveView: View {
                 }
                 .card(padding: 4)
             }
-            link("Back to Lock more") { mode = .address }
+            link("Back to your shielded address") { mode = .address }
         }
     }
 
@@ -197,7 +197,7 @@ struct ReceiveView: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.gold.opacity(0.8), lineWidth: 1.5))
         .padding(3)
         .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(Theme.gold.opacity(0.25), lineWidth: 1))
-        .accessibilityLabel("QR code of your private address")
+        .accessibilityLabel("QR code of your shielded address")
     }
 
     /// "u1ab cdef … wxyz": a short line in groups of four.

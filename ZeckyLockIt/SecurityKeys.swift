@@ -199,8 +199,8 @@ enum SecurityKeys {
             case .cancelled: return "No key was used."
             case .duplicate: return "This key is already added."
             case .none: return "No security key is added."
-            case .wrong(let why): return "\(why). Nothing was released."
-            case .unreadable: return "Lock it could not read your security keys. Nothing was shown or released. Quit Lock it and open it again; if it stays like this, restore from your 24 words."
+            case .wrong(let why): return "\(why). Nothing was sent."
+            case .unreadable: return "Lock it could not read your security keys. Nothing was shown or sent. Quit Lock it and open it again; if it stays like this, restore from your 24 words."
             case .failed(let why): return why
             }
         }

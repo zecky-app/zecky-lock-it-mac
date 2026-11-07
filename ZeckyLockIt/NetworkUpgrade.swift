@@ -8,7 +8,7 @@ enum NetworkUpgrade {
     static let nu7Height = 3_543_405
 
     /// Whether this build's engine builds NU7 transactions. True since the
-    /// Zecky engine v4.0.0-zecky.2 (commit 3a69cb0), checked at every build
+    /// Zecky engine v4.0.0-zecky.2 (now v4.0.0-zecky.3), checked at every build
     /// (scripts/check-engine.sh) and in WalletSelfTest. Kept as a switch for
     /// the next network upgrade: an engine that does not know it pauses here.
     static let engineKnowsNU7 = true
@@ -25,7 +25,7 @@ enum NetworkUpgrade {
         return networkHeight <= 0 || networkHeight + 1 >= nu7Height - pauseBefore
     }
 
-    static let pausedText = "Paused for the NU7 network upgrade: this version of Lock it can't release or move Zcash from block 3,543,405 on. Your Zcash stays safe in the lock. Releasing comes back with the next Lock it update."
+    static let pausedText = "Sending is paused for the Zcash network upgrade until Lock it is updated. Your Zcash is safe, and you can still receive."
 
     struct Paused: Error, CustomStringConvertible { var description: String { NetworkUpgrade.pausedText } }
 

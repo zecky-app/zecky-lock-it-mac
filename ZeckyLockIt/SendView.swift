@@ -60,7 +60,7 @@ struct SendView: View {
                     Spacer()
                     PadlockView(open: true, size: 90)
                     ProgressView().controlSize(.small)
-                    Text("Releasing…").font(Theme.text(13)).foregroundStyle(Theme.muted)
+                    Text("Sending…").font(Theme.text(13)).foregroundStyle(Theme.muted)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
@@ -81,11 +81,11 @@ struct SendView: View {
 
     private var title: String {
         switch stage {
-        case .form: return "Release Zcash"
-        case .review: return "Check before releasing"
-        case .sending: return "Releasing"
-        case .done(.sent): return "Released"
-        case .done(.saved): return "Release saved"
+        case .form: return "Send Zcash"
+        case .review: return "Check before sending"
+        case .sending: return "Sending"
+        case .done(.sent): return "Sent"
+        case .done(.saved): return "Payment saved"
         }
     }
 
@@ -212,7 +212,7 @@ struct SendView: View {
             .card(padding: 16)
 
             if waiting {
-                note("A release is still on its way. Wait for it to arrive before releasing again.", Theme.gold)
+                note("A payment is still on its way. Wait for it to arrive before sending again.", Theme.gold)
             }
             if notUpToDate {
                 note("Wait until the wallet is up to date. Nothing is created until then.", Theme.gold)
@@ -250,7 +250,7 @@ struct SendView: View {
                 receiptRow(plan.toSelf ? "Arrives at your address" : "They receive", money(plan.amount))
                 receiptRow("Network fee", Amount.text(plan.fee, unit))
                 Rectangle().fill(Theme.line).frame(height: 1).padding(.vertical, 8)
-                receiptRow("Total released", money(total), strong: true)
+                receiptRow("Total sent", money(total), strong: true)
                 if let note = plan.memo {
                     receiptRow("Private note", note.count > 40 ? String(note.prefix(40)) + "…" : note)
                 }
@@ -265,7 +265,7 @@ struct SendView: View {
             HStack {
                 QuietButton(title: "Change") { lockNote = nil; stage = .form }.frame(width: 140)
                 Spacer()
-                PrimaryButton(title: "Release \(Amount.text(plan.amount, unit))") { Task { await send(plan) } }
+                PrimaryButton(title: "Send \(Amount.text(plan.amount, unit))") { Task { await send(plan) } }
                     .frame(width: 240)
             }
         }
@@ -299,7 +299,7 @@ struct SendView: View {
                     saveContact(sentTo)
                 }
             case .saved:
-                Text("The release was made but could not be delivered yet. Lock it keeps trying until it is in a block or expires (about 40 blocks). Do not release it again.")
+                Text("The payment was made but could not be delivered yet. Lock it keeps trying until it is in a block or expires (about 50 minutes). Do not send it again.")
                     .font(Theme.text(14)).foregroundStyle(Theme.gold).multilineTextAlignment(.center)
             }
             Spacer()

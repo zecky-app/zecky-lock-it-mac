@@ -335,7 +335,7 @@ struct SettingsView: View {
         let _ = keysVersion
         let keys = SecurityKeys.keys
         return card("4 · Security key", icon: "key.horizontal") {
-            Text("A hardware key, such as a YubiKey, plugged into this Mac or held to it, touched before each release. Why: Touch ID, your Mac password and the Zecky code all live on this Mac; a key you carry is something a thief of the Mac does not have.")
+            Text("A hardware key, such as a YubiKey, plugged into this Mac or held to it, touched before each payment you send. Why: Touch ID, your Mac password and the Zecky code all live on this Mac; a key you carry is something a thief of the Mac does not have.")
                 .font(Theme.text(12)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             if keys.isEmpty {
@@ -374,7 +374,7 @@ struct SettingsView: View {
 
     private func addKey(first: Bool) {
         let role: SecurityKeys.Role = first ? .main : .backup
-        let add = { runKey { try await SecurityKeys.add(role: role); keyNote = first ? "Key added. It is asked before each release." : "Backup key added." } }
+        let add = { runKey { try await SecurityKeys.add(role: role); keyNote = first ? "Key added. It is asked before each payment you send." : "Backup key added." } }
         // The first key asks the owner; more keys ask an existing key (inside add).
         if LockRules.keyAction(first ? .addFirst : .addMore, keyCount: SecurityKeys.keys.count) == .owner {
             Task { await guarded("add a security key", add) }
@@ -590,7 +590,7 @@ struct SettingsView: View {
         case .keys?: return "One, two or three keys: you choose."
         case .timeLock?: return "A wait of days before the lock opens."
         case .phrase?: return "Your 24 words, sealed on this Mac."
-        case .addressBook?: return "Addresses you trust, to release to by name."
+        case .addressBook?: return "Addresses you send to often, picked by name."
         case .display?: return "How Lock it looks on this Mac."
         case .network?: return "Where Lock it gets the Zcash chain from."
         case .how?: return "Short chapters. Open the one you want."
@@ -840,8 +840,8 @@ struct PoolsCard: View {
             VStack(spacing: 8) {
                 pool("Ironwood", "Current, since NU6.3 (28 July 2026). New Zcash goes here.", engine.pools.ironwood)
                 pool("Orchard", "Withdraw-only since NU6.3. Move it to Ironwood from home.", engine.pools.orchard)
-                pool("Sapling", "Older private pool, still usable.", engine.pools.sapling)
-                pool("Transparent", "Public. Lock it in from home if any arrives.", engine.pools.transparent)
+                pool("Sapling", "Older shielded pool, still usable.", engine.pools.sapling)
+                pool("Transparent", "Visible to everyone, like Bitcoin. Lock it in from home if any arrives.", engine.pools.transparent)
             }
             Text("Sprout, the very first pool, is closed to new Zcash; Lock it does not use it.")
                 .font(Theme.text(11)).foregroundStyle(Theme.muted)
@@ -869,13 +869,13 @@ struct PoolsCard: View {
 struct HowItWorks: View {
     private let chapters: [(String, String, [String])] = [
         ("The lock", "lock.fill", [
-            "Lock more gives you a private address. Zcash sent to it locks in by itself and shows on the lock.",
-            "Opening the lock takes a deliberate moment: the pause, your keys, and then Release. The lock closes again after a release, after 2 minutes, or when you hide Lock it.",
+            "Receive gives you a shielded address: amount, sender and receiver are encrypted on the blockchain. A shielded address is safe to share; only your 24 words must stay secret. Zcash sent to it locks in by itself.",
+            "Receiving is always one click. Opening the lock to send takes a deliberate moment: the pause, your keys, and then Send. The lock closes again after a payment, after 2 minutes, or when you hide Lock it.",
             "Nothing ever leaves without a receipt first: who receives what, the network fee, and what stays locked.",
         ]),
         ("Keys to the lock", "key.fill", [
             "Up to four keys, you choose: 1 Opening Zecky, 2 Opening the lock, 3 Really open the lock?. The Zecky code adds six digits to key 2 that this Mac's Secure Enclave checks itself.",
-            "Key 4 is a security key, such as a YubiKey, touched before each release. Lock it checks its signature itself against the key saved when pairing; nothing goes over the internet. A key made for Lock it on this Mac is not the one from your iPhone: pair it on each device.",
+            "Key 4 is a security key, such as a YubiKey, touched before each payment you send. Lock it checks its signature itself against the key saved when pairing; nothing goes over the internet. A key made for Lock it on this Mac is not the one from your iPhone: pair it on each device.",
             "Showing your 24 words and erasing always ask, whatever you choose.",
             "Touch ID always falls back to your Mac password, so anyone who knows that password passes Touch ID too. The Zecky code is the secret only you know.",
             "Making a key stricter goes straight through; weakening one asks you first. Every change is listed in Activity › The lock.",
@@ -888,20 +888,20 @@ struct HowItWorks: View {
         ("Your recovery phrase", "doc.text.magnifyingglass", [
             "Your 24 words are made on this Mac from the system's secure random generator (256 bits), checked, and mixed with a second source.",
             "They are sealed with a key inside this Mac's Secure Enclave. Only Touch ID or your Mac password (and your Zecky code, if set) opens the seal. They are never synced, never in a backup, never written to a log, and never sent anywhere.",
-            "They are opened only to sign a release or to show them to you, and let go straight after. While they are on screen, screenshots and screen sharing show an empty window.",
-            "Keys, proofs, signatures and payments are made by librustzcash, the Zcash developers' own core (NU7 releases), not by Lock it. The Zecky engine only connects Lock it to it: release v4.0.0-zecky.2, the same as Lock it for iPhone. Every build of Lock it checks the engine's commit and fingerprint, and the app checks that it signs for NU7.",
+            "They are opened only to sign a payment or to show them to you, and let go straight after. While they are on screen, screenshots and screen sharing show an empty window.",
+            "Keys, proofs, signatures and payments are made by librustzcash, the Zcash developers' own core (NU7 releases), not by Lock it. The Zecky engine only connects Lock it to it: release v4.0.0-zecky.3, the same as Lock it for iPhone. Every build of Lock it checks the engine's commit and fingerprint, and the app checks that it signs for NU7.",
             "Your history (amounts and dates, never the words) is kept in Lock it's own protected folder on this Mac and left out of Time Machine. Keep FileVault on (System Settings › Privacy & Security) so the whole disk is encrypted as well.",
         ]),
         ("Privacy", "shield.lefthalf.filled", [
             "Lock it only hands out shielded addresses: amounts, senders and receivers stay private on the blockchain.",
             "Once an address has been paid, a fresh one appears, so payments cannot be linked to each other.",
-            "Zcash that arrives on a public address (only possible after restoring) can be locked in with one step.",
+            "Zcash that arrives on a transparent address (only possible after restoring) can be locked in with one step. A transparent address works like Bitcoin: its payments are visible to everyone until you lock them in.",
         ]),
         ("Network", "server.rack", [
             "Lock it talks to one Zcash server (zec.rocks by default) over an encrypted connection. The server sees this Mac's internet address, never your words or your balance.",
             "Your own node (Rock it) on a home or Tailscale address is reached without that layer: at home the traffic stays in your network, and Tailscale encrypts it on the way. A home address cannot prove it is your node: on another Wi-Fi a different device could answer. It cannot take funds, but it could hide payments, so away from home use Rock it's Tailscale address. The status line says which one you use.",
             "Value is off unless you choose a currency. Then CoinGecko is asked for the price every 5 minutes and sees only this Mac's internet address. There are no accounts, no analytics and no tracking.",
-            "Only a wallet that holds Sapling or public Zcash (usually one restored from another app) needs the Zcash parameter files once, about 50 MB from download.z.cash, the Zcash developers' own download server. It sees this Mac's internet address, nothing about your wallet.",
+            "Only a wallet that holds Sapling or transparent Zcash (usually one restored from another app) needs the Zcash parameter files once, about 50 MB from download.z.cash, the Zcash developers' own download server. It sees this Mac's internet address, nothing about your wallet.",
         ]),
         ("If you lose this Mac", "arrow.counterclockwise", [
             "Your 24 words and birthday block restore the wallet in Lock it or any Zcash wallet.",

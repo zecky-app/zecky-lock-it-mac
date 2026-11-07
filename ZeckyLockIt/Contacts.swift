@@ -100,7 +100,7 @@ enum Contacts {
         var b = book
         b.onlySaved = on
         book = b
-        LockLog.add(.addressBook, on ? "Only release to saved addresses: on" : "Only release to saved addresses: off")
+        LockLog.add(.addressBook, on ? "Only send to saved addresses: on" : "Only send to saved addresses: off")
     }
 
     static func erase() { try? KeyStore.delete(service: service) }
@@ -139,7 +139,7 @@ struct ContactsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Saved addresses you trust. Pick a name when releasing instead of pasting an address, so a swapped address stands out.")
+            Text("Saved addresses you trust. Pick a name when sending instead of pasting an address, so a swapped address stands out.")
                 .font(Theme.text(12)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -157,7 +157,7 @@ struct ContactsCard: View {
             if adding { form } else {
                 HStack {
                     Toggle(isOn: Binding(get: { onlySaved }, set: { toggleRule($0) })) {
-                        Text("Only release to saved addresses").font(Theme.text(13))
+                        Text("Only send to saved addresses").font(Theme.text(13))
                     }
                     .toggleStyle(.checkbox)
                     .disabled(contacts.isEmpty && !onlySaved)
@@ -276,7 +276,7 @@ struct PaymentRequest: Equatable {
         var description: String {
             switch self {
             case .notARequest: return "That is not a Zcash payment request."
-            case .severalRecipients: return "This request pays several recipients. Lock it releases to one at a time: ask for a request per recipient. Nothing was filled in."
+            case .severalRecipients: return "This request pays several recipients. Lock it sends to one at a time: ask for a request per recipient. Nothing was filled in."
             case .noAddress: return "This payment request has no address."
             case .badAmount: return "The amount in this payment request is not valid."
             case .badMemo: return "The note in this payment request could not be read."

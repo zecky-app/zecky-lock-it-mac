@@ -27,7 +27,7 @@ enum LockRules {
         had == will && !had ? .nothing : .owner
     }
 
-    /// "Only release to saved addresses": on is stricter, off is weaker.
+    /// "Only send to saved addresses": on is stricter, off is weaker.
     static func addressRule(on: Bool) -> Need { on ? .nothing : .owner }
 
     /// A new saved address is a weakening while the rule is on.

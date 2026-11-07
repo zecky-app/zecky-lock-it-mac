@@ -381,7 +381,7 @@ struct NoMacPasswordView: View {
 
     private var chooser: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("At least \(WalletVault.minimumPassword) characters. It seals your 24 words in this Mac and is asked before releasing, showing the words and unlocking. Less safe than a Mac password: anyone at this Mac can still use everything else on it.")
+            Text("At least \(WalletVault.minimumPassword) characters. It seals your 24 words in this Mac and is asked before sending, showing the words and unlocking. Less safe than a Mac password: anyone at this Mac can still use everything else on it.")
                 .font(Theme.text(13)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             field("Lock it password", $first)

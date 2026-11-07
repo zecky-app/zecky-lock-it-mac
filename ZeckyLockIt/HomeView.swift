@@ -120,7 +120,7 @@ struct HomeView: View {
                             Text("Keys in Seal it")
                                 .font(Theme.text(13)).foregroundStyle(Theme.muted)
                         } else if model.selectedWallet != nil {
-                            Text(shownTotal > 0 ? "Locked on this Mac" : "Nothing locked yet. Choose Lock more to begin.")
+                            Text(shownTotal > 0 ? "Locked on this Mac" : "Nothing locked yet. Choose Receive to begin.")
                                 .font(Theme.text(13)).foregroundStyle(Theme.muted)
                         } else {
                         VStack(spacing: 3) {
@@ -170,7 +170,7 @@ struct HomeView: View {
                         Group {
                             if model.lockOpen {
                                 HStack(spacing: 12) {
-                                    BrassButton(title: model.isSealedSelected ? "Write it, seal it" : "Release Zcash",
+                                    BrassButton(title: model.isSealedSelected ? "Write it, seal it" : "Send Zcash",
                                                 icon: model.isSealedSelected ? "envelope.fill" : "lock.open.fill") {
                                         if model.isSealedSelected {
                                             // Sealed wallet: the phone signs; the lock closes when done.
@@ -186,7 +186,7 @@ struct HomeView: View {
                                         .keyboardShortcut(.cancelAction)
                                 }
                             } else {
-                                BrassButton(title: model.isSealedSelected ? "Seal more" : "Lock more",
+                                BrassButton(title: model.isSealedSelected ? "Seal more" : "Receive",
                                             icon: model.isSealedSelected ? "envelope.fill" : "lock.fill") {
                                     model.sheet = model.isSealedSelected ? .signer : .receive
                                 }
@@ -344,7 +344,7 @@ struct HomeView: View {
 
     /// Only while a payment waits for a block.
     private func waitingLine(_ item: WalletEngine.ActivityItem) -> String {
-        let what = item.kind == .received ? "Locking in" : "Releasing"
+        let what = item.kind == .received ? "Receiving" : "Sending"
         if model.amountsHidden { return "\(what) · waiting for a block" }
         let sign = item.kind == .received ? "+" : "−"
         return "\(what) \(sign)\(Amount.text(item.amount, model.unit)) · waiting for a block"
@@ -392,7 +392,7 @@ struct HomeView: View {
     /// One line: how long it is locked, and the next milestone in gold.
     private var heldText: Text {
         guard engine.lockedSince != nil, let days = heldDays else {
-            return Text(engine.total > 0 ? "Locked on this Mac" : "Nothing locked yet. Choose Lock more to begin.")
+            return Text(engine.total > 0 ? "Locked on this Mac" : "Nothing locked yet. Choose Receive to begin.")
                 .font(Theme.text(13)).foregroundColor(Theme.muted)
         }
         let held = Text(days == 0 ? "Locked since today" : "Locked for \(days) \(days == 1 ? "day" : "days")")
@@ -629,7 +629,7 @@ struct ActivitySheet: View {
     let onClose: () -> Void
 
     enum Filter: String, CaseIterable, Identifiable {
-        case all = "All", locked = "Locked", released = "Released", lock = "The lock"
+        case all = "All", locked = "Received", released = "Sent", lock = "The lock"
         var id: Self { self }
     }
     @State private var filter: Filter = .all
@@ -659,14 +659,14 @@ struct ActivitySheet: View {
 
     var body: some View {
         SheetScaffold(title: "Activity",
-                      subtitle: "Every time you locked more, released, or changed the lock.",
+                      subtitle: "Everything you received and sent, and every change to the lock.",
                       height: 640, onClose: onClose) {
             if engine.activity.isEmpty && events.isEmpty {
                 VStack(spacing: 14) {
                     Spacer()
                     PadlockView(open: false, size: 90)
                     Text("Nothing locked yet").font(Theme.serif(20, weight: .medium))
-                    Text("When Zcash arrives at your Lock more address, it shows up here.")
+                    Text("When Zcash arrives at your address, it shows up here.")
                         .font(Theme.text(13)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                     Spacer()
                 }
@@ -698,10 +698,10 @@ struct ActivitySheet: View {
         let lockedIn = confirmed.filter { $0.kind == .received }.reduce(Int64(0)) { $0 + $1.amount }
         let released = confirmed.filter { $0.kind == .sent }.reduce(Int64(0)) { $0 + $1.amount }
         return HStack(spacing: 0) {
-            stat("LOCKED IN", model.amountsHidden ? Amount.hiddenText : (lockedIn > 0 ? "+" : "") + Amount.text(lockedIn, model.unit),
+            stat("RECEIVED", model.amountsHidden ? Amount.hiddenText : (lockedIn > 0 ? "+" : "") + Amount.text(lockedIn, model.unit),
                  lockedIn > 0 ? Theme.green : Theme.muted)
             Rectangle().fill(Theme.line).frame(width: 1, height: 34)
-            stat("RELEASED", model.amountsHidden ? Amount.hiddenText : (released > 0 ? "−" : "") + Amount.text(released, model.unit),
+            stat("SENT", model.amountsHidden ? Amount.hiddenText : (released > 0 ? "−" : "") + Amount.text(released, model.unit),
                  released > 0 ? Theme.gold : Theme.muted)
             Rectangle().fill(Theme.line).frame(width: 1, height: 34)
             stat("ENTRIES", "\(engine.activity.count + events.count)", Theme.text)
@@ -832,7 +832,7 @@ struct ActivityList: View {
             }
             .frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 2) {
-                Text(locked ? "Locked" : "Released").font(Theme.text(14, weight: .medium))
+                Text(locked ? "Received" : "Sent").font(Theme.text(14, weight: .medium))
                 Text(subtitle(item)).font(Theme.text(12)).foregroundStyle(item.state == .waiting ? Theme.gold : Theme.muted)
             }
             Spacer()
@@ -871,7 +871,7 @@ struct IronwoodSheet: View {
 
     var body: some View {
         SheetScaffold(title: kind == .ironwood ? "Move to Ironwood" : "Lock it in",
-                      subtitle: kind == .ironwood ? "Once, inside your own wallet." : "From the public address into the lock.",
+                      subtitle: kind == .ironwood ? "Once, inside your own wallet." : "From the transparent address into the lock.",
                       closeLabel: "Close", showsClose: !isMoving, height: 560, onClose: onClose) {
             switch stage {
             case .loading:
@@ -895,7 +895,7 @@ struct IronwoodSheet: View {
                 VStack(spacing: 16) {
                     Spacer()
                     PadlockView(open: false, size: 100)
-                    Text(kind == .ironwood ? "Moved. It shows in Ironwood once it is in a block, and stays locked." : "Locking in. Once it is in a block it is locked in ✓, private like the rest.")
+                    Text(kind == .ironwood ? "Moved. It shows in Ironwood once it is in a block, and stays locked." : "Locking in. Once it is in a block it is locked in ✓, shielded like the rest.")
                         .font(Theme.text(14)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                     Spacer()
                     PrimaryButton(title: "Done", action: onClose).frame(width: 180).keyboardShortcut(.defaultAction)
@@ -920,7 +920,7 @@ struct IronwoodSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(kind == .ironwood
                  ? "Since the Ironwood upgrade (28 July 2026) the Orchard pool only lets Zcash out; new Zcash goes to Ironwood. Part of yours is still in Orchard. Move it once to Ironwood, in this same wallet, and it stays as private as before. Your other Zcash is not touched."
-                 : "This Zcash arrived on a public address of this wallet, so its amount and sender are visible on the blockchain. Lock it in, and from then on it is private like the rest. Lock it never hands out a public address itself.")
+                 : "This Zcash arrived on a transparent address of this wallet, so its amount and sender are visible on the blockchain. Lock it in, and from then on it is shielded like the rest. Lock it never hands out a transparent address itself.")
                 .font(Theme.text(13)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(spacing: 8) {
@@ -969,7 +969,7 @@ struct IronwoodSheet: View {
 
     private func unseal(code: String?) async -> String? {
         do {
-            wallet = try await WalletVault.unseal(reason: kind == .ironwood ? "move your Zcash to Ironwood" : "lock your public Zcash in", code: code, fresh: false)
+            wallet = try await WalletVault.unseal(reason: kind == .ironwood ? "move your Zcash to Ironwood" : "lock your transparent Zcash in", code: code, fresh: false)
             return nil
         } catch WalletVault.Failure.cancelled {
             return kind == .ironwood ? "Not confirmed, so nothing was moved." : "Not confirmed, so nothing was locked in."

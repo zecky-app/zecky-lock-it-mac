@@ -78,7 +78,7 @@ struct UnsealView: View {
     private var text: String {
         switch purpose {
         case .sealOlder:
-            return "Your recovery phrase is about to be sealed inside this Mac. From now on it only opens with Touch ID or your Mac password, and only for releasing or showing the words."
+            return "Your recovery phrase is about to be sealed inside this Mac. From now on it only opens with Touch ID or your Mac password, and only for sending or showing the words."
         case .finishBackup:
             return "Your 24 words are sealed. Open them to write them down and finish the backup."
         case .finishStart:
