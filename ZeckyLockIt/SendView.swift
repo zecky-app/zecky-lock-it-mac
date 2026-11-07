@@ -394,24 +394,15 @@ struct SendView: View {
         Amount.text(zatoshi, unit) + (prices.value(of: zatoshi).map { "  \($0)" } ?? "")
     }
 
-    /// "1.25" ZEC → 125,000,000; "1,500" zats → 1,500. US style.
+    /// "1.25" or "1,25" ZEC → 125,000,000; "1,500" zats → 1,500. An amount
+    /// like "1,500" in ZEC or money is asked about, never guessed.
     private func zatoshi(_ text: String) -> Int64? {
-        let cleaned = text.replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces)
         if fiat {
-            guard let rate, rate > 0, let value = Double(cleaned), value > 0 else { return nil }
+            guard let rate, rate > 0, let value = AmountInput.fiat(text) else { return nil }
             let z = (value / rate * 100_000_000).rounded()
             return z >= 1 ? Int64(z) : nil
         }
-        if unit == .zats {
-            guard let v = Int64(cleaned), v > 0 else { return nil }
-            return v
-        }
-        guard let value = Decimal(string: cleaned, locale: Locale(identifier: "en_US")), value > 0 else { return nil }
-        var scaled = value * 100_000_000
-        var rounded = Decimal()
-        NSDecimalRound(&rounded, &scaled, 0, .plain)
-        guard rounded == scaled else { return nil }
-        return NSDecimalNumber(decimal: rounded).int64Value
+        return unit == .zats ? AmountInput.zats(text) : AmountInput.zec(text)
     }
 
     private func makePlan() async {
@@ -421,6 +412,10 @@ struct SendView: View {
         var amount: Int64?
         if !max {
             guard let parsed = zatoshi(amountText) else {
+                if unit == .zec || fiat, AmountInput.ambiguous(amountText) {
+                    problem = AmountInput.question(amountText, unit: fiat ? prices.currency.short : "ZEC")
+                    return
+                }
                 problem = fiat ? "Enter an amount in \(prices.currency.short), like 25.00." : (unit == .zec ? "Enter the amount as a number, like 0.5 (at most 8 decimals)." : "Enter a whole number of zats.")
                 return
             }

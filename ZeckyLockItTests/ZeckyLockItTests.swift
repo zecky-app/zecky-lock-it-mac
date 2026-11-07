@@ -280,4 +280,26 @@ final class ZeckyLockItTests: XCTestCase {
         // A fresh engine starts with the lock closed until the app says otherwise.
         XCTAssertFalse(WalletEngine().lockIsOpen())
     }
+    // MARK: Typed amounts (iPhone audit C-19)
+
+    func testAmountsAreReadWithoutGuessing() {
+        XCTAssertEqual(AmountInput.zec("1.5"), 150_000_000)
+        XCTAssertEqual(AmountInput.zec("1,5"), 150_000_000)
+        XCTAssertEqual(AmountInput.zec("0,001"), 100_000)
+        XCTAssertEqual(AmountInput.zec("12,34"), 1_234_000_000)
+        XCTAssertEqual(AmountInput.zec(".25"), 25_000_000)
+        XCTAssertNil(AmountInput.zec("1,500"), "1.5 or 1500? asked, not guessed")
+        XCTAssertTrue(AmountInput.ambiguous("1,500"))
+        XCTAssertFalse(AmountInput.ambiguous("1,5"))
+        XCTAssertEqual(AmountInput.question("1,500", unit: "ZEC"), "Is that 1.5 ZEC or 1500 ZEC? Type 1.500 or 1500.")
+        XCTAssertNil(AmountInput.zec("1.123456789"), "at most 8 decimals")
+        XCTAssertNil(AmountInput.zec("0"))
+        XCTAssertNil(AmountInput.zec("99999999999"), "too large, no overflow")
+        XCTAssertEqual(AmountInput.zats("1,500"), 1_500)
+        XCTAssertEqual(AmountInput.zats("250 000"), 250_000)
+        XCTAssertNil(AmountInput.zats("1.5"), "a dot is not a thousands separator")
+        XCTAssertEqual(AmountInput.fiat("25,50"), 25.5)
+        XCTAssertNil(AmountInput.fiat("1,500"))
+        XCTAssertNil(AmountInput.fiat("25.555"))
+    }
 }
