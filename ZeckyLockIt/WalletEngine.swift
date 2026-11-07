@@ -354,6 +354,10 @@ final class WalletEngine: ObservableObject {
         let fee: Int64
         let toSelf: Bool
         var memo: String? = nil
+        /// Lock it in and the Ironwood move: Zcash stays in this wallet, so
+        /// they do not need the open lock. Only set by planLockIn and
+        /// planIronwoodMove.
+        var staysInWallet = false
     }
 
     enum SendOutcome {
@@ -365,7 +369,7 @@ final class WalletEngine: ObservableObject {
     }
 
     enum SendError: Error, CustomStringConvertible {
-        case badAddress, tooLittle, notEnough, noteToPublic, refused(String)
+        case badAddress, tooLittle, notEnough, noteToPublic, refused(String), lockClosed, busy
         var description: String {
             switch self {
             case .badAddress: return "That is not a valid Zcash address."
@@ -373,6 +377,8 @@ final class WalletEngine: ObservableObject {
             case .notEnough: return "Not enough available for this amount plus the fee."
             case .noteToPublic: return "A private note can only go to a shielded address. Remove the note, or use their shielded address."
             case .refused(let why): return "The server refused the payment. Nothing was sent. (\(why))"
+            case .lockClosed: return "The lock closed before the payment was signed. Nothing was sent. Open the lock and try again."
+            case .busy: return "Another payment is being sent right now. Wait until it is done."
             }
         }
     }
@@ -393,7 +399,7 @@ final class WalletEngine: ObservableObject {
         try NetworkUpgrade.checkReleases(networkHeight: networkHeight)
         let proposal = try await synchronizer.proposeOrchardToIronwoodMigration(accountUUID: account)
         let fee = proposal.totalFeeRequired().amount
-        return SendPlan(proposal: proposal, to: "Ironwood", amount: max(0, orchardHeld - fee), fee: fee, toSelf: true)
+        return SendPlan(proposal: proposal, to: "Ironwood", amount: max(0, orchardHeld - fee), fee: fee, toSelf: true, staysInWallet: true)
     }
 
     // MARK: Outside the lock
@@ -410,7 +416,7 @@ final class WalletEngine: ObservableObject {
             accountUUID: account, shieldingThreshold: Zatoshi(10_000), memo: .empty, transparentReceiver: nil)
         else { throw SendError.tooLittle }
         let fee = proposal.totalFeeRequired().amount
-        return SendPlan(proposal: proposal, to: "Lock it in", amount: max(0, outsideTheLock - fee), fee: fee, toSelf: true)
+        return SendPlan(proposal: proposal, to: "Lock it in", amount: max(0, outsideTheLock - fee), fee: fee, toSelf: true, staysInWallet: true)
     }
 
     func plan(to address: String, amount: Int64?, memo text: String? = nil) async throws -> SendPlan {
@@ -477,10 +483,22 @@ final class WalletEngine: ObservableObject {
         throw lastError ?? SendError.notEnough
     }
 
+    /// Set by the app: whether the lock is open right now. Starts closed.
+    var lockIsOpen: () -> Bool = { false }
+    private var sendingNow = false
+
     /// Signs with a key derived from the seed for this payment only, and
     /// hands the result to the server. The caller wipes the seed after.
     func send(_ plan: SendPlan, seed: [UInt8]) async throws -> SendOutcome {
         guard let synchronizer else { throw EngineError.notReady }
+        // One payment at a time, whatever the screens do (iPhone audit C-23).
+        guard !sendingNow else { throw SendError.busy }
+        sendingNow = true
+        defer { sendingNow = false }
+        // The wallet itself checks the lock, not only the screen (iPhone
+        // audit C-09): anything that leaves the wallet needs the open lock,
+        // right before the key is made.
+        guard plan.staysInWallet || LockRules.maySend(lockOpen: lockIsOpen()) else { throw SendError.lockClosed }
         // Checked again right before signing: the upgrade may have come
         // closer while the payment was being reviewed.
         try NetworkUpgrade.checkReleases(networkHeight: networkHeight)

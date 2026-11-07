@@ -258,6 +258,7 @@ final class AppModel: ObservableObject {
     let prices = PriceFeed()
 
     func launch() {
+        engine.lockIsOpen = { [weak self] in self?.lockOpen == true }
         switch Mnemonic.words {
         case .failure(let failure): screen = .problem(failure.description); return
         case .success: break

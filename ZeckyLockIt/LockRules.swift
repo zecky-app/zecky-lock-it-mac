@@ -51,6 +51,9 @@ enum LockRules {
     /// (or Don't ask, 0) is weaker.
     static func wait(from current: Int, to new: Int) -> Need { new >= current ? .nothing : .owner }
 
+    /// A payment out of the wallet is signed only while the lock is open.
+    static func maySend(lockOpen: Bool) -> Bool { lockOpen }
+
     // MARK: Security keys (as on the iPhone, src/lib/keyRules.ts)
 
     enum KeyAction { case addFirst, addMore, remove, phraseOn, phraseOff, startRemoval, cancelRemoval, test }

@@ -272,4 +272,12 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertFalse(NetworkUpgrade.releasesPaused(networkHeight: 3_600_000))
         XCTAssertNoThrow(try NetworkUpgrade.checkReleases(networkHeight: 3_600_000))
     }
+    // MARK: Sending needs the open lock (iPhone audit C-09)
+
+    @MainActor func testSendingNeedsTheOpenLock() {
+        XCTAssertTrue(LockRules.maySend(lockOpen: true))
+        XCTAssertFalse(LockRules.maySend(lockOpen: false))
+        // A fresh engine starts with the lock closed until the app says otherwise.
+        XCTAssertFalse(WalletEngine().lockIsOpen())
+    }
 }
