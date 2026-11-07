@@ -151,7 +151,24 @@ final class ZeckyLockItTests: XCTestCase {
             XCTAssertEqual($0 as? PaymentRequest.Problem, .severalRecipients)
         }
         XCTAssertThrowsError(try PaymentRequest.parse("zcash:u1abc?amount=0.123456789"))
-        XCTAssertThrowsError(try PaymentRequest.parse("zcash:u1abc?req-unknown=1"))
+        XCTAssertThrowsError(try PaymentRequest.parse("zcash:u1abc?req-unknown=1")) {
+            XCTAssertEqual($0 as? PaymentRequest.Problem, .unsupported)
+        }
+        XCTAssertThrowsError(try PaymentRequest.parse("zcash:u1abc?REQ-Unknown=1")) {
+            XCTAssertEqual($0 as? PaymentRequest.Problem, .unsupported, "req- in any case")
+        }
+        XCTAssertThrowsError(try PaymentRequest.parse("zcash:u1abc?amount=1&amount=2")) {
+            XCTAssertEqual($0 as? PaymentRequest.Problem, .repeated)
+        }
+        XCTAssertThrowsError(try PaymentRequest.parse("zcash:u1abc?amount=1,5")) {
+            XCTAssertEqual($0 as? PaymentRequest.Problem, .badAmount)
+        }
+        // Own-node addresses: no leading zeros (iPhone audit C-27).
+        XCTAssertFalse(Server.isHomeNode("010.0.0.1"))
+        XCTAssertFalse(Server.isHomeNode("192.168.01.5"))
+        XCTAssertFalse(Server.isHomeNode("10.0.0."))
+        XCTAssertTrue(Server.isHomeNode("10.0.0.1"))
+        XCTAssertTrue(Server.isHomeNode("192.168.1.0"))
         XCTAssertThrowsError(try PaymentRequest.parse("u1abc"))
         XCTAssertTrue(PaymentRequest.isRequest("  ZCASH:u1abc"))
     }

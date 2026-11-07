@@ -272,7 +272,7 @@ struct PaymentRequest: Equatable {
     var label: String?
 
     enum Problem: Error, Equatable, CustomStringConvertible {
-        case notARequest, severalRecipients, noAddress, badAmount, badMemo
+        case notARequest, severalRecipients, noAddress, badAmount, badMemo, unsupported, repeated
         var description: String {
             switch self {
             case .notARequest: return "That is not a Zcash payment request."
@@ -280,6 +280,8 @@ struct PaymentRequest: Equatable {
             case .noAddress: return "This payment request has no address."
             case .badAmount: return "The amount in this payment request is not valid."
             case .badMemo: return "The note in this payment request could not be read."
+            case .unsupported: return "This payment request asks for something Lock it does not support, so nothing was filled in. Ask the sender for a plain request."
+            case .repeated: return "This payment request names the same field twice, so it cannot be read safely. Nothing was filled in."
             }
         }
     }
@@ -296,9 +298,15 @@ struct PaymentRequest: Equatable {
         var address = String(parts.first ?? "")
         var amount: String?, memo: String?, label: String?
         if parts.count == 2 {
+            var seen = Set<String>()
             for pair in parts[1].split(separator: "&") {
                 let kv = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-                let rawKey = String(kv[0])
+                let rawKey = String(kv[0]).lowercased()
+                // ZIP 321: a required ("req-") parameter Lock it does not know
+                // means the request must not be paid; a field twice is refused
+                // rather than guessed (iPhone audit C-20).
+                if rawKey.hasPrefix("req-") { throw Problem.unsupported }
+                guard seen.insert(rawKey).inserted else { throw Problem.repeated }
                 let value = kv.count > 1 ? String(kv[1]) : ""
                 // An index (address.1, amount.2, …) means more than one recipient.
                 if rawKey.contains(".") { throw Problem.severalRecipients }
@@ -319,8 +327,7 @@ struct PaymentRequest: Equatable {
                 case "label", "message":
                     label = value.removingPercentEncoding ?? value
                 default:
-                    // Unknown "req-" parameters must be understood, others may be ignored.
-                    if rawKey.hasPrefix("req-") { throw Problem.notARequest }
+                    break // Other parameters may be ignored (ZIP 321).
                 }
             }
         }

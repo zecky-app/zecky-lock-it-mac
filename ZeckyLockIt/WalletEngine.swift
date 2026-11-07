@@ -3,7 +3,9 @@ import Foundation
 import ZcashLightClientKit
 
 /// The light-wallet server, over TLS. Same default and choices as the
-/// iPhone app. Not secret, so kept in the app's settings.
+/// iPhone app. The chosen server can name your own node (a home or Tailscale
+/// address), so it is kept in the Keychain (this Mac only, never synced or
+/// in a backup), not in the app's settings file (iPhone audit C-29).
 enum Server {
     static let defaultHost = "zec.rocks"
     static let presets: [(label: String, host: String)] = [
@@ -13,8 +15,28 @@ enum Server {
         ("South America", "sa.zec.rocks"),
         ("Asia Pacific", "ap.zec.rocks"),
     ]
-    static var host: String { UserDefaults.standard.string(forKey: "server.host") ?? defaultHost }
-    static var port: Int { let p = UserDefaults.standard.integer(forKey: "server.port"); return p == 0 ? 443 : p }
+    static var host: String { saved?.host ?? defaultHost }
+    static var port: Int { saved?.port ?? 443 }
+
+    private struct Saved: Codable, Equatable { var host: String; var port: Int }
+    private static let service = "app.zecky.lockit.mac.server"
+    private static var loaded = false
+    private static var cache: Saved?
+
+    private static var saved: Saved? {
+        if !loaded {
+            loaded = true
+            cache = (try? KeyStore.read(service: service)).flatMap { $0 }.flatMap { try? JSONDecoder().decode(Saved.self, from: $0) }
+            // Once: move a server chosen by an earlier version out of the settings file.
+            if let host = UserDefaults.standard.string(forKey: "server.host") {
+                let port = UserDefaults.standard.integer(forKey: "server.port")
+                if cache == nil { set(host: host, port: port == 0 ? 443 : port) }
+                UserDefaults.standard.removeObject(forKey: "server.host")
+                UserDefaults.standard.removeObject(forKey: "server.port")
+            }
+        }
+        return cache
+    }
     /// Public servers over TLS. Your own node (Rock it) on a private address
     /// (home network, this Mac, or Tailscale) without it: at home the traffic
     /// stays inside your network, and Tailscale encrypts it on the way.
@@ -23,8 +45,12 @@ enum Server {
     /// 10/8, 172.16/12, 192.168/16, 127/8 or Tailscale's 100.64/10. Same
     /// ranges as the iPhone app.
     static func isHomeNode(_ host: String) -> Bool {
-        let parts = host.split(separator: ".")
-        guard parts.count == 4 else { return false }
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        // No leading zeros: "010" can be read as octal by the system and
+        // point at a public address (iPhone audit C-27).
+        guard parts.count == 4,
+              parts.allSatisfy({ $0.range(of: #"^(0|[1-9][0-9]{0,2})$"#, options: .regularExpression) != nil })
+        else { return false }
         let n = parts.compactMap { Int($0) }
         guard n.count == 4, n.allSatisfy({ (0...255).contains($0) }) else { return false }
         return n[0] == 10 || n[0] == 127 || (n[0] == 192 && n[1] == 168)
@@ -57,13 +83,18 @@ enum Server {
     }
 
     static func set(host: String, port: Int) {
-        UserDefaults.standard.set(host, forKey: "server.host")
-        UserDefaults.standard.set(port, forKey: "server.port")
+        let value = Saved(host: host, port: port)
+        if let data = try? JSONEncoder().encode(value) { try? KeyStore.save(data, service: service) }
+        loaded = true
+        cache = value
     }
 
     static func reset() {
+        try? KeyStore.delete(service: service)
         UserDefaults.standard.removeObject(forKey: "server.host")
         UserDefaults.standard.removeObject(forKey: "server.port")
+        loaded = true
+        cache = nil
     }
 }
 
