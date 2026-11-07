@@ -19,7 +19,11 @@ struct SignerSheet: View {
                       subtitle: "Write it here, seal it on your offline phone, send it from here.",
                       width: 560, height: 760, onClose: onClose) {
             if let flow {
-                SealContent(model: model, engine: engine, flow: flow)
+                // Scrolls inside the sheet, so the title and Done stay in view
+                // when the QR code is shown.
+                ScrollView(showsIndicators: false) {
+                    SealContent(model: model, engine: engine, flow: flow).padding(.bottom, 8)
+                }
             } else {
                 Text("The wallet is still starting. Try again in a moment.")
                     .font(Theme.text(13)).foregroundStyle(Theme.muted)
@@ -46,6 +50,7 @@ private struct SealContent: View {
     @State private var pairNote: String?
     @State private var address: String?
     @State private var copied = false
+    @State private var showQR = true
     @State private var pressed: CGFloat = 0
 
     @State private var to = ""
@@ -290,9 +295,20 @@ private struct SealContent: View {
                             copied = true
                         }
                         .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                        Button(showQR ? "Hide QR" : "QR code") { withAnimation(.easeOut(duration: 0.15)) { showQR.toggle() } }
+                            .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
                     }
                     Text("Send Zcash here to fill Seal it.")
                         .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                    if showQR, let qr = QRCode.image(for: address) {
+                        Image(nsImage: qr).interpolation(.none).resizable()
+                            .frame(width: 200, height: 200)
+                            .padding(12)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.gold.opacity(0.8), lineWidth: 1.5))
+                            .accessibilityLabel("QR code of this sealed wallet's address")
+                            .padding(.top, 4)
+                    }
                 }
             }
         }

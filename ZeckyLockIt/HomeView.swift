@@ -312,19 +312,49 @@ struct HomeView: View {
         .animation(.easeInOut(duration: 0.2), value: model.askingCode)
         .animation(.easeInOut(duration: 0.2), value: model.timeLockShown)
         .onReceive(clock) { now = $0 }
-        .sheet(item: $model.sheet, onDismiss: { model.sheetClosed() }) { sheet in
+        .overlay { panel }
+        .animation(.easeOut(duration: 0.15), value: model.sheet?.isPanel == true)
+        .sheet(item: sheetBinding, onDismiss: { model.sheetClosed() }) { sheet in
             switch sheet {
-            case .receive: ReceiveView(engine: engine, prices: prices) { model.sheet = nil }
+            case .receive, .activity, .sync: EmptyView()
             case .send: SendView(engine: engine, prices: prices, opened: model.opened, signing: { model.signing = $0 }, onReleased: { model.released = true }) { model.sheet = nil }
             case .settings: SettingsView(model: model, prices: prices) { model.sheet = nil }
-            case .activity: ActivitySheet(model: model, engine: engine) { model.sheet = nil }
             case .ironwood: IronwoodSheet(model: model, engine: engine, kind: .ironwood) { model.sheet = nil }
             case .lockIn: IronwoodSheet(model: model, engine: engine, kind: .lockIn) { model.sheet = nil }
             case .signer: SignerSheet(model: model, engine: engine) { model.sheet = nil }
             case .addWallet: AddWalletSheet(model: model, engine: engine, kind: model.adding ?? .new) { model.sheet = nil }
             case .walletWords: WalletWordsSheet(model: model, engine: engine) { model.sheet = nil }
-            case .sync: SyncSheet(engine: engine) { model.sheet = nil }
             }
+        }
+    }
+
+    /// The sheets proper: everything except the read-only panels.
+    private var sheetBinding: Binding<AppModel.Sheet?> {
+        Binding(get: { model.sheet.flatMap { $0.isPanel ? nil : $0 } },
+                set: { new in if new != nil || model.sheet?.isPanel != true { model.sheet = new } })
+    }
+
+    /// Receive, Activity and Sync: over the main screen; a click beside
+    /// the panel (or Done, or Esc) goes back.
+    @ViewBuilder private var panel: some View {
+        if let sheet = model.sheet, sheet.isPanel {
+            ZStack {
+                Color.black.opacity(0.45)
+                    .contentShape(Rectangle())
+                    .onTapGesture { model.sheet = nil }
+                    .accessibilityLabel("Close")
+                Group {
+                    switch sheet {
+                    case .receive: ReceiveView(engine: engine, prices: prices) { model.sheet = nil }
+                    case .activity: ActivitySheet(model: model, engine: engine) { model.sheet = nil }
+                    default: SyncSheet(engine: engine) { model.sheet = nil }
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.gold.opacity(0.25), lineWidth: 1))
+                .shadow(color: .black.opacity(0.4), radius: 30, y: 12)
+            }
+            .transition(.opacity)
         }
     }
 
