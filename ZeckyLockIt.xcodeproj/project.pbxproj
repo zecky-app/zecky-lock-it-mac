@@ -19,6 +19,9 @@
 		A10000000000000000000021 /* Birthday.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000020 /* Birthday.swift */; };
 		A10000000000000000000023 /* WalletSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000022 /* WalletSelfTest.swift */; };
 		A10000000000000000000025 /* bip39-english.txt in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000024 /* bip39-english.txt */; };
+		A100000000000000000000B0 /* sapling-spend.params in Resources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000AF /* sapling-spend.params */; };
+		A100000000000000000000B2 /* sapling-output.params in Resources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B1 /* sapling-output.params */; };
+		A100000000000000000000AE /* Acknowledgements.md in Resources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000AD /* Acknowledgements.md */; };
 		A10000000000000000000031 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000030 /* Theme.swift */; };
 		A10000000000000000000033 /* Amount.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000032 /* Amount.swift */; };
 		A10000000000000000000035 /* WalletVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000034 /* WalletVault.swift */; };
@@ -84,6 +87,9 @@
 		A10000000000000000000020 /* Birthday.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Birthday.swift; sourceTree = "<group>"; };
 		A10000000000000000000022 /* WalletSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletSelfTest.swift; sourceTree = "<group>"; };
 		A10000000000000000000024 /* bip39-english.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = bip39-english.txt; sourceTree = "<group>"; };
+		A100000000000000000000AF /* sapling-spend.params */ = {isa = PBXFileReference; lastKnownFileType = file; path = SaplingParams/sapling-spend.params; sourceTree = "<group>"; };
+		A100000000000000000000B1 /* sapling-output.params */ = {isa = PBXFileReference; lastKnownFileType = file; path = SaplingParams/sapling-output.params; sourceTree = "<group>"; };
+		A100000000000000000000AD /* Acknowledgements.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = Acknowledgements.md; sourceTree = "<group>"; };
 		A10000000000000000000030 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		A10000000000000000000032 /* Amount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Amount.swift; sourceTree = "<group>"; };
 		A10000000000000000000034 /* WalletVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletVault.swift; sourceTree = "<group>"; };
@@ -219,6 +225,9 @@
 				A10000000000000000000020 /* Birthday.swift */,
 				A10000000000000000000022 /* WalletSelfTest.swift */,
 				A10000000000000000000024 /* bip39-english.txt */,
+				A100000000000000000000AF /* sapling-spend.params */,
+				A100000000000000000000B1 /* sapling-output.params */,
+				A100000000000000000000AD /* Acknowledgements.md */,
 				A1000000000000000000008C /* PrivacyInfo.xcprivacy */,
 				A10000000000000000000008 /* ZeckyLockIt.entitlements */,
 			);
@@ -322,6 +331,9 @@
 				A1000000000000000000005B /* Fonts/Inter-Medium.ttf in Resources */,
 				A10000000000000000000059 /* Assets.xcassets in Resources */,
 				A10000000000000000000025 /* bip39-english.txt in Resources */,
+				A100000000000000000000B0 /* sapling-spend.params in Resources */,
+				A100000000000000000000B2 /* sapling-output.params in Resources */,
+				A100000000000000000000AE /* Acknowledgements.md in Resources */,
 				A1000000000000000000008D /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

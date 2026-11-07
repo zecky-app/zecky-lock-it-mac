@@ -33,4 +33,9 @@ F="$L/libzcashlc.xcframework/macos-arm64_x86_64/libzcashlc.framework"
 cmp -s "$L/Package.swift" "$E/BuildSupport/LocalPackages-Package.swift" || fail "LocalPackages/Package.swift is not the engine's own manifest."
 [ "$(sha "$F/libzcashlc")" = "$MAC_LIB_SHA256" ] || fail "the Mac engine library does not match its fingerprint."
 [ "$(sha "$F/Headers/zcashlc.h")" = "$HEADER_SHA256" ] || fail "the engine header does not match its fingerprint."
+# The Sapling parameters bundled in the app (never downloaded by it).
+P="$ROOT/ZeckyLockIt/SaplingParams"
+[ "$(sha "$P/sapling-spend.params" 2>/dev/null)" = "8e48ffd23abb3a5fd9c5589204f32d9c31285a04b78096ba40a79b75677efc13" ] &&
+[ "$(sha "$P/sapling-output.params" 2>/dev/null)" = "2f0ebbcbb9bb0bcffe95a397e7eba89c29eb4dde6191c339db88570e3f3fb0e4" ] ||
+    fail "the Sapling parameters are missing or do not match: run scripts/fetch-sapling-params.sh."
 echo "Zecky engine $ENGINE_TAG (${ENGINE_COMMIT:0:7}) checked."

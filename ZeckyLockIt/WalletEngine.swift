@@ -101,6 +101,21 @@ enum Server {
 /// Where the engine keeps its files: the app's own sandbox container,
 /// excluded from Time Machine like the iPhone excludes iCloud backups.
 enum WalletFiles {
+    /// The Sapling parameters shipped in the app (as Lock it iPhone, audit
+    /// C-24): copied next to the wallet before the engine starts, under the
+    /// names the engine looks for. The engine finds them there, checks their
+    /// SHA-1 and never downloads them from download.z.cash. The build checks
+    /// their SHA-256 (scripts/check-engine.sh).
+    static func placeSaplingParams(base: URL, aliasName: String) {
+        let fm = FileManager.default
+        for name in ["sapling-spend", "sapling-output"] {
+            let target = base.appendingPathComponent("\(aliasName)_\(name).params")
+            guard !fm.fileExists(atPath: target.path),
+                  let source = Bundle.main.url(forResource: name, withExtension: "params") else { continue }
+            try? fm.copyItem(at: source, to: target)
+        }
+    }
+
     static func base(_ name: String) throws -> URL {
         let fm = FileManager.default
         var url = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -121,7 +136,8 @@ enum WalletFiles {
     }
 
     static func initializer(base: URL, alias: ZcashSynchronizerAlias) -> Initializer {
-        Initializer(
+        if case .custom(let name) = alias, name != "chaintip" { placeSaplingParams(base: base, aliasName: name) }
+        return Initializer(
             cacheDbURL: nil,
             fsBlockDbRoot: base.appendingPathComponent("fs_cache", isDirectory: true),
             generalStorageURL: base.appendingPathComponent("general", isDirectory: true),

@@ -4,3 +4,6 @@ DerivedData/
 build/
 *.xcuserstate
 .icon-preview.png
+
+# Sapling parameters (50 MB): fetched by scripts/fetch-sapling-params.sh, checked by SHA-256
+ZeckyLockIt/SaplingParams/*.params
