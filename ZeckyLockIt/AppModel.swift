@@ -23,7 +23,7 @@ final class AppModel: ObservableObject {
 
     @Published var screen: Screen = .loading
     /// The sheet over the home screen, also opened from the menu bar.
-    enum Sheet: Identifiable { case receive, send, settings, activity, ironwood, lockIn, signer, addWallet, walletWords; var id: Self { self } }
+    enum Sheet: Identifiable { case receive, send, settings, activity, ironwood, lockIn, signer, addWallet, walletWords, sync; var id: Self { self } }
     @Published var sheet: Sheet?
     /// Open Settings straight at a page (for "Choose another server").
     var settingsPage: SettingsView.Page?

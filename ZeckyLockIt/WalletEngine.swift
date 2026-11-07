@@ -162,6 +162,7 @@ final class WalletEngine: ObservableObject {
 
     @Published private(set) var status: Status = .connecting {
         didSet {
+            if case .failed(let text) = status { recordProblem(text) }
             if status == .connecting { if connectingSince == nil { connectingSince = Date() } }
             else { connectingSince = nil }
         }
@@ -248,6 +249,7 @@ final class WalletEngine: ObservableObject {
     /// this returns false and the caller unseals and calls again with it.
     @discardableResult
     func start(birthday: Int, seed: [UInt8]? = nil) async -> Bool {
+        birthdayHeight = birthday
         do {
             // The engine keeps a wallet name taken for the whole app session,
             // so after an erase the same instance is reused for the next wallet.
@@ -611,7 +613,35 @@ final class WalletEngine: ObservableObject {
         lockedSince = since
     }
 
+    // MARK: Sync details (as Lock it iPhone's sync sheet)
+
+    /// The wallet's birthday block, from start.
+    @Published private(set) var birthdayHeight = 0
+    /// Every block up to here is checked, without gaps.
+    @Published private(set) var walletHeight = 0
+    /// The engine's progress, 0…1 (1 when up to date).
+    @Published private(set) var syncFraction = 0.0
+    /// The last few problems, newest first. In memory only: gone when Lock
+    /// it quits. Plain messages, no addresses or amounts.
+    @Published private(set) var problems: [SyncMath.Problem] = []
+    /// Recent (time, wallet height) samples for a rough time to go.
+    private(set) var heightSamples: [SyncMath.Sample] = []
+
+    private func recordProblem(_ message: String) {
+        problems = SyncMath.adding(SyncMath.Problem(at: Date(), message: message), to: problems)
+    }
+
     private func apply(_ state: SynchronizerState) {
+        let scanned = Int(state.fullyScannedHeight)
+        if scanned > 0, scanned != walletHeight {
+            walletHeight = scanned
+            heightSamples = Array((heightSamples + [SyncMath.Sample(at: Date(), height: scanned)]).suffix(15))
+        }
+        switch state.syncStatus {
+        case .syncing(let progress, _): syncFraction = Double(max(0, min(1, progress)))
+        case .upToDate: syncFraction = 1
+        default: break
+        }
         switch state.syncStatus {
         case .unprepared: status = .connecting
         case .syncing(let progress, _): status = .syncing(max(0, min(100, Int((progress * 100).rounded(.down)))))

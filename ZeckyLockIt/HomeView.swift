@@ -250,7 +250,11 @@ struct HomeView: View {
                             .buttonStyle(.plain)
                             .help(failedDetail)
                         } else {
-                            Text(statusText).font(Theme.text(12)).foregroundStyle(Theme.muted)
+                            Button { model.sheet = .sync } label: {
+                                Text(statusText).font(Theme.text(12)).foregroundStyle(Theme.muted).contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Sync details")
                         }
                         Text("·").foregroundStyle(Theme.muted.opacity(0.6))
                         Label("Shielded", systemImage: "shield.lefthalf.filled")
@@ -319,6 +323,7 @@ struct HomeView: View {
             case .signer: SignerSheet(model: model, engine: engine) { model.sheet = nil }
             case .addWallet: AddWalletSheet(model: model, engine: engine, kind: model.adding ?? .new) { model.sheet = nil }
             case .walletWords: WalletWordsSheet(model: model, engine: engine) { model.sheet = nil }
+            case .sync: SyncSheet(engine: engine) { model.sheet = nil }
             }
         }
     }

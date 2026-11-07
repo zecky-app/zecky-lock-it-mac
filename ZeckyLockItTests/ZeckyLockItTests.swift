@@ -319,4 +319,24 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertNil(AmountInput.fiat("1,500"))
         XCTAssertNil(AmountInput.fiat("25.555"))
     }
+    // MARK: Sync details
+
+    func testSyncDetailsNumbers() {
+        XCTAssertEqual(SyncMath.behind(network: 3_600_100, wallet: 3_600_000), 100)
+        XCTAssertEqual(SyncMath.behind(network: 3_600_000, wallet: 3_600_100), 0)
+        XCTAssertNil(SyncMath.behind(network: 0, wallet: 3_600_000))
+        let t = Date(timeIntervalSince1970: 0)
+        let samples = (0..<3).map { SyncMath.Sample(at: t.addingTimeInterval(Double($0) * 10), height: 1_000 + $0 * 100) }
+        XCTAssertEqual(SyncMath.minutesLeft(behind: 6_000, samples: samples), 10, "10 blocks a second")
+        XCTAssertNil(SyncMath.minutesLeft(behind: 6_000, samples: Array(samples.prefix(2))))
+        XCTAssertEqual(SyncMath.checkedFraction(birthday: 1_000, wallet: 1_500, network: 2_000), 0.5)
+        // Problems: newest first, at most 5, no repeats within a minute.
+        var list: [SyncMath.Problem] = []
+        list = SyncMath.adding(.init(at: t, message: "A"), to: list)
+        list = SyncMath.adding(.init(at: t.addingTimeInterval(30), message: "A"), to: list)
+        XCTAssertEqual(list.count, 1)
+        for i in 0..<6 { list = SyncMath.adding(.init(at: t.addingTimeInterval(100 + Double(i)), message: "B\(i)"), to: list) }
+        XCTAssertEqual(list.count, 5)
+        XCTAssertEqual(list.first?.message, "B5")
+    }
 }

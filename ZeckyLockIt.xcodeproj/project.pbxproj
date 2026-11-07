@@ -46,6 +46,7 @@
 		A10000000000000000000079 /* TimeLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000078 /* TimeLock.swift */; };
 		A1000000000000000000008F /* SecurityKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008E /* SecurityKeys.swift */; };
 		A100000000000000000000A9 /* NetworkUpgrade.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A8 /* NetworkUpgrade.swift */; };
+		A100000000000000000000AC /* SyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000AB /* SyncView.swift */; };
 		A1000000000000000000007B /* Contacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000007A /* Contacts.swift */; };
 		A10000000000000000000095 /* SealItCBOR.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000090 /* SealItCBOR.swift */; };
 		A10000000000000000000096 /* SealItUR.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000091 /* SealItUR.swift */; };
@@ -110,6 +111,7 @@
 		A10000000000000000000078 /* TimeLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeLock.swift; sourceTree = "<group>"; };
 		A1000000000000000000008E /* SecurityKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityKeys.swift; sourceTree = "<group>"; };
 		A100000000000000000000A8 /* NetworkUpgrade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkUpgrade.swift; sourceTree = "<group>"; };
+		A100000000000000000000AB /* SyncView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncView.swift; sourceTree = "<group>"; };
 		A1000000000000000000007A /* Contacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Contacts.swift; sourceTree = "<group>"; };
 		A10000000000000000000090 /* SealItCBOR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SealItCBOR.swift; sourceTree = "<group>"; };
 		A10000000000000000000091 /* SealItUR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SealItUR.swift; sourceTree = "<group>"; };
@@ -178,6 +180,7 @@
 				A10000000000000000000078 /* TimeLock.swift */,
 				A1000000000000000000008E /* SecurityKeys.swift */,
 				A100000000000000000000A8 /* NetworkUpgrade.swift */,
+				A100000000000000000000AB /* SyncView.swift */,
 				A10000000000000000000090 /* SealItCBOR.swift */,
 				A10000000000000000000091 /* SealItUR.swift */,
 				A10000000000000000000092 /* SealItQRViews.swift */,
@@ -388,6 +391,7 @@
 				A10000000000000000000079 /* TimeLock.swift in Sources */,
 				A1000000000000000000008F /* SecurityKeys.swift in Sources */,
 				A100000000000000000000A9 /* NetworkUpgrade.swift in Sources */,
+				A100000000000000000000AC /* SyncView.swift in Sources */,
 				A10000000000000000000095 /* SealItCBOR.swift in Sources */,
 				A10000000000000000000096 /* SealItUR.swift in Sources */,
 				A10000000000000000000097 /* SealItQRViews.swift in Sources */,
