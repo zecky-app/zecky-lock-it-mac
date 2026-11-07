@@ -9,7 +9,7 @@ iPhone 0.0.19 (23).
 | Part | Version | Source |
 | --- | --- | --- |
 | Zcash core (librustzcash crates) | NU7 releases: zcash_protocol 0.11.0, zcash_primitives 0.31.0, zcash_client_backend 0.25.0, zcash_client_sqlite 0.23.0, orchard 0.16.0, sapling-crypto 0.9.0 | crates.io, pinned with checksums in the engine's Cargo.lock |
-| Engine (libzcashlc + zcashlc.h) | Zecky engine **v4.0.0-zecky.3**, tag commit `b934e9c` (built from `4637ae4`) | zecky-engine: the official zcash-swift-wallet-sdk 4.0.0 FFI, adapted only in its connection code to the NU7 crates, reviewed independently; advisory fixes, reproducible build (Rust 1.99.1, `--locked`, no builder paths), key bytes wiped when freed |
+| Engine (libzcashlc + zcashlc.h) | Zecky engine **v4.0.0-zecky.4**, tag commit `556a838` (library built from `4637ae4`, unchanged since zecky.3) | zecky-engine: the official zcash-swift-wallet-sdk 4.0.0 FFI, adapted only in its connection code to the NU7 crates, reviewed independently; advisory fixes, reproducible build (Rust 1.99.1, `--locked`, no builder paths), key bytes wiped when freed |
 | Swift SDK (ZcashLightClientKit) | 4.0.0, from the same tag | the same repository, `Sources/` |
 | Swift networking (gRPC-Swift, SwiftNIO, NIO-SSL, NIO-HTTP2, SQLite.swift) | exact versions in `Package.resolved` (committed) | Swift Package Manager |
 
@@ -21,7 +21,7 @@ blocks (ZIP 218).
 
 The Xcode project uses the engine as a local Swift package at
 `~/Documents/ZeckyEngine/zecky-engine` (next to this repository), checked
-out at tag `v4.0.0-zecky.3`. Its `Package.swift` names the release file
+out at tag `v4.0.0-zecky.4`. Its `Package.swift` names the release file
 `libzcashlc-swiftpm.xcframework.zip` (iPhone and Mac slices) with SHA-256
 `35a3e6829555d4a3f5a5b0aafea5577318e8f81d8b27ec6a2de98ce76ba15a7c`.
 
@@ -42,7 +42,7 @@ cp zecky-engine/BuildSupport/LocalPackages-Package.swift zecky-engine/LocalPacka
 ## Checks
 
 - Every build starts with `scripts/check-engine.sh`. It stops the build
-  unless the engine is at `b934e9c` without local changes, its
+  unless the engine is at `556a838` without local changes, its
   `Package.swift` pins the release file's checksum, `LocalPackages/` holds
   the engine's own manifest, and the unpacked files match:
 
@@ -80,3 +80,4 @@ older build cannot open it afterwards (restore from the 24 words instead).
 - 6 Nov: Zecky engine v4.0.0-zecky.2 (commit 3a69cb0), the Mac slice from the
   same build run as the iPhone release, through LocalPackages.
 - 7 Nov: v4.0.0-zecky.3, unpacked from its SwiftPM release file (checked by checksum) because the file is not downloadable yet.
+- 7 Nov: v4.0.0-zecky.4 (commit 556a838): adds the read-only `scanOverview()` for the sync ring. No Rust change, so the library, header and release file are byte for byte those of zecky.3 (re-signed, tag commit now 5584ca7); LocalPackages stays as it is.
