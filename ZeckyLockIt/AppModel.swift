@@ -51,6 +51,8 @@ final class AppModel: ObservableObject {
     }
     /// Open the Seal it sheet straight at pairing (from "+ Add").
     var sealItPairing = false
+    /// Open the Seal it sheet on the Send form (true) or on Receive (false).
+    var sealItSending = false
     var isSealedSelected: Bool {
         guard let id = selectedWallet else { return false }
         return engine.sealedWallets.contains { $0.id == id }

@@ -1,5 +1,6 @@
 import CryptoKit
 import XCTest
+import ZcashLightClientKit
 @testable import ZeckyLockIt
 
 /// Runs inside the app (so the Keychain behaves as in real use), but the
@@ -362,5 +363,12 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(LockRules.removalTargetHeight(from: 3_400_000), 3_402_304, "2,304 blocks of 75 s before NU7")
         let across = LockRules.removalTargetHeight(from: 3_542_000)
         XCTAssertEqual(across, 3_546_104)
+    }
+
+    // MARK: Sending
+
+    func testNotEnoughFundsIsShownInPlainWords() {
+        let raw = ZcashError.rustProposalInsufficientFunds(Zatoshi(100_000), Zatoshi(110_000))
+        XCTAssertEqual(WalletEngine.planProblem(raw), "Not enough available for this amount plus the fee.")
     }
 }

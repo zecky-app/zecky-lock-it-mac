@@ -99,26 +99,13 @@ final class SealItFlow: ObservableObject {
 
     // MARK: Sending
 
-    func startSend(from account: AccountUUID, to address: String, zatoshi: Int64, memo: String?) async {
+    /// Starts sealing a payment priced on the Send screen (the same checks
+    /// and receipt as the lock; Sapling-only addresses are refused there).
+    func startSend(from account: AccountUUID, proposal: Proposal) async {
         reset()
         do {
-            step = .preparing("Checking the address…")
-            let recipient = try Recipient(address, network: network)
-            switch recipient {
-            case .sapling: throw FlowError.saplingRecipient
-            case .transparent, .tex: if let memo, !memo.isEmpty { throw FlowError.noteToPublic }
-            default: break
-            }
-            let memoValue: Memo? = try memo.flatMap { $0.isEmpty ? nil : try Memo(string: $0) }
-
             step = .preparing("Building the payment…")
             try NetworkUpgrade.checkReleases(networkHeight: (try? await synchronizer.latestHeight()) ?? 0)
-            let proposal = try await synchronizer.proposeTransfer(
-                accountUUID: account,
-                recipient: recipient,
-                amount: Zatoshi(zatoshi),
-                memo: memoValue
-            )
             let pczt = try await synchronizer.createPCZTFromProposal(accountUUID: account, proposal: proposal)
 
             // Proofs are made here on the Mac, on the full PCZT, while the phone signs.
@@ -206,20 +193,5 @@ final class SealItFlow: ObservableObject {
                 return "The server refused the payment: \(reason)"
             }
         }
-    }
-}
-
-// MARK: - Amount parsing
-
-enum ZecAmount {
-    /// "0.001" -> 100_000 zatoshi. Point decimal, at most 8 decimals.
-    static func zatoshi(from text: String) -> Int64? {
-        let cleaned = text.replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces)
-        guard let value = Decimal(string: cleaned, locale: Locale(identifier: "en_US")), value > 0 else { return nil }
-        var scaled = value * 100_000_000
-        var rounded = Decimal()
-        NSDecimalRound(&rounded, &scaled, 0, .plain)
-        guard rounded == scaled else { return nil } // more than 8 decimals
-        return NSDecimalNumber(decimal: rounded).int64Value
     }
 }

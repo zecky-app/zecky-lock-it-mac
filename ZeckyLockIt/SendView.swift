@@ -1,4 +1,5 @@
 import SwiftUI
+import ZcashLightClientKit
 
 /// Release Zcash: recipient and amount, then a receipt of every number
 /// before anything leaves the lock.
@@ -9,30 +10,16 @@ struct SendView: View {
     @State private var opened: StoredWallet?
     let onClose: () -> Void
 
-    private enum Stage { case form, review(WalletEngine.SendPlan), sending, done(WalletEngine.SendOutcome) }
+    private enum Stage { case compose, sending, done(WalletEngine.SendOutcome) }
 
-    @State private var stage: Stage = .form
-    @State private var to = ""
-    @State private var amountText = ""
-    @State private var max = false
-    @State private var feeIncluded = false
-    @State private var unit: Amount.Unit = Amount.unit
+    @State private var stage: Stage = .compose
+    /// Set while the receipt is shown.
+    @State private var plan: WalletEngine.SendPlan?
     @State private var problem: String?
-    @State private var working = false
-    @State private var waiting = false
     @State private var closedAgain = false
     @State private var lockNote: String?
     @State private var used = false
     @State private var sentTo: String?
-    @State private var showNote = false
-    /// The amount is typed in the currency chosen under Settings › Value.
-    @State private var fiat = false
-    /// Filled from a pasted zcash: payment request.
-    @State private var requestNote: String?
-    @State private var memo = ""
-    @State private var showBook = false
-    @State private var newName = ""
-    @State private var savedName: String?
 
     /// Tells the app while signing, so the open lock is not closed mid-way.
     let signing: (Bool) -> Void
@@ -48,14 +35,16 @@ struct SendView: View {
         self.onClose = onClose
         _opened = State(initialValue: opened)
     }
-    @State private var notUpToDate = false
 
     var body: some View {
         SheetScaffold(title: title, subtitle: subtitle, closeLabel: "Close", showsClose: !isSending,
                       height: 580, onClose: onClose) {
             switch stage {
-            case .form: form
-            case .review(let plan): review(plan)
+            case .compose:
+                SendComposer(engine: engine, prices: prices, purpose: .lock, account: nil,
+                             plan: $plan, problem: $problem, reviewNote: lockNote) { plan in
+                    Task { await send(plan) }
+                }
             case .sending:
                 VStack(spacing: 14) {
                     Spacer()
@@ -68,22 +57,14 @@ struct SendView: View {
             case .done(let outcome): done(outcome)
             }
         }
-        .task { waiting = await engine.hasWaitingPayment() }
-        // The wallet checks for new blocks now and then, which flips the
-        // status for a moment. Only warn when it stays behind for a while.
-        .task(id: engine.status == .upToDate) {
-            guard engine.status != .upToDate else { notUpToDate = false; return }
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            if !Task.isCancelled && engine.status != .upToDate { notUpToDate = true }
-        }
+        .onChange(of: plan == nil) { _ in lockNote = nil }
     }
 
     private var isSending: Bool { if case .sending = stage { return true } else { return false } }
 
     private var title: String {
         switch stage {
-        case .form: return "Send Zcash"
-        case .review: return "Check before sending"
+        case .compose: return plan == nil ? "Send Zcash" : "Check before sending"
         case .sending: return "Sending"
         case .done(.sent): return "Sent"
         case .done(.saved): return "Payment saved"
@@ -92,11 +73,119 @@ struct SendView: View {
 
     private var subtitle: String {
         switch stage {
-        case .form: return "Taken out of the lock. Everything else stays locked."
-        case .review: return "Nothing has left the lock yet."
+        case .compose: return plan == nil ? "Taken out of the lock. Everything else stays locked." : "Nothing has left the lock yet."
         case .sending: return "Signing on this Mac and handing it to the network."
         case .done(.sent): return "The lock closes again."
         case .done(.saved): return "Made, but not delivered yet."
+        }
+    }
+
+    // MARK: Done
+
+    private func done(_ outcome: WalletEngine.SendOutcome) -> some View {
+        VStack(spacing: 16) {
+            Spacer()
+            PadlockView(open: !closedAgain, size: 110)
+                .animation(.spring(response: 0.55, dampingFraction: 0.62), value: closedAgain)
+                .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { closedAgain = true } }
+            switch outcome {
+            case .sent:
+                Text("It shows as confirmed once it is in a block. The rest stays locked.")
+                    .font(Theme.text(14)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                if let sentTo { SaveContactRow(address: sentTo) }
+            case .saved:
+                Text("The payment was made but could not be delivered yet. Lock it keeps trying until it is in a block or expires (about 50 minutes). Do not send it again.")
+                    .font(Theme.text(14)).foregroundStyle(Theme.gold).multilineTextAlignment(.center)
+            }
+            Spacer()
+            PrimaryButton(title: "Done", action: onClose).frame(width: 180)
+                .keyboardShortcut(.defaultAction)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// The lock was opened with Touch ID (and the code) before this sheet
+    /// came up; that unsealed phrase signs this one payment. The key is
+    /// made, used, and wiped straight after. A second payment needs the
+    /// lock opened again.
+    private func send(_ plan: WalletEngine.SendPlan) async {
+        lockNote = nil
+        guard let wallet = opened, !used else {
+            lockNote = "The lock closed again. Close this and open the lock once more."
+            return
+        }
+        used = true
+        // Key ④: with a security key added, it must be touched first.
+        // Unreadable key data counts as "keys present" and stops here.
+        if SecurityKeys.hasKeys {
+            do { try await SecurityKeys.check() }
+            catch { used = false; self.plan = nil; problem = String(describing: error); return }
+        }
+        signing(true)
+        defer { signing(false) }
+        stage = .sending
+        do {
+            var seed = try Mnemonic.seed(from: wallet.phrase)
+            defer { Wipe.bytes(&seed) }
+            stage = .done(try await engine.send(plan, seed: seed))
+            if !plan.toSelf { sentTo = plan.to }
+            opened = nil
+            onReleased()
+        } catch {
+            used = false
+            self.plan = nil
+            problem = String(describing: error); stage = .compose
+        }
+    }
+}
+
+/// The Send form and its receipt, the same for the lock and for Seal it:
+/// who (with the address book), how much (ZEC, zats or money, Max, fee
+/// included), an optional private note, then every number before anything
+/// happens. `onConfirm` is the last button: sign here, or seal on the phone.
+struct SendComposer: View {
+    enum Purpose { case lock, sealIt }
+
+    @ObservedObject var engine: WalletEngine
+    @ObservedObject var prices: PriceFeed
+    let purpose: Purpose
+    /// The wallet paying: nil is the one on the key ring.
+    let account: AccountUUID?
+    /// Set while the receipt is shown; nil shows the form.
+    @Binding var plan: WalletEngine.SendPlan?
+    @Binding var problem: String?
+    var reviewNote: String? = nil
+    let onConfirm: (WalletEngine.SendPlan) -> Void
+
+    @State private var to = ""
+    @State private var amountText = ""
+    @State private var max = false
+    @State private var feeIncluded = false
+    @State private var unit: Amount.Unit = Amount.unit
+    @State private var working = false
+    @State private var waiting = false
+    @State private var showNote = false
+    /// The amount is typed in the currency chosen under Settings › Value.
+    @State private var fiat = false
+    /// Filled from a pasted zcash: payment request.
+    @State private var requestNote: String?
+    @State private var memo = ""
+    @State private var showBook = false
+    @State private var notUpToDate = false
+
+    private var spendable: Int64 { engine.spendable(of: account) }
+
+    var body: some View {
+        Group {
+            if let plan { review(plan) } else { form }
+        }
+        .task { waiting = await engine.hasWaitingPayment() }
+        // The wallet checks for new blocks now and then, which flips the
+        // status for a moment. Only warn when it stays behind for a while.
+        .task(id: engine.status == .upToDate) {
+            guard engine.status != .upToDate else { notUpToDate = false; return }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if !Task.isCancelled && engine.status != .upToDate { notUpToDate = true }
         }
     }
 
@@ -125,7 +214,7 @@ struct SendView: View {
                     }
                 }
                 if !Contacts.onlySaved {
-                    TextField("", text: $to, prompt: Text("Zcash address or payment request").foregroundColor(Theme.muted))
+                    TextField("", text: $to, prompt: Text(purpose == .sealIt ? "Zcash address (u1… or t1…) or payment request" : "Zcash address or payment request").foregroundColor(Theme.muted))
                         .textFieldStyle(.plain)
                         .font(.system(size: 13, design: .monospaced))
                         .autocorrectionDisabled()
@@ -160,7 +249,7 @@ struct SendView: View {
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     if max {
-                        Text(Amount.number(Swift.max(0, engine.focusSpendable), unit))
+                        Text(Amount.number(Swift.max(0, spendable), unit))
                             .font(Theme.serif(34, weight: .medium)).foregroundStyle(Theme.muted)
                         Text("minus the fee").font(Theme.text(12)).foregroundStyle(Theme.muted)
                     } else {
@@ -179,7 +268,7 @@ struct SendView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack {
-                    Text("\(Amount.text(engine.focusSpendable, unit)) available" + (prices.value(of: engine.focusSpendable).map { " · \($0)" } ?? ""))
+                    Text("\(Amount.text(spendable, unit)) available" + (prices.value(of: spendable).map { " · \($0)" } ?? ""))
                         .font(Theme.text(12)).foregroundStyle(Theme.muted)
                     Spacer()
                     Chip(title: "Max", on: max) { max.toggle() }
@@ -244,7 +333,7 @@ struct SendView: View {
 
     private func review(_ plan: WalletEngine.SendPlan) -> some View {
         let total = plan.amount + plan.fee
-        let left = Swift.max(0, engine.focusSpendable - total)
+        let left = Swift.max(0, spendable - total)
         return VStack(alignment: .leading, spacing: 14) {
             VStack(spacing: 0) {
                 receiptRow("To", plan.toSelf ? "Yourself" : (Contacts.name(for: plan.to) ?? "New address"), strong: true)
@@ -262,19 +351,25 @@ struct SendView: View {
                 if let note = plan.memo {
                     receiptRow("Private note", note.count > 40 ? String(note.prefix(40)) + "…" : note)
                 }
-                receiptRow("Stays locked", money(left), accent: true)
+                receiptRow(purpose == .sealIt ? "Stays sealed" : "Stays locked", money(left), accent: true)
             }
             .card(padding: 18)
             if plan.toSelf {
-                note("This is one of your own addresses: only the network fee leaves the lock.", Theme.muted)
+                note(purpose == .sealIt ? "This is one of your own addresses: only the network fee leaves this sealed wallet."
+                                        : "This is one of your own addresses: only the network fee leaves the lock.", Theme.muted)
             }
-            if let lockNote { note(lockNote, Theme.muted) }
+            if purpose == .sealIt {
+                note("Next, your offline phone shows the same address and amount. Check them there before you seal it.", Theme.muted)
+            }
+            if let reviewNote { note(reviewNote, Theme.muted) }
             Spacer(minLength: 0)
             HStack {
-                QuietButton(title: "Change") { lockNote = nil; stage = .form }.frame(width: 140)
+                QuietButton(title: "Change") { self.plan = nil }.frame(width: 140)
                 Spacer()
-                PrimaryButton(title: "Send \(Amount.text(plan.amount, unit))") { Task { await send(plan) } }
-                    .frame(width: 240)
+                PrimaryButton(title: purpose == .sealIt ? "Seal it on your phone" : "Send \(Amount.text(plan.amount, unit))") {
+                    onConfirm(plan)
+                }
+                .frame(width: 240)
             }
         }
     }
@@ -291,32 +386,6 @@ struct SendView: View {
         .padding(.vertical, 6)
     }
 
-    // MARK: Done
-
-    private func done(_ outcome: WalletEngine.SendOutcome) -> some View {
-        VStack(spacing: 16) {
-            Spacer()
-            PadlockView(open: !closedAgain, size: 110)
-                .animation(.spring(response: 0.55, dampingFraction: 0.62), value: closedAgain)
-                .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { closedAgain = true } }
-            switch outcome {
-            case .sent:
-                Text("It shows as confirmed once it is in a block. The rest stays locked.")
-                    .font(Theme.text(14)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
-                if let sentTo, Contacts.name(for: sentTo) == nil, !Contacts.onlySaved {
-                    saveContact(sentTo)
-                }
-            case .saved:
-                Text("The payment was made but could not be delivered yet. Lock it keeps trying until it is in a block or expires (about 50 minutes). Do not send it again.")
-                    .font(Theme.text(14)).foregroundStyle(Theme.gold).multilineTextAlignment(.center)
-            }
-            Spacer()
-            PrimaryButton(title: "Done", action: onClose).frame(width: 180)
-                .keyboardShortcut(.defaultAction)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
     // MARK: Helpers
 
     private func fieldLabel(_ text: String) -> some View {
@@ -327,32 +396,6 @@ struct SendView: View {
         Text(text).font(Theme.text(12)).foregroundStyle(color).fixedSize(horizontal: false, vertical: true)
     }
 
-    /// After paying a new address: offer to save it under a name.
-    private func saveContact(_ address: String) -> some View {
-        HStack(spacing: 8) {
-            if let savedName {
-                Label("Saved as \(savedName)", systemImage: "checkmark.seal.fill")
-                    .font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.green)
-            } else {
-                TextField("", text: $newName, prompt: Text("Name, to save this address").foregroundColor(Theme.muted))
-                    .textFieldStyle(.plain).font(Theme.text(13))
-                    .padding(.horizontal, 10).frame(width: 240, height: 32)
-                    .background(Theme.ink, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
-                SecondaryButton(title: "Save") {
-                    if (try? Contacts.add(name: newName, address: address)) != nil { savedName = newName }
-                }
-                .frame(width: 80)
-            }
-        }
-        .padding(.top, 6)
-    }
-
-    private func short(_ a: String) -> String {
-        a.count > 40 ? String(a.prefix(18)) + "…" + String(a.suffix(18)) : a
-    }
-
-    /// Keeps the typed amount when switching units.
     /// A pasted zcash: request fills the address, amount and note.
     private func applyRequest(_ text: String) {
         guard PaymentRequest.isRequest(text) else { return }
@@ -379,6 +422,7 @@ struct SendView: View {
         return prices.rates[prices.currency.rawValue]
     }
 
+    /// Keeps the typed amount when switching units.
     private func switchUnit(_ next: Amount.Unit) {
         guard fiat || next != unit else { return }
         let z = zatoshi(amountText)
@@ -433,42 +477,46 @@ struct SendView: View {
             problem = "Only saved addresses can be used. Pick one above, or change the rule in Settings."
             return
         }
-        let note = memo.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard note.utf8.count <= 512 else { problem = "The private note is too long (at most 512 bytes)."; return }
-        do { stage = .review(try await engine.plan(to: to, amount: amount, memo: note.isEmpty ? nil : note, feeIncluded: feeIncluded && !max)) }
-        catch { problem = String(describing: error) }
-    }
-
-    /// The lock was opened with Touch ID (and the code) before this sheet
-    /// came up; that unsealed phrase signs this one payment. The key is
-    /// made, used, and wiped straight after. A second payment needs the
-    /// lock opened again.
-    private func send(_ plan: WalletEngine.SendPlan) async {
-        lockNote = nil
-        guard let wallet = opened, !used else {
-            lockNote = "The lock closed again. Close this and open the lock once more."
+        // The offline phone cannot sign to a Sapling-only address.
+        if purpose == .sealIt, let r = try? Recipient(to.trimmingCharacters(in: .whitespacesAndNewlines), network: .mainnet),
+           case .sapling = r {
+            problem = SealItFlow.FlowError.saplingRecipient.errorDescription
             return
         }
-        used = true
-        // Key ④: with a security key added, it must be touched first.
-        // Unreadable key data counts as "keys present" and stops here.
-        if SecurityKeys.hasKeys {
-            do { try await SecurityKeys.check() }
-            catch { used = false; problem = String(describing: error); return }
-        }
-        signing(true)
-        defer { signing(false) }
-        stage = .sending
+        let note = memo.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard note.utf8.count <= 512 else { problem = "The private note is too long (at most 512 bytes)."; return }
         do {
-            var seed = try Mnemonic.seed(from: wallet.phrase)
-            defer { Wipe.bytes(&seed) }
-            stage = .done(try await engine.send(plan, seed: seed))
-            if !plan.toSelf { sentTo = plan.to }
-            opened = nil
-            onReleased()
-        } catch {
-            used = false
-            problem = String(describing: error); stage = .form
+            plan = try await engine.plan(to: to, amount: amount, memo: note.isEmpty ? nil : note,
+                                         feeIncluded: feeIncluded && !max, from: account)
+        } catch { problem = WalletEngine.planProblem(error) }
+    }
+}
+
+/// After paying a new address: offer to save it under a name.
+struct SaveContactRow: View {
+    let address: String
+    @State private var newName = ""
+    @State private var savedName: String?
+
+    var body: some View {
+        if Contacts.name(for: address) == nil || savedName != nil, !Contacts.onlySaved {
+            HStack(spacing: 8) {
+                if let savedName {
+                    Label("Saved as \(savedName)", systemImage: "checkmark.seal.fill")
+                        .font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.green)
+                } else {
+                    TextField("", text: $newName, prompt: Text("Name, to save this address").foregroundColor(Theme.muted))
+                        .textFieldStyle(.plain).font(Theme.text(13))
+                        .padding(.horizontal, 10).frame(width: 240, height: 32)
+                        .background(Theme.ink, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
+                    SecondaryButton(title: "Save") {
+                        if (try? Contacts.add(name: newName, address: address)) != nil { savedName = newName }
+                    }
+                    .frame(width: 80)
+                }
+            }
+            .padding(.top, 6)
         }
     }
 }

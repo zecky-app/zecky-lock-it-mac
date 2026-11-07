@@ -350,6 +350,13 @@ final class WalletEngine: ObservableObject {
         return signerBalances[focus]?.spendable ?? 0
     }
 
+    /// What a given wallet can spend now: nil is the one on the key ring.
+    func spendable(of account: AccountUUID?) -> Int64 {
+        guard let account else { return focusSpendable }
+        if account == self.account { return spendable }
+        return signerBalances[account]?.spendable ?? 0
+    }
+
     /// Adds a wallet with its own 24 words on this Mac. Returns its account.
     func addMacWallet(name: String, phrase: String, birthday: Int) async throws -> AccountUUID {
         guard let synchronizer else { throw EngineError.notReady }
@@ -427,11 +434,12 @@ final class WalletEngine: ObservableObject {
     }
 
     enum SendError: Error, CustomStringConvertible {
-        case badAddress, tooLittle, notEnough, noteToPublic, refused(String), lockClosed, busy
+        case badAddress, tooLittle, belowFee, notEnough, noteToPublic, refused(String), lockClosed, busy
         var description: String {
             switch self {
             case .badAddress: return "That is not a valid Zcash address."
             case .tooLittle: return "Enter an amount above zero."
+            case .belowFee: return "This amount is not more than the fee, so nothing would arrive. Enter a larger amount."
             case .notEnough: return "Not enough available for this amount plus the fee."
             case .noteToPublic: return "A private note can only go to a shielded address. Remove the note, or use their shielded address."
             case .refused(let why): return "The server refused the payment. Nothing was sent. (\(why))"
@@ -439,6 +447,13 @@ final class WalletEngine: ObservableObject {
             case .busy: return "Another payment is being sent right now. Wait until it is done."
             }
         }
+    }
+
+    /// What to show when pricing a payment failed: the engine's "not enough
+    /// funds" in plain words, never its raw text.
+    static func planProblem(_ error: Error) -> String {
+        if let e = error as? ZcashError, case .rustProposalInsufficientFunds = e { return SendError.notEnough.description }
+        return String(describing: error)
     }
 
     /// Prices a payment of `amount` zatoshi, or of everything spendable when nil.
@@ -477,10 +492,12 @@ final class WalletEngine: ObservableObject {
         return SendPlan(proposal: proposal, to: "Lock it in", amount: max(0, outsideTheLock - fee), fee: fee, toSelf: true, staysInWallet: true)
     }
 
-    func plan(to address: String, amount: Int64?, memo text: String? = nil, feeIncluded: Bool = false) async throws -> SendPlan {
-        guard let synchronizer, let account = current else { throw EngineError.notReady }
+    /// Prices a payment from `from` (nil: the wallet on the key ring).
+    func plan(to address: String, amount: Int64?, memo text: String? = nil, feeIncluded: Bool = false,
+              from: AccountUUID? = nil) async throws -> SendPlan {
+        guard let synchronizer, let account = from ?? current else { throw EngineError.notReady }
         try NetworkUpgrade.checkReleases(networkHeight: networkHeight)
-        let spendable = focusSpendable
+        let spendable = self.spendable(of: account)
         let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let recipient = try? Recipient(trimmed, network: .mainnet) else { throw SendError.badAddress }
         var memo: Memo?
@@ -494,23 +511,37 @@ final class WalletEngine: ObservableObject {
 
         if let amount, feeIncluded {
             // Fee included (as Lock it iPhone): the receiver gets the amount
-            // minus the fee. The fee can change with the amount (fewer notes
-            // needed), so ask again until amount plus fee fits what was typed.
+            // minus the fee. Start from the smallest fee (two ZIP-317
+            // actions, 10,000 zats) and follow the engine's quote, as Max
+            // does. Asking for the whole amount first would need the amount
+            // plus a fee, which a whole balance cannot cover.
             guard amount > 0 else { throw SendError.tooLittle }
-            var fee = try await synchronizer.proposeTransfer(
-                accountUUID: account, recipient: recipient, amount: Zatoshi(amount), memo: memo).totalFeeRequired().amount
-            for _ in 0..<3 {
+            guard amount <= spendable else { throw SendError.notEnough }
+            var fee: Int64 = 10_000
+            var tried = Set<Int64>()
+            var closest: SendPlan?
+            for _ in 0..<24 {
                 let net = amount - fee
-                guard net > 0 else { throw SendError.tooLittle }
-                let proposal = try await synchronizer.proposeTransfer(
-                    accountUUID: account, recipient: recipient, amount: Zatoshi(net), memo: memo)
-                let quoted = proposal.totalFeeRequired().amount
-                if net + quoted <= amount {
-                    return SendPlan(proposal: proposal, to: trimmed, amount: net, fee: quoted, toSelf: toSelf, memo: text)
+                guard net > 0 else { break }
+                guard tried.insert(fee).inserted else { break }
+                do {
+                    let proposal = try await synchronizer.proposeTransfer(
+                        accountUUID: account, recipient: recipient, amount: Zatoshi(net), memo: memo)
+                    let quoted = proposal.totalFeeRequired().amount
+                    let plan = SendPlan(proposal: proposal, to: trimmed, amount: net, fee: quoted, toSelf: toSelf, memo: text)
+                    if quoted == fee { return plan }
+                    if quoted < fee {
+                        // Fits, with (fee - quoted) left in the wallet; try
+                        // giving the receiver that bit too.
+                        if closest == nil || net > closest!.amount { closest = plan }
+                    }
+                    fee = quoted
+                } catch ZcashError.rustProposalInsufficientFunds {
+                    fee += 5_000
                 }
-                fee = quoted
             }
-            throw SendError.notEnough
+            if let closest { return closest }
+            throw amount <= 10_000 ? SendError.belowFee : SendError.notEnough
         }
         if let amount {
             guard amount > 0 else { throw SendError.tooLittle }

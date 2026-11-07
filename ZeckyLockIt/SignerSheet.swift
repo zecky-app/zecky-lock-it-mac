@@ -13,16 +13,30 @@ struct SignerSheet: View {
     let onClose: () -> Void
 
     @State private var flow: SealItFlow?
+    /// Opened with Send Zcash (the Send form) or Receive (address and QR).
+    @State private var sending = false
+    /// Opened from "Pair Seal it".
+    @State private var pairingAtOpen = false
+
+    init(model: AppModel, engine: WalletEngine, onClose: @escaping () -> Void) {
+        self.model = model
+        self.engine = engine
+        self.onClose = onClose
+        _sending = State(initialValue: model.sealItSending && !model.sealItPairing)
+        _pairingAtOpen = State(initialValue: model.sealItPairing)
+    }
 
     var body: some View {
-        SheetScaffold(title: "Seal it",
-                      subtitle: "Write it here, seal it on your offline phone, send it from here.",
+        SheetScaffold(title: pairingAtOpen ? "Seal it" : (sending ? "Send Zcash" : "Receive"),
+                      subtitle: pairingAtOpen ? "Pair the offline phone that holds the keys."
+                                : (sending ? "Written here, sealed on your offline phone, sent from here."
+                                           : "Zcash sent here is kept in this sealed wallet."),
                       width: 560, height: 760, onClose: onClose) {
             if let flow {
                 // Scrolls inside the sheet, so the title and Done stay in view
                 // when the QR code is shown.
                 ScrollView(showsIndicators: false) {
-                    SealContent(model: model, engine: engine, flow: flow).padding(.bottom, 8)
+                    SealContent(model: model, engine: engine, flow: flow, sending: sending).padding(.bottom, 8)
                 }
             } else {
                 Text("The wallet is still starting. Try again in a moment.")
@@ -41,6 +55,7 @@ private struct SealContent: View {
     @ObservedObject var model: AppModel
     @ObservedObject var engine: WalletEngine
     @ObservedObject var flow: SealItFlow
+    let sending: Bool
 
     @State private var account: AccountUUID?
     @State private var accounts: [Account] = []
@@ -53,9 +68,11 @@ private struct SealContent: View {
     @State private var showQR = true
     @State private var pressed: CGFloat = 0
 
-    @State private var to = ""
-    @State private var amount = ""
-    @State private var memo = ""
+    /// The Send screen's receipt, while it is shown.
+    @State private var sealPlan: WalletEngine.SendPlan?
+    @State private var sealProblem: String?
+    /// Where the last sealed payment went, to offer saving it as a contact.
+    @State private var sealedTo: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -70,6 +87,9 @@ private struct SealContent: View {
             }
         }
         .task { await load() }
+        .onChange(of: failureText) { text in
+            if let text { sealPlan = nil; sealProblem = text }
+        }
         .onDisappear { flow.reset() }
     }
 
@@ -92,6 +112,8 @@ private struct SealContent: View {
         flow.reset()
         account = id
         model.selectedWallet = id
+        sealPlan = nil
+        sealProblem = nil
         address = nil
         copied = false
         Task { await loadAddress() }
@@ -210,10 +232,19 @@ private struct SealContent: View {
     @ViewBuilder private func paired(_ account: AccountUUID) -> some View {
         switch flow.step {
         case .idle, .failed:
-            walletBar
-            SealSteps(current: .write)
-            balanceCard
-            writeForm(account)
+            if !sending {
+                walletBar
+                balanceCard(showAddress: true)
+            } else {
+                if sealPlan == nil {
+                    walletBar
+                    SealSteps(current: .write)
+                    balanceCard(showAddress: false)
+                } else {
+                    SealSteps(current: .write)
+                }
+                composer(account)
+            }
 
         case .preparing(let text):
             SealSteps(current: flowIsSending ? .send : .write)
@@ -258,9 +289,15 @@ private struct SealContent: View {
                 }
             }
             .frame(maxWidth: .infinity).padding(.top, 24)
+            if let sealedTo { HStack { Spacer(); SaveContactRow(address: sealedTo); Spacer() } }
             Spacer()
-            PrimaryButton(title: "Done") { flow.reset(); to = ""; amount = ""; memo = "" }
+            PrimaryButton(title: "Done") { flow.reset(); sealPlan = nil; sealedTo = nil }
         }
+    }
+
+    private var failureText: String? {
+        if case .failed(let reason) = flow.step { return reason }
+        return nil
     }
 
     /// "Finishing the proofs…" happens after the phone sealed it.
@@ -269,7 +306,17 @@ private struct SealContent: View {
         return false
     }
 
-    private var balanceCard: some View {
+    private func composer(_ account: AccountUUID) -> some View {
+        SendComposer(engine: engine, prices: model.prices, purpose: .sealIt, account: account,
+                     plan: $sealPlan, problem: $sealProblem) { plan in
+            sealProblem = nil
+            sealedTo = plan.toSelf ? nil : plan.to
+            Task { await flow.startSend(from: account, proposal: plan.proposal) }
+        }
+        .id(account)
+    }
+
+    private func balanceCard(showAddress: Bool) -> some View {
         HStack(alignment: .center, spacing: 16) {
             SealMark(size: 64)
             VStack(alignment: .leading, spacing: 6) {
@@ -286,7 +333,7 @@ private struct SealContent: View {
                     Text("\(Amount.number(selectedBalance.spendable, model.unit)) usable now, the rest is confirming")
                         .font(Theme.text(12)).foregroundStyle(Theme.muted)
                 }
-                if let address {
+                if showAddress, let address {
                     HStack(spacing: 8) {
                         Text(address).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted)
                             .lineLimit(1).truncationMode(.middle)
@@ -324,27 +371,6 @@ private struct SealContent: View {
     private var selectedBalance: (spendable: Int64, total: Int64) {
         guard let account else { return (0, 0) }
         return engine.signerBalances[account] ?? (0, 0)
-    }
-
-    @ViewBuilder private func writeForm(_ account: AccountUUID) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            TextField("To (u1… or t1…)", text: $to).textFieldStyle(.roundedBorder)
-            TextField("Amount in ZEC", text: $amount).textFieldStyle(.roundedBorder)
-            TextField("Note (optional)", text: $memo).textFieldStyle(.roundedBorder)
-        }
-        if case .failed(let reason) = flow.step {
-            Text(reason).font(Theme.text(12)).foregroundStyle(Theme.red)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        Spacer()
-        PrimaryButton(title: "Seal it",
-                      enabled: !to.isEmpty && ZecAmount.zatoshi(from: amount) != nil) {
-            guard let zats = ZecAmount.zatoshi(from: amount) else { return }
-            Task {
-                await flow.startSend(from: account, to: to.trimmingCharacters(in: .whitespacesAndNewlines),
-                                     zatoshi: zats, memo: memo.isEmpty ? nil : memo)
-            }
-        }
     }
 
     private func busy(_ text: String) -> some View {

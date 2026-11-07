@@ -159,11 +159,12 @@ struct HomeView: View {
                         Group {
                             if model.lockOpen {
                                 HStack(spacing: 12) {
-                                    BrassButton(title: model.isSealedSelected ? "Write it, seal it" : "Send Zcash",
+                                    BrassButton(title: "Send Zcash",
                                                 icon: model.isSealedSelected ? "envelope.fill" : "lock.open.fill") {
                                         if model.isSealedSelected {
                                             // Sealed wallet: the phone signs; the lock closes when done.
                                             model.released = true
+                                            model.sealItSending = true
                                             model.sheet = .signer
                                         } else {
                                             model.sheet = .send
@@ -175,8 +176,9 @@ struct HomeView: View {
                                         .keyboardShortcut(.cancelAction)
                                 }
                             } else {
-                                BrassButton(title: model.isSealedSelected ? "Seal more" : "Receive",
+                                BrassButton(title: "Receive",
                                             icon: model.isSealedSelected ? "envelope.fill" : "lock.fill") {
+                                    model.sealItSending = false
                                     model.sheet = model.isSealedSelected ? .signer : .receive
                                 }
                                     .frame(width: 230)
@@ -501,6 +503,7 @@ private struct KeyRing: View {
             Menu {
                 Button("Pair Seal it (offline phone)") {
                     model.sealItPairing = true
+                    model.sealItSending = false
                     model.sheet = .signer
                 }
                 Divider()
