@@ -304,6 +304,8 @@ struct HomeView: View {
         .animation(.easeInOut(duration: 0.2), value: model.timeLockShown)
         .onReceive(clock) { now = $0 }
         .overlay { panel }
+        .overlay { if model.tourShown { TourCard(model: model).transition(.opacity) } }
+        .animation(.easeInOut(duration: 0.2), value: model.tourShown)
         .animation(.easeOut(duration: 0.15), value: model.sheet?.isPanel == true)
         .sheet(item: sheetBinding, onDismiss: { model.sheetClosed() }) { sheet in
             switch sheet {
@@ -446,6 +448,7 @@ struct HomeView: View {
     private var statusText: String { baseStatus + (Server.nodeLabel.map { " · \($0)" } ?? "") }
 
     private var baseStatus: String {
+        if engine.droppedSince != nil { return "Connection dropped · trying again…" }
         if engine.isCurrent { return "Up to date" }
         switch engine.status {
         case .connecting: return "Connecting…"
@@ -1024,6 +1027,56 @@ struct IronwoodSheet: View {
             stage = .done
         } catch {
             stage = .failed(String(describing: error))
+        }
+    }
+}
+
+/// Three quiet steps, as on Lock it iPhone. Skip is always there.
+struct TourCard: View {
+    @ObservedObject var model: AppModel
+    @State private var step = 0
+
+    private let steps: [(title: String, text: String)] = [
+        ("Receive", "Click Receive for your address. Zcash sent to it goes straight into the lock."),
+        ("Click the lock to send", "The lock opens with a deliberate click. Send takes out only what you choose; the rest stays locked. It closes again by itself."),
+        ("Choose your keys", "Decide what is asked before the lock opens: Touch ID, a Zecky code, a short pause, a security key. Settings › Keys to the lock."),
+    ]
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45).contentShape(Rectangle())
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("\(step + 1) OF \(steps.count)").font(Theme.text(11, weight: .semibold)).tracking(2).foregroundStyle(Theme.gold)
+                    Spacer()
+                    Button("Skip") { model.finishTour() }.buttonStyle(.plain).font(Theme.text(12)).foregroundStyle(Theme.muted)
+                }
+                Text(steps[step].title).font(Theme.serif(26, weight: .medium))
+                Text(steps[step].text).font(Theme.text(14)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    if step == steps.count - 1 {
+                        Button("Choose my keys now") {
+                            model.finishTour()
+                            model.settingsPage = .keys
+                            model.sheet = .settings
+                        }
+                        .buttonStyle(.plain).font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.gold)
+                    }
+                    Spacer()
+                    PrimaryButton(title: step == steps.count - 1 ? "Done" : "Next") {
+                        if step == steps.count - 1 { model.finishTour() } else { step += 1 }
+                    }
+                    .frame(width: 140)
+                    .keyboardShortcut(.defaultAction)
+                }
+                .padding(.top, 6)
+            }
+            .padding(24)
+            .frame(width: 420)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.gold.opacity(0.25)))
+            .shadow(color: .black.opacity(0.4), radius: 30, y: 12)
         }
     }
 }

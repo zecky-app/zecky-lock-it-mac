@@ -59,16 +59,18 @@ struct AddWalletSheet: View {
             Text("Write these 24 words on paper, in order. They are the only way back to this wallet.")
                 .font(Theme.text(13)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                ForEach(Array(words.enumerated()), id: \.offset) { index, word in
-                    HStack(spacing: 6) {
-                        Text("\(index + 1)").font(Theme.text(11)).foregroundStyle(Theme.muted).frame(width: 18, alignment: .trailing)
-                        Text(word).font(Theme.text(13, weight: .medium))
-                        Spacer(minLength: 0)
+            HoldToReveal {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                    ForEach(Array(words.enumerated()), id: \.offset) { index, word in
+                        HStack(spacing: 6) {
+                            Text("\(index + 1)").font(Theme.text(11)).foregroundStyle(Theme.muted).frame(width: 18, alignment: .trailing)
+                            Text(word).font(Theme.text(13, weight: .medium))
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 8).frame(height: 28)
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line, lineWidth: 1))
                     }
-                    .padding(.horizontal, 8).frame(height: 28)
-                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line, lineWidth: 1))
                 }
             }
             Toggle("I wrote the 24 words down", isOn: $wroteThemDown)
@@ -180,17 +182,19 @@ struct WalletWordsSheet: View {
                       width: 600, height: 520, onClose: onClose) {
             VStack(alignment: .leading, spacing: 14) {
                 if words.count == 24 {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                        ForEach(Array(words.enumerated()), id: \.offset) { index, word in
-                            HStack(spacing: 6) {
-                                Text("\(index + 1)").font(Theme.text(11)).foregroundStyle(Theme.muted)
-                                    .frame(width: 18, alignment: .trailing)
-                                Text(word).font(Theme.text(13, weight: .medium))
-                                Spacer(minLength: 0)
+                    HoldToReveal {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                            ForEach(Array(words.enumerated()), id: \.offset) { index, word in
+                                HStack(spacing: 6) {
+                                    Text("\(index + 1)").font(Theme.text(11)).foregroundStyle(Theme.muted)
+                                        .frame(width: 18, alignment: .trailing)
+                                    Text(word).font(Theme.text(13, weight: .medium))
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 8).frame(height: 28)
+                                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
+                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line, lineWidth: 1))
                             }
-                            .padding(.horizontal, 8).frame(height: 28)
-                            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
-                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line, lineWidth: 1))
                         }
                     }
                     if let birthday = model.opened?.birthday {

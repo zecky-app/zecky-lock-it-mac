@@ -87,7 +87,7 @@ struct SettingsView: View {
             case .addressBook?: pageBody { addressBookPage }
             case .display?: pageBody { displayPage }
             case .network?: pageBody { networkPage }
-            case .how?: pageBody { HowItWorks() }
+            case .how?: pageBody { HowItWorks { model.sheet = nil; model.tourShown = true } }
             case .about?: pageBody { aboutPage }
             }
             if let problem { Text(problem).font(Theme.text(12)).foregroundStyle(Theme.red) }
@@ -102,6 +102,12 @@ struct SettingsView: View {
     private var overview: some View {
         let _ = model.timeLockChanged
         return VStack(alignment: .leading, spacing: 18) {
+            // The current block and how fast blocks come, as on the iPhone.
+            if model.engine.networkHeight > 0 {
+                Text("Block \(model.engine.networkHeight.formatted(.number.grouping(.automatic).locale(Locale(identifier: "en_US")))) · a new block about every \(BlockTime.spacing(at: model.engine.networkHeight)) seconds")
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    .padding(.leading, 4)
+            }
             group("Security") {
                 row(.keys, "Keys to the lock", "key.fill", keysSummary)
                 row(.timeLock, "Time lock", "clock", TimeLock.isOn ? TimeLock.label(TimeLock.hours) : "Off")
@@ -366,9 +372,78 @@ struct SettingsView: View {
                 SecondaryButton(title: keys.isEmpty ? "Add a security key" : "Add a backup key") { addKey(first: keys.isEmpty) }
                     .frame(width: 190).disabled(keyBusy)
             }
-            Text("Removing a key asks one of your keys. Lost them? A way to remove all keys after 48 hours is coming in this version.")
-                .font(Theme.text(11)).foregroundStyle(Theme.muted)
-                .fixedSize(horizontal: false, vertical: true)
+            if !keys.isEmpty {
+                Divider().overlay(Theme.line)
+                HStack(alignment: .top, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Ask a key for the recovery phrase").font(Theme.text(13, weight: .medium))
+                        Text("Showing your 24 words also needs a key. Needs a backup key first, so one lost key never locks you out.")
+                            .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Toggle("Ask a key for the recovery phrase", isOn: Binding(
+                        get: { SecurityKeys.phraseNeedsKey },
+                        set: { on in runKey { try await SecurityKeys.setPhraseNeedsKey(on); keyNote = on ? "The recovery phrase now asks a key." : "The recovery phrase no longer asks a key." } }))
+                        .toggleStyle(.switch).labelsHidden()
+                        .disabled(keyBusy || (!SecurityKeys.phraseNeedsKey && keys.count < LockRules.phraseKeyMinKeys))
+                }
+                Divider().overlay(Theme.line)
+                lostKeys
+            }
+        }
+        .confirmationDialog("Remove all security keys in 48 hours?", isPresented: $confirmLostKeys) {
+            Button("Start the 48 hours", role: .destructive) { startLostKeys() }
+        } message: {
+            Text("After 48 hours, and 48 hours of Zcash blocks, every security key is removed and sending needs only your other keys again. Any of your keys can cancel it before then. It finishes only on one of the built-in servers.")
+        }
+    }
+
+    @State private var confirmLostKeys = false
+
+    /// "Lost my keys": the only way around a key, and a slow one on purpose.
+    @ViewBuilder private var lostKeys: some View {
+        let _ = keysVersion
+        let _ = model.engine.keysChanged
+        if let removal = SecurityKeys.removal {
+            let target = LockRules.removalTargetHeight(from: removal.startHeight)
+            let due = removal.startedAt.addingTimeInterval(LockRules.removalSeconds)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Removing all security keys").font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.red)
+                Text("Not before \(due.formatted(date: .abbreviated, time: .shortened)) and block \(target.formatted(.number.grouping(.automatic).locale(Locale(identifier: "en_US")))). Until then your keys still work. Found them? Cancel with one of them.")
+                    .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    SecondaryButton(title: "Cancel the removal") { runKey { try await SecurityKeys.cancelRemoval(); keyNote = "The removal is cancelled. Your keys stay." } }
+                        .frame(width: 190).disabled(keyBusy)
+                }
+            }
+        } else {
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Lost your keys?").font(Theme.text(13, weight: .medium))
+                    Text("Remove all security keys after 48 hours. Slow on purpose: someone at your Mac cannot simply take the keys away, and you have time to notice and cancel.")
+                        .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                SecondaryButton(title: "Lost my keys") { confirmLostKeys = true }.frame(width: 150).disabled(keyBusy)
+            }
+        }
+    }
+
+    private func startLostKeys() {
+        let height = model.engine.isCurrent ? model.engine.networkHeight : 0
+        Task {
+            await guarded("start removing all security keys") {
+                keyNote = nil; keyProblem = nil
+                do {
+                    try SecurityKeys.startRemoval(syncedHeight: height)
+                    keyNote = "Started. All security keys are removed after 48 hours unless you cancel."
+                } catch { keyProblem = String(describing: error) }
+                keysVersion += 1
+            }
         }
     }
 
@@ -488,14 +563,29 @@ struct SettingsView: View {
                     SecondaryButton(title: "Use this server") { Task { await applyServer() } }.frame(width: 170)
                     if let serverNote { Text(serverNote).font(Theme.text(12)).foregroundStyle(Theme.muted) }
                 }
-                Text(networkNote)
-                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
-                    .fixedSize(horizontal: false, vertical: true)
+                Button(showNetworkWhy ? "Less" : "What the server sees") { showNetworkWhy.toggle() }
+                    .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                if showNetworkWhy {
+                    Text(networkNote)
+                        .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
     }
 
     @State private var showAcknowledgements = false
+    @State private var showNetworkWhy = false
+    @State private var showTechnical = false
+
+    private func aboutLine(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label).font(Theme.text(12)).foregroundStyle(Theme.muted)
+            Spacer(minLength: 12)
+            Text(value).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.text).textSelection(.enabled)
+                .multilineTextAlignment(.trailing)
+        }
+    }
 
     @ViewBuilder private var aboutPage: some View {
             card("About", icon: "info.circle") {
@@ -505,8 +595,34 @@ struct SettingsView: View {
                 }
                 Text("Self-custody Zcash. Your keys stay in this Mac's Keychain. zecky.app")
                     .font(Theme.text(12)).foregroundStyle(Theme.muted)
-                Button("Acknowledgements") { showAcknowledgements = true }
+                let engine = model.engine
+                let n = { (v: Int) in v > 0 ? v.formatted(.number.grouping(.automatic).locale(Locale(identifier: "en_US"))) : "…" }
+                VStack(spacing: 6) {
+                    aboutLine("Version", version)
+                    aboutLine("Zcash engine", "Zecky engine v4.0.0-zecky.3")
+                    aboutLine("Current block", n(engine.networkHeight))
+                    aboutLine("Wallet birthday", n(engine.birthdayHeight))
+                    aboutLine("Server", Server.nodeLabel.map { "\($0) (\(Server.host))" } ?? Server.host)
+                }
+                .padding(.top, 4)
+                Button(showTechnical ? "Hide technical details" : "Technical details") { showTechnical.toggle() }
                     .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                if showTechnical {
+                    VStack(spacing: 6) {
+                        aboutLine("Engine tag", "v4.0.0-zecky.3 · commit b934e9c")
+                        aboutLine("Engine fingerprint (Mac)", "ec88e073…3079fa")
+                        aboutLine("NU7 check", WalletSelfTest.engineBranch(at: NetworkUpgrade.nu7Height) == 0x7719_0AD9 ? "Signs for NU7 (0x77190AD9)" : "Does not know NU7")
+                        aboutLine("Swift SDK", "ZcashLightClientKit 4.0.0")
+                    }
+                }
+                HStack(spacing: 8) {
+                    // The same privacy policy as Lock it iPhone (audit C-38).
+                    Link("Privacy policy", destination: URL(string: "https://zecky.app/privacy")!)
+                        .font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                    Text("·").foregroundStyle(Theme.muted)
+                    Button("Acknowledgements") { showAcknowledgements = true }
+                        .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                }
             }
             .sheet(isPresented: $showAcknowledgements) { AcknowledgementsSheet { showAcknowledgements = false } }
 
@@ -680,6 +796,13 @@ struct SettingsView: View {
 
     private func showPhrase() async {
         problem = nil
+        // With "Ask a key for the recovery phrase" on, a security key is
+        // touched first. Unreadable key data counts as on.
+        if SecurityKeys.phraseNeedsKey {
+            do { try await SecurityKeys.check() }
+            catch SecurityKeys.Failure.cancelled { return }
+            catch { problem = String(describing: error); return }
+        }
         if WalletVault.needsSecret { codeStep = .phrase; return }
         do { revealed = try await WalletVault.unseal(reason: "show your recovery phrase") }
         catch WalletVault.Failure.cancelled { }
@@ -702,6 +825,9 @@ struct SettingsView: View {
             }
         }
         Server.set(host: host, port: port)
+        // A running "Lost my keys" removal starts its 48 hours again on a
+        // new server (iPhone re-check R1).
+        SecurityKeys.restartRemovalIfRunning()
         do {
             try await model.engine.switchServer()
             serverNote = "Now using \(host)"
@@ -784,19 +910,21 @@ struct PhraseView: View {
                     .font(.system(.body, design: .monospaced))
             }
             .font(.system(size: 13))
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
-                ForEach(Array(words.enumerated()), id: \.offset) { index, word in
-                    HStack(spacing: 6) {
-                        Text("\(index + 1)").foregroundStyle(Theme.muted).frame(width: 20, alignment: .trailing)
-                        Text(word).font(.system(size: 15, weight: .medium, design: .monospaced))
-                        Spacer(minLength: 0)
+            HoldToReveal {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
+                    ForEach(Array(words.enumerated()), id: \.offset) { index, word in
+                        HStack(spacing: 6) {
+                            Text("\(index + 1)").foregroundStyle(Theme.muted).frame(width: 20, alignment: .trailing)
+                            Text(word).font(.system(size: 15, weight: .medium, design: .monospaced))
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, 8).padding(.horizontal, 8)
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
                     }
-                    .padding(.vertical, 8).padding(.horizontal, 8)
-                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
                 }
             }
-            Text("Screenshots and screen sharing show an empty window. The words leave the screen when you click Hide, close Settings or switch to another app.")
+            Text("The words show only while you hold the button, so a screenshot or someone watching your screen catches nothing by accident. They leave the screen when you let go, click Hide, close Settings or switch to another app.")
                 .font(.system(size: 12)).foregroundStyle(Theme.muted)
             Spacer()
         }
@@ -872,70 +1000,115 @@ struct PoolsCard: View {
 /// How Zecky works: short chapters that open and close. Every sentence
 /// here has to stay true to what the app does; check it with each change.
 struct HowItWorks: View {
-    private let chapters: [(String, String, [String])] = [
-        ("The lock", "lock.fill", [
-            "Receive gives you a shielded address: amount, sender and receiver are encrypted on the blockchain. A shielded address is safe to share; only your 24 words must stay secret. Zcash sent to it locks in by itself.",
-            "Receiving is always one click. Opening the lock to send takes a deliberate moment: the pause, your keys, and then Send. The lock closes again after a payment, after 2 minutes, or when you hide Lock it.",
-            "Nothing ever leaves without a receipt first: who receives what, the network fee, and what stays locked.",
+    /// Chapters in the order people need them, as on Lock it iPhone: a one-line
+    /// summary, the essentials, and the fine print under "More detail".
+    private struct Chapter { let title, icon, summary: String; let essentials, more: [String] }
+
+    private let chapters: [Chapter] = [
+        Chapter(title: "The lock", icon: "lock.fill", summary: "A place to keep Zcash, not to spend it.", essentials: [
+            "Receiving is always one click. Opening the lock to send takes a deliberate moment: the pause, your keys, and then Send.",
+            "The lock closes again after a payment, after 2 minutes, or when you hide Lock it.",
+        ], more: [
+            "Every milestone you hold (1 week, 1 month, 100 days, 1 year …) engraves a fine line into the medallion. With every new Zcash block a light runs once around it.",
         ]),
-        ("Keys to the lock", "key.fill", [
-            "Up to four keys, you choose: 1 Opening Zecky, 2 Opening the lock, 3 Really open the lock?. The Zecky code adds six digits to key 2 that this Mac's Secure Enclave checks itself.",
-            "Key 4 is a security key, such as a YubiKey, touched before each payment you send. Lock it checks its signature itself against the key saved when pairing; nothing goes over the internet. A key made for Lock it on this Mac is not the one from your iPhone: pair it on each device.",
-            "Showing your 24 words and erasing always ask, whatever you choose.",
-            "Touch ID always falls back to your Mac password, so anyone who knows that password passes Touch ID too. The Zecky code is the secret only you know.",
-            "Making a key stricter goes straight through; weakening one asks you first. Every change is listed in Activity › The lock.",
+        Chapter(title: "Receive and send", icon: "arrow.left.arrow.right", summary: "Waiting times, fees and what can't be undone.", essentials: [
+            "Receive gives you a shielded address: amount, sender and receiver are encrypted on the blockchain. It is safe to share; only your 24 words must stay secret.",
+            "Nothing leaves without a receipt first: who receives what, the network fee and what stays locked. A payment cannot be reversed once sent.",
+        ], more: [
+            "Zcash you receive can be used after 10 confirmations, your own change after 3. A block comes about every 25 seconds since the NU7 upgrade.",
+            "A payment that could not be delivered is tried again for about 50 minutes; if the network still has not accepted it, it is cancelled and nothing leaves the lock. Do not send it again meanwhile.",
+            "Include the network fee in the amount, and the receiver gets the amount minus the fee. Max sends everything that can be used, minus exactly the fee.",
+            "Sending to a transparent address is public: its amount and destination. A private note only goes to a shielded address.",
         ]),
-        ("Time lock and Break the glass", "clock", [
-            "With a time lock, opening has to be asked for 24 hours, 3 or 7 days ahead. Turning it off or shorter waits as long as the current time lock.",
-            "In an emergency, Break the glass opens straight away after a typed sentence, your Zecky code and Touch ID, and switches the time lock off. It stays on record in Activity.",
-            "A time lock does not stop someone who has your 24 words.",
+        Chapter(title: "Your 24 words", icon: "doc.text.magnifyingglass", summary: "They are your Zcash. Keep them on paper.", essentials: [
+            "Your 24 words and birthday block restore the wallet in Lock it or any Zcash wallet. Whoever has them has your Zcash.",
+            "They are sealed by this Mac's Secure Enclave and shown only while you hold a button, so a screenshot never catches them by accident.",
+        ], more: [
+            "They are made on this Mac from the system's secure random generator (256 bits), checked, and mixed with a second source.",
+            "Only Touch ID or your Mac password (and your Zecky code, if set) opens the seal. They are never synced, never in a backup, never written to a log and never sent anywhere. They are opened only to sign a payment or to show them to you, and let go straight after.",
+            "Moving Lock it to the Trash does not remove the wallet. To remove it, use Settings › Erase first. The Zecky code, time lock, keys, address book and settings live on this Mac only and do not come back with a restore.",
         ]),
-        ("Your recovery phrase", "doc.text.magnifyingglass", [
-            "Your 24 words are made on this Mac from the system's secure random generator (256 bits), checked, and mixed with a second source.",
-            "They are sealed with a key inside this Mac's Secure Enclave. Only Touch ID or your Mac password (and your Zecky code, if set) opens the seal. They are never synced, never in a backup, never written to a log, and never sent anywhere.",
-            "They are opened only to sign a payment or to show them to you, and let go straight after. While they are on screen, screenshots and screen sharing show an empty window.",
-            "Keys, proofs, signatures and payments are made by librustzcash, the Zcash developers' own core (NU7 releases), not by Lock it. The Zecky engine only connects Lock it to it: release v4.0.0-zecky.3, the same as Lock it for iPhone. Every build of Lock it checks the engine's commit and fingerprint, and the app checks that it signs for NU7.",
-            "Your history (amounts and dates, never the words) is kept in Lock it's own protected folder on this Mac and left out of Time Machine. Keep FileVault on (System Settings › Privacy & Security) so the whole disk is encrypted as well.",
+        Chapter(title: "Keys to the lock", icon: "key.fill", summary: "Up to four checks before Zcash leaves. You choose.", essentials: [
+            "1 Opening Zecky, 2 Opening the lock (with an optional six-digit Zecky code), 3 Really open the lock?, 4 Security key.",
+            "Showing your 24 words and erasing always ask, whatever you choose. Making a key stricter goes straight through; weakening one asks you first.",
+        ], more: [
+            "Touch ID always falls back to your Mac password, so anyone who knows that password passes Touch ID too. The Zecky code is the secret only you know; this Mac's Secure Enclave checks it itself.",
+            "Key 4 is a security key, such as a YubiKey, touched before each payment you send. Lock it checks its signature itself; nothing goes over the internet. Pair a key on each device.",
+            "With a backup key you can also ask a key before your 24 words are shown. Lost every key? \"Lost my keys\" removes them after 48 hours and 48 hours of Zcash blocks, only on a built-in server; any of your keys can cancel it before then.",
+            "With a time lock, opening has to be asked for 24 hours, 3 or 7 days ahead. In an emergency, Break the glass opens straight away and stays on record. A time lock does not stop someone who has your 24 words.",
+            "Every change is listed in Activity › The lock.",
         ]),
-        ("Privacy", "shield.lefthalf.filled", [
-            "Lock it only hands out shielded addresses: amounts, senders and receivers stay private on the blockchain.",
-            "Once an address has been paid, a fresh one appears, so payments cannot be linked to each other.",
+        Chapter(title: "Private by default", icon: "shield.lefthalf.filled", summary: "Amounts, senders and addresses stay hidden.", essentials: [
+            "Lock it only hands out shielded addresses. Once an address has been paid, a fresh one appears, so payments cannot be linked to each other.",
+        ], more: [
             "Zcash that arrives on a transparent address (only possible after restoring) can be locked in with one step. A transparent address works like Bitcoin: its payments are visible to everyone until you lock them in.",
         ]),
-        ("Network", "server.rack", [
+        Chapter(title: "What others can see", icon: "server.rack", summary: "The server and the price.", essentials: [
             "Lock it talks to one Zcash server (zec.rocks by default) over an encrypted connection. The server sees this Mac's internet address, never your words or your balance.",
-            "Your own node (Rock it) on a home or Tailscale address is reached without that layer: at home the traffic stays in your network, and Tailscale encrypts it on the way. A home address cannot prove it is your node: on another Wi-Fi a different device could answer. It cannot take funds, but it could hide payments, so away from home use Rock it's Tailscale address. The status line says which one you use.",
-            "Value is off unless you choose a currency. Then CoinGecko is asked for the price every 5 minutes and sees only this Mac's internet address. There are no accounts, no analytics and no tracking.",
-            "The Zcash parameter files that a wallet holding Sapling or transparent Zcash needs (about 50 MB) are inside the app, checked against the Zcash developers' published fingerprints. Lock it never downloads them.",
+        ], more: [
+            "Your own node (Rock it) on a home or Tailscale address is reached without that layer: at home the traffic stays in your network, and Tailscale encrypts it on the way. A home address cannot prove it is your node; away from home use Rock it's Tailscale address.",
+            "Value is off unless you choose a currency. Then CoinGecko is asked for the price every 5 minutes and sees only this Mac's internet address.",
+            "Lock it for Mac has no Tor yet.",
         ]),
-        ("If you lose this Mac", "arrow.counterclockwise", [
-            "Your 24 words and birthday block restore the wallet in Lock it or any Zcash wallet.",
-            "The Zecky code, time lock, address book and settings live on this Mac only and do not come back with a restore.",
-            "Moving Lock it to the Trash does not remove the wallet: its sealed words, settings and history stay on this Mac. To remove it, use Settings › Erase first.",
+        Chapter(title: "On this Mac", icon: "laptopcomputer", summary: "Where your data lives.", essentials: [
+            "Your history (amounts and dates, never the words) is kept in Lock it's own protected folder and left out of Time Machine. Keep FileVault on so the whole disk is encrypted as well.",
+        ], more: [
+            "Keys, proofs, signatures and payments are made by librustzcash, the Zcash developers' own core (NU7 releases), not by Lock it. The Zecky engine only connects Lock it to it: release v4.0.0-zecky.3, the same as Lock it for iPhone. Every build checks the engine's commit and fingerprint, and the app checks that it signs for NU7.",
+            "The Zcash parameter files (about 50 MB) are inside the app, checked against the Zcash developers' published fingerprints. Lock it never downloads them.",
         ]),
+        Chapter(title: "What Zecky never does", icon: "hand.raised", summary: "No account, no tracking.", essentials: [
+            "No account, no analytics, no tracking, no ads. Lock it never sends your words, balance or history anywhere.",
+        ], more: []),
+        Chapter(title: "Where it stands", icon: "flag", summary: "Early software.", essentials: [
+            "Lock it for Mac is new and in testing. Start with small amounts, and keep your 24 words on paper.",
+        ], more: []),
     ]
 
+    var onTour: (() -> Void)? = nil
     @State private var open: Set<String> = ["The lock"]
+    @State private var detail: Set<String> = []
 
     var body: some View {
         VStack(spacing: 8) {
-            ForEach(chapters, id: \.0) { title, icon, lines in
+            if let onTour {
+                HStack {
+                    Spacer()
+                    Button("Show the tour again", action: onTour)
+                        .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                }
+            }
+            ForEach(chapters, id: \.title) { c in
                 VStack(alignment: .leading, spacing: 10) {
-                    Button { if open.contains(title) { open.remove(title) } else { open.insert(title) } } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: icon).foregroundStyle(Theme.gold).frame(width: 20)
-                            Text(title).font(Theme.text(14, weight: .semibold)).foregroundStyle(Theme.text)
+                    Button { if open.contains(c.title) { open.remove(c.title) } else { open.insert(c.title) } } label: {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: c.icon).foregroundStyle(Theme.gold).frame(width: 20)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(c.title).font(Theme.text(14, weight: .semibold)).foregroundStyle(Theme.text)
+                                Text(c.summary).font(Theme.text(12)).foregroundStyle(Theme.muted)
+                            }
                             Spacer()
-                            Image(systemName: open.contains(title) ? "chevron.up" : "chevron.down")
+                            Image(systemName: open.contains(c.title) ? "chevron.up" : "chevron.down")
                                 .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                         }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    if open.contains(title) {
-                        ForEach(lines, id: \.self) { line in
-                            Text(line).font(Theme.text(13)).foregroundStyle(Theme.muted)
+                    if open.contains(c.title) {
+                        ForEach(c.essentials, id: \.self) { line in
+                            Text(line).font(Theme.text(13)).foregroundStyle(Theme.text.opacity(0.9))
                                 .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if !c.more.isEmpty {
+                            Button(detail.contains(c.title) ? "Less detail" : "More detail") {
+                                if detail.contains(c.title) { detail.remove(c.title) } else { detail.insert(c.title) }
+                            }
+                            .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                            if detail.contains(c.title) {
+                                ForEach(c.more, id: \.self) { line in
+                                    Text(line).font(Theme.text(12)).foregroundStyle(Theme.muted)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
                         }
                     }
                 }

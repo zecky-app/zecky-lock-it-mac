@@ -15,6 +15,7 @@ struct SendView: View {
     @State private var to = ""
     @State private var amountText = ""
     @State private var max = false
+    @State private var feeIncluded = false
     @State private var unit: Amount.Unit = Amount.unit
     @State private var problem: String?
     @State private var working = false
@@ -182,6 +183,13 @@ struct SendView: View {
                         .font(Theme.text(12)).foregroundStyle(Theme.muted)
                     Spacer()
                     Chip(title: "Max", on: max) { max.toggle() }
+                }
+                if !max {
+                    Toggle(isOn: $feeIncluded) {
+                        Text(feeIncluded ? "Fee included: the receiver gets this minus the fee" : "Include the network fee in this amount")
+                            .font(Theme.text(12)).foregroundStyle(feeIncluded ? Theme.gold : Theme.muted)
+                    }
+                    .toggleStyle(.checkbox)
                 }
 
                 Rectangle().fill(Theme.line).frame(height: 1).padding(.vertical, 4)
@@ -427,7 +435,7 @@ struct SendView: View {
         }
         let note = memo.trimmingCharacters(in: .whitespacesAndNewlines)
         guard note.utf8.count <= 512 else { problem = "The private note is too long (at most 512 bytes)."; return }
-        do { stage = .review(try await engine.plan(to: to, amount: amount, memo: note.isEmpty ? nil : note)) }
+        do { stage = .review(try await engine.plan(to: to, amount: amount, memo: note.isEmpty ? nil : note, feeIncluded: feeIncluded && !max)) }
         catch { problem = String(describing: error) }
     }
 

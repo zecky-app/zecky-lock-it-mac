@@ -371,6 +371,7 @@ final class AppModel: ObservableObject {
         AddressBook.clear()
         Server.reset()
         Amount.resetChoices()
+        UserDefaults.standard.removeObject(forKey: "tour.seen")
         prices.reset()
         themeMode = .dark
         unit = .zec
@@ -386,8 +387,18 @@ final class AppModel: ObservableObject {
     /// The home screen. Normally the wallet starts without the phrase; a
     /// phrase that is already in memory (just created or restored) is used
     /// once to create the account and then let go.
+    /// The three-step first-run tour: shown once when the wallet is ready,
+    /// again on request from How Zecky works. Only a "seen" flag is kept.
+    @Published var tourShown = false
+    static var tourSeen: Bool {
+        get { UserDefaults.standard.bool(forKey: "tour.seen") }
+        set { UserDefaults.standard.set(newValue, forKey: "tour.seen") }
+    }
+    func finishTour() { Self.tourSeen = true; tourShown = false }
+
     func openHome(with wallet: StoredWallet? = nil) {
         screen = .home
+        if !Self.tourSeen { tourShown = true }
         Task { await startEngine(wallet) }
     }
 

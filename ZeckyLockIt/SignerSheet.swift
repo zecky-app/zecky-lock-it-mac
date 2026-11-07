@@ -304,7 +304,7 @@ private struct SealContent: View {
                         Image(nsImage: qr).interpolation(.none).resizable()
                             .frame(width: 200, height: 200)
                             .padding(12)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .background(QRCode.paper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.gold.opacity(0.8), lineWidth: 1.5))
                             .accessibilityLabel("QR code of this sealed wallet's address")
                             .padding(.top, 4)

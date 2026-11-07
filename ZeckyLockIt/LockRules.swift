@@ -87,6 +87,13 @@ enum LockRules {
         return Swift.max(synced, seen)
     }
 
+    /// The block at which 48 hours of blocks have passed since `start`.
+    static func removalTargetHeight(from start: Int) -> Int {
+        var h = start
+        while Double(BlockTime.seconds(from: start, to: h)) < removalSeconds { h += 1 }
+        return h
+    }
+
     static func removalDue(_ removal: SecurityKeys.Removal?, now: Date, networkHeight: Int) -> Bool {
         guard let removal, removal.startHeight > 0 else { return false }
         return now.timeIntervalSince(removal.startedAt) >= removalSeconds

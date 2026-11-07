@@ -328,6 +328,9 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertTrue(SyncMath.nearlyCurrent(network: 3_600_003, wallet: 3_600_000), "a new block or two: still up to date")
         XCTAssertFalse(SyncMath.nearlyCurrent(network: 3_600_010, wallet: 3_600_000))
         XCTAssertFalse(SyncMath.nearlyCurrent(network: 0, wallet: 3_600_000))
+        XCTAssertTrue(SyncMath.isDroppedConnection("LightWalletService.blockStream failed."))
+        XCTAssertTrue(SyncMath.isDroppedConnection("rpc error: Unavailable"))
+        XCTAssertFalse(SyncMath.isDroppedConnection("The wallet data on this Mac belongs to other words."))
         let t = Date(timeIntervalSince1970: 0)
         let samples = (0..<3).map { SyncMath.Sample(at: t.addingTimeInterval(Double($0) * 10), height: 1_000 + $0 * 100) }
         XCTAssertEqual(SyncMath.minutesLeft(behind: 6_000, samples: samples), 10, "10 blocks a second")
@@ -351,5 +354,13 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(Milestone.reached(after: 400), 4)
         XCTAssertTrue(Milestone.reachedToday(after: 30))
         XCTAssertFalse(Milestone.reachedToday(after: 31))
+    }
+    // MARK: Lost my keys
+
+    func testRemovalTargetIs48HoursOfBlocks() {
+        XCTAssertEqual(LockRules.removalTargetHeight(from: 3_600_000), 3_606_912, "6,912 blocks of 25 s after NU7")
+        XCTAssertEqual(LockRules.removalTargetHeight(from: 3_400_000), 3_402_304, "2,304 blocks of 75 s before NU7")
+        let across = LockRules.removalTargetHeight(from: 3_542_000)
+        XCTAssertEqual(across, 3_546_104)
     }
 }

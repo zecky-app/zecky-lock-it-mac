@@ -17,6 +17,17 @@ enum SyncMath {
         network > 0 && wallet > 0 && network - wallet <= 3
     }
 
+    /// A block download or server call that broke off while syncing, such as
+    /// "LightWalletService.blockStream failed." The engine retries by itself,
+    /// so it is shown calmly, not as an error (as Lock it iPhone).
+    static func isDroppedConnection(_ text: String) -> Bool {
+        text.range(of: #"blockStream|LightWalletService\.\w+ failed|stream (failed|closed|reset)|connection reset|unavailable"#,
+                   options: [.regularExpression, .caseInsensitive]) != nil
+    }
+    static let droppedText = "The connection to the Zcash server dropped for a moment. Lock it is trying again by itself."
+    /// After this long without progress, another server is suggested.
+    static let droppedPatience: TimeInterval = 180
+
     static func behind(network: Int, wallet: Int) -> Int? {
         guard network > 0, wallet > 0 else { return nil }
         return max(0, network - wallet)

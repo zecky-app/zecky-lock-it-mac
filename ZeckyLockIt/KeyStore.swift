@@ -41,6 +41,16 @@ enum KeyStore {
     /// With `access`, reading it later needs what that access asks for
     /// (for example Touch ID or the Mac password).
     static func save(_ data: Data, service: String, access: SecAccessControl? = nil) throws {
+        // An unguarded item is changed in place: a failed write never leaves
+        // nothing behind (iPhone audit C-03, C-06). A guarded item cannot
+        // change its access in place, so it is replaced.
+        if access == nil {
+            let update: [String: Any] = [kSecValueData as String: data,
+                                         kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
+            let status = SecItemUpdate(query(service) as CFDictionary, update as CFDictionary)
+            if status == errSecSuccess { return }
+            guard status == errSecItemNotFound else { throw Failure.keychain(status) }
+        }
         try delete(service: service)
         var item = query(service)
         if let access {

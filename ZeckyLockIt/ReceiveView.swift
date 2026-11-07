@@ -190,10 +190,11 @@ struct ReceiveView: View {
                 .fill(Theme.plateInk)
                 .frame(width: 54, height: 54)
                 .overlay(Text("Z").font(Theme.serif(34, weight: .medium)).foregroundStyle(Theme.metalGold).offset(y: -1))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white, lineWidth: 3))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(QRCode.paper, lineWidth: 3))
         }
-        .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        // About 4 modules of quiet zone, as the QR standard asks.
+        .padding(18)
+        .background(QRCode.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.gold.opacity(0.8), lineWidth: 1.5))
         .padding(3)
         .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(Theme.gold.opacity(0.25), lineWidth: 1))
@@ -217,11 +218,19 @@ struct ReceiveView: View {
 }
 
 enum QRCode {
+    /// Dark ink on a light paper color, whatever the theme, so every scanner
+    /// reads it (as Lock it iPhone).
+    static let paper = Color(red: 0xEC / 255, green: 0xE8 / 255, blue: 0xDF / 255)
+
     static func image(for text: String) -> NSImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(text.utf8)
         filter.correctionLevel = "H"
-        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)) else { return nil }
+        let colors = CIFilter.falseColor()
+        colors.inputImage = filter.outputImage
+        colors.color0 = CIColor(red: 0x14 / 255, green: 0x16 / 255, blue: 0x1C / 255)
+        colors.color1 = CIColor(red: 0xEC / 255, green: 0xE8 / 255, blue: 0xDF / 255)
+        guard let output = colors.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)) else { return nil }
         let rep = NSCIImageRep(ciImage: output)
         let image = NSImage(size: rep.size)
         image.addRepresentation(rep)

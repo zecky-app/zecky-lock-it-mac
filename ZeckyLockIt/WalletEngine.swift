@@ -59,6 +59,9 @@ enum Server {
 
     static var isRockIt: Bool { isHomeNode(host) }
 
+    /// One of the built-in public servers, reached over TLS.
+    static var isBuiltIn: Bool { port == 443 && presets.contains { $0.host == host } }
+
     /// Where your own node is reached. None of these proves it is really
     /// your node: a home address can be answered by another network's
     /// device with the same numbers, and a 100.x address is only a
@@ -186,11 +189,17 @@ final class WalletEngine: ObservableObject {
     /// Since when the engine is trying to reach the server, to say so
     /// instead of "Connecting…" forever (iPhone t16).
     @Published private(set) var connectingSince: Date? = Date()
+    /// Since when the connection keeps dropping while syncing; cleared as
+    /// soon as syncing moves forward.
+    @Published private(set) var droppedSince: Date?
 
     /// True when the server has not answered for 30 seconds, or the engine
     /// reported a connection error.
     func serverUnreachable(now: Date = Date()) -> Bool {
         if let since = connectingSince, now.timeIntervalSince(since) > 30 { return true }
+        // A dropped connection retries by itself; only after 3 minutes
+        // without progress is another server suggested.
+        if let since = droppedSince { return now.timeIntervalSince(since) > SyncMath.droppedPatience }
         if case .failed(let text) = status {
             let t = text.lowercased()
             return ["unavailable", "timed out", "timeout", "connect", "grpc", "network", "deadline", "unreachable", "refused"].contains { t.contains($0) }
@@ -468,7 +477,7 @@ final class WalletEngine: ObservableObject {
         return SendPlan(proposal: proposal, to: "Lock it in", amount: max(0, outsideTheLock - fee), fee: fee, toSelf: true, staysInWallet: true)
     }
 
-    func plan(to address: String, amount: Int64?, memo text: String? = nil) async throws -> SendPlan {
+    func plan(to address: String, amount: Int64?, memo text: String? = nil, feeIncluded: Bool = false) async throws -> SendPlan {
         guard let synchronizer, let account = current else { throw EngineError.notReady }
         try NetworkUpgrade.checkReleases(networkHeight: networkHeight)
         let spendable = focusSpendable
@@ -483,6 +492,26 @@ final class WalletEngine: ObservableObject {
             .union([(try? await synchronizer.getUnifiedAddress(accountUUID: account).stringEncoded) ?? ""])
         let toSelf = own.contains(trimmed)
 
+        if let amount, feeIncluded {
+            // Fee included (as Lock it iPhone): the receiver gets the amount
+            // minus the fee. The fee can change with the amount (fewer notes
+            // needed), so ask again until amount plus fee fits what was typed.
+            guard amount > 0 else { throw SendError.tooLittle }
+            var fee = try await synchronizer.proposeTransfer(
+                accountUUID: account, recipient: recipient, amount: Zatoshi(amount), memo: memo).totalFeeRequired().amount
+            for _ in 0..<3 {
+                let net = amount - fee
+                guard net > 0 else { throw SendError.tooLittle }
+                let proposal = try await synchronizer.proposeTransfer(
+                    accountUUID: account, recipient: recipient, amount: Zatoshi(net), memo: memo)
+                let quoted = proposal.totalFeeRequired().amount
+                if net + quoted <= amount {
+                    return SendPlan(proposal: proposal, to: trimmed, amount: net, fee: quoted, toSelf: toSelf, memo: text)
+                }
+                fee = quoted
+            }
+            throw SendError.notEnough
+        }
         if let amount {
             guard amount > 0 else { throw SendError.tooLittle }
             do {
@@ -642,6 +671,9 @@ final class WalletEngine: ObservableObject {
         }
     }
 
+    /// Bumped when the security keys change outside the settings screen.
+    @Published var keysChanged = 0
+
     /// The wallet's birthday block, from start.
     @Published private(set) var birthdayHeight = 0
     /// Every block up to here is checked, without gaps.
@@ -660,9 +692,21 @@ final class WalletEngine: ObservableObject {
 
     private func apply(_ state: SynchronizerState) {
         let scanned = Int(state.fullyScannedHeight)
+        if case .error(let error) = state.syncStatus, SyncMath.isDroppedConnection(String(describing: error)) {
+            if droppedSince == nil { droppedSince = Date() }
+            recordProblem(SyncMath.droppedText)
+            return
+        }
+        if scanned > walletHeight || state.syncStatus == .upToDate { droppedSince = nil }
         if scanned > 0, scanned != walletHeight {
             walletHeight = scanned
             heightSamples = Array((heightSamples + [SyncMath.Sample(at: Date(), height: scanned)]).suffix(15))
+        }
+        // Security keys: remember the highest height seen while synced, and
+        // finish a "Lost my keys" removal once its 48 hours are over.
+        if isCurrent, networkHeight > 0 {
+            SecurityKeys.noteSyncedHeight(networkHeight)
+            if SecurityKeys.removal != nil, SecurityKeys.finishRemovalIfDue(syncedHeight: networkHeight) { keysChanged += 1 }
         }
         switch state.syncStatus {
         case .syncing(let progress, _): syncFraction = Double(max(0, min(1, progress)))

@@ -222,10 +222,28 @@ enum SecurityKeys {
         try KeyStore.save(try JSONEncoder().encode(state), service: service)
     }
 
-    static func erase() { try? KeyStore.delete(service: service) }
+    static func erase() {
+        try? KeyStore.delete(service: service)
+        try? KeyStore.delete(service: heightService)
+    }
 
-    /// Fails closed: an unreadable entry counts as "keys present".
-    static var hasKeys: Bool { (try? load().keys.isEmpty == false) ?? true }
+    /// The highest height seen while synced, in its own small item: it
+    /// changes with every block, and the key list is never rewritten that
+    /// often (iPhone audit C-06). Its presence also marks that keys were set
+    /// up: if it is there but the key list is gone, Lock it fails closed.
+    private static let heightService = "app.zecky.lockit.mac.seckeysheight"
+    private static var heightItem: Int? {
+        guard let data = try? KeyStore.read(service: heightService) else { return nil }
+        return Int(String(decoding: data, as: UTF8.self))
+    }
+    static var heightSeen: Int { max(heightItem ?? 0, (try? load().heightSeen) ?? 0) }
+
+    /// Fails closed: an unreadable entry, or a height marker without a key
+    /// list, counts as "keys present" (iPhone re-check R2).
+    static var hasKeys: Bool {
+        guard let state = try? load() else { return true }
+        return !state.keys.isEmpty || heightItem != nil
+    }
     static var keys: [Key] { (try? load().keys) ?? [] }
 
     // MARK: Asking a key
@@ -233,7 +251,7 @@ enum SecurityKeys {
     @MainActor
     static func check() async throws {
         let state = try load()
-        guard !state.keys.isEmpty else { throw Failure.none }
+        guard !state.keys.isEmpty else { throw heightItem != nil ? Failure.unreadable : Failure.none }
         let challenge = randomBytes(32)
         let answer = try await KeyRequest.assert(challenge: challenge, ids: state.keys.map(\.id))
         let found: (WebAuthn.Paired, UInt32)
@@ -277,7 +295,11 @@ enum SecurityKeys {
         var next = try load()
         next.keys.removeAll { $0.id == id }
         if next.keys.count < LockRules.phraseKeyMinKeys { next.phraseNeedsKey = false }
-        if next.keys.isEmpty { next = State() }
+        if next.keys.isEmpty {
+            erase()
+            LockLog.add(.keys, "Security key removed")
+            return
+        }
         try save(next)
         LockLog.add(.keys, "Security key removed")
     }
@@ -303,16 +325,15 @@ enum SecurityKeys {
     /// Remembers the highest height seen while fully synced, so a server
     /// that reports a lower one cannot shorten a removal (R1).
     static func noteSyncedHeight(_ height: Int) {
-        guard var s = try? load(), !s.keys.isEmpty, height > s.heightSeen else { return }
-        s.heightSeen = height
-        try? save(s)
+        guard height > 0, (try? load().keys.isEmpty == false) == true, height > (heightItem ?? 0) else { return }
+        try? KeyStore.save(Data(String(height).utf8), service: heightService)
     }
 
     static var removal: Removal? { try? load().removal }
 
     static func startRemoval(syncedHeight: Int) throws {
         var s = try load()
-        guard let start = LockRules.removalStartHeight(synced: syncedHeight, seen: s.heightSeen) else {
+        guard let start = LockRules.removalStartHeight(synced: syncedHeight, seen: heightSeen) else {
             throw Failure.failed(syncedHeight <= 0
                 ? "Wait until Lock it is up to date, then try again."
                 : "This server is behind what Lock it has seen before. Switch back to your usual server, then try again.")
@@ -325,7 +346,7 @@ enum SecurityKeys {
     /// Changing the server while a removal runs starts the 48 hours again (R1).
     static func restartRemovalIfRunning() {
         guard var s = try? load(), let r = s.removal else { return }
-        s.removal = Removal(startedAt: Date(), startHeight: max(r.startHeight, s.heightSeen))
+        s.removal = Removal(startedAt: Date(), startHeight: max(r.startHeight, heightSeen))
         try? save(s)
     }
 
@@ -338,9 +359,13 @@ enum SecurityKeys {
         LockLog.add(.keys, "Lost my keys: removal cancelled")
     }
 
-    /// Finishes the removal once both the network and the clock show 48 hours.
+    /// Finishes the removal once both the network and the clock show 48
+    /// hours, and only on one of the built-in public servers over TLS: a
+    /// server of one's own could report blocks that do not exist (iPhone
+    /// audit C-28).
     static func finishRemovalIfDue(syncedHeight: Int) -> Bool {
-        guard let s = try? load(), LockRules.removalDue(s.removal, now: Date(), networkHeight: syncedHeight) else { return false }
+        guard Server.isBuiltIn,
+              let s = try? load(), LockRules.removalDue(s.removal, now: Date(), networkHeight: syncedHeight) else { return false }
         erase()
         LockLog.add(.keys, "Lost my keys: all security keys removed after 48 hours")
         return true
