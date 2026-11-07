@@ -41,16 +41,6 @@ struct HomeView: View {
                     .frame(maxWidth: .infinity)
                     .overlay(alignment: .trailing) {
                       HStack(spacing: 2) {
-                        Button { model.themeMode = scheme == .dark ? .light : .dark } label: {
-                            Image(systemName: scheme == .dark ? "sun.max" : "moon")
-                                .font(.system(size: 14))
-                                .foregroundStyle(Theme.muted)
-                                .frame(width: 32, height: 32)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .help(scheme == .dark ? "Light theme" : "Dark theme")
-                        .accessibilityLabel(scheme == .dark ? "Switch to light theme" : "Switch to dark theme")
                         Button { model.amountsHidden.toggle() } label: {
                             Image(systemName: model.amountsHidden ? "eye.slash" : "eye")
                                 .font(.system(size: 14))
@@ -78,10 +68,16 @@ struct HomeView: View {
                     VStack(spacing: 8) {
                         KeyRing(model: model, engine: engine)
                             .padding(.top, 4)
+                            .padding(.bottom, 18)
                         ZStack {
                             Medallion(tilt: tilt, diameter: 760)
                                 .animation(.easeOut(duration: 0.6), value: tilt)
                                 .frame(width: 330, height: 330)
+                            if !model.isSealedSelected, let days = heldDays {
+                                EngravedRings(count: Milestone.reached(after: days), newestBright: Milestone.reachedToday(after: days), diameter: 640)
+                                    .frame(width: 330, height: 330)
+                            }
+                            ChainHeartbeat(height: engine.networkHeight, active: engine.isCurrent, diameter: 356)
                             MilestoneRing(progress: milestone?.progress ?? 0, diameter: 320)
                                 .opacity(engine.lockedSince == nil ? 0.5 : 1)
                                 .animation(.easeOut(duration: 1.2), value: milestone?.progress ?? 0)
@@ -152,13 +148,6 @@ struct HomeView: View {
                                 .padding(.top, 2)
                             }
                         }
-                        if engine.status == .upToDate && engine.total > engine.spendable {
-                            let wait = WalletEngine.waitingText(WalletEngine.slowestWaiting(engine.activity, networkHeight: engine.networkHeight), networkHeight: engine.networkHeight)
-                            Text(model.amountsHidden
-                                 ? "Part of your balance: \(wait)"
-                                 : "\(Amount.text(engine.total - engine.spendable, model.unit)) locking in · \(wait)")
-                                .font(Theme.text(12)).foregroundStyle(Theme.gold)
-                        }
                         }
 
                         if model.lockOpen && engine.networkHeight > 0 && NetworkUpgrade.releasesPaused(networkHeight: engine.networkHeight) {
@@ -198,24 +187,26 @@ struct HomeView: View {
                         if let note = model.openNote {
                             Text(note).font(Theme.text(12)).foregroundStyle(Theme.muted)
                         }
+                        // A calm payment line under the button, as on the iPhone:
+                        // "Receiving +x ›" or "Sending −x ›" while a payment waits
+                        // for its block; the details are in Activity. Its place
+                        // is always kept, so nothing moves when it comes and goes.
+                        Button { model.sheet = .activity } label: {
+                            Text(paymentLine.map { "\($0) ›" } ?? " ")
+                                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(paymentLine == nil)
+                        .opacity(paymentLine == nil ? 0 : 1)
+                        .animation(.easeInOut(duration: 0.3), value: paymentLine == nil)
+                        .help("Open Activity")
+                        .accessibilityHint("Opens Activity")
+                        .frame(height: 18)
+                        .padding(.top, 6)
                         timeLockLine
 
-                        if let waiting = engine.activity.first(where: { $0.state == .waiting }) {
-                            Button { model.sheet = .activity } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: waiting.kind == .received ? "lock.fill" : "lock.open")
-                                        .font(.system(size: 10))
-                                    Text(waitingLine(waiting))
-                                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
-                                }
-                                .font(Theme.text(12))
-                                .foregroundStyle(Theme.muted)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .help("Open Activity")
-                            .padding(.top, 14)
-                        }
+
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.top, 20)
@@ -377,12 +368,18 @@ struct HomeView: View {
         Milestone.next(after: heldDays ?? 0)
     }
 
-    /// Only while a payment waits for a block.
-    private func waitingLine(_ item: WalletEngine.ActivityItem) -> String {
-        let what = item.kind == .received ? "Receiving" : "Sending"
-        if model.amountsHidden { return "\(what) · waiting for a block" }
-        let sign = item.kind == .received ? "+" : "−"
-        return "\(what) \(sign)\(Amount.text(item.amount, model.unit)) · waiting for a block"
+    /// "Receiving +0.001 ZEC" or "Sending −0.5 ZEC" while a payment waits for
+    /// its block (as on the iPhone); nil when there is none.
+    private var paymentLine: String? {
+        // The activity list is the main wallet's; another wallet shows none.
+        guard model.selectedWallet == nil else { return nil }
+        if let waiting = engine.activity.first(where: { $0.state == .waiting }) {
+            let what = waiting.kind == .received ? "Receiving" : "Sending"
+            if model.amountsHidden { return what }
+            let sign = waiting.kind == .received ? "+" : "−"
+            return "\(what) \(sign)\(Amount.text(waiting.amount, model.unit))"
+        }
+        return nil
     }
 
     private var heldDays: Int? {
@@ -433,7 +430,8 @@ struct HomeView: View {
         let held = Text(days == 0 ? "Locked since today" : "Locked for \(days) \(days == 1 ? "day" : "days")")
             .font(Theme.text(13)).foregroundColor(Theme.muted)
         guard let m = milestone else { return held }
-        return held + Text(" · \(m.name) in \(m.inDays) \(m.inDays == 1 ? "day" : "days")")
+        let date = Calendar.current.date(byAdding: .day, value: m.inDays, to: Date()) ?? Date()
+        return held + Text(" · next: \(m.name) on \(date.formatted(.dateTime.month(.wide).day().year()))")
             .font(Theme.text(13, weight: .medium)).foregroundColor(Theme.gold)
     }
 
@@ -448,6 +446,7 @@ struct HomeView: View {
     private var statusText: String { baseStatus + (Server.nodeLabel.map { " · \($0)" } ?? "") }
 
     private var baseStatus: String {
+        if engine.isCurrent { return "Up to date" }
         switch engine.status {
         case .connecting: return "Connecting…"
         case .syncing(let pct): return pct >= 100 ? "Finishing…" : "Syncing \(pct)%"
@@ -457,6 +456,7 @@ struct HomeView: View {
     }
 
     private var dotColor: Color {
+        if engine.isCurrent { return Theme.green }
         switch engine.status {
         case .upToDate: return Theme.green
         case .failed: return Theme.red

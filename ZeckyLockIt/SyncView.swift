@@ -12,6 +12,11 @@ enum SyncMath {
         return Array(([p] + list).prefix(5))
     }
 
+    /// A new block or two behind counts as up to date on screen.
+    static func nearlyCurrent(network: Int, wallet: Int) -> Bool {
+        network > 0 && wallet > 0 && network - wallet <= 3
+    }
+
     static func behind(network: Int, wallet: Int) -> Int? {
         guard network > 0, wallet > 0 else { return nil }
         return max(0, network - wallet)

@@ -248,3 +248,113 @@ struct MilestoneRing: View {
         .accessibilityHidden(true)
     }
 }
+
+extension Milestone {
+    /// How many milestones are reached after `days` held.
+    static func reached(after days: Int) -> Int { steps.filter { $0.days <= days }.count }
+    /// True on the day a milestone was reached: its line shines brighter.
+    static func reachedToday(after days: Int) -> Bool { steps.contains { $0.days == days } }
+}
+
+/// Fine guilloche lines engraved into the medallion, one per milestone
+/// reached, like rings in a tree. They record how long Zcash stayed locked;
+/// sending does not erase them. The newest shines brighter on its day.
+struct EngravedRings: View {
+    var count: Int
+    var newestBright: Bool
+    var diameter: CGFloat
+
+    // Radius (as part of the diameter), wave amplitude and wave count per line.
+    private static let lines: [(r: CGFloat, amp: CGFloat, waves: Double)] = [
+        (0.535, 2.0, 48), (0.565, 2.4, 56), (0.505, 1.6, 40), (0.595, 2.0, 64), (0.475, 1.4, 36), (0.625, 1.8, 72),
+    ]
+
+    var body: some View {
+        Canvas { context, size in
+            let c = CGPoint(x: size.width / 2, y: size.height / 2)
+            for (k, line) in Self.lines.prefix(count).enumerated() {
+                let newest = k == count - 1
+                let opacity = newest && newestBright ? 0.6 : 0.26
+                for copy in 0..<3 {
+                    let phase = Double(copy) / 3 * 2 * .pi / line.waves
+                    var path = Path()
+                    for i in 0...480 {
+                        let t = Double(i) / 480 * 2 * .pi
+                        let r = Double(line.r * diameter / 2) + Double(line.amp) * sin(line.waves * (t + phase))
+                        let p = CGPoint(x: c.x + r * cos(t), y: c.y + r * sin(t))
+                        if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
+                    }
+                    path.closeSubpath()
+                    context.stroke(path, with: .color(Theme.gold.opacity(opacity)), lineWidth: 0.6)
+                }
+            }
+        }
+        .frame(width: diameter, height: diameter)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The chain's heartbeat: with every new Zcash block (about every 25
+/// seconds since NU7) a soft gold light runs once around the medallion, and
+/// the block number shows for a moment. With Reduce Motion on, only the
+/// number shows.
+struct ChainHeartbeat: View {
+    var height: Int
+    var active: Bool
+    var diameter: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Each beat turns the light one more full round; it never jumps back.
+    @State private var beats = 0
+    @State private var lit = false
+    @State private var labelOn = false
+    @State private var shown = 0
+    @State private var token = UUID()
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .trim(from: 0, to: 0.075)
+                .stroke(AngularGradient(colors: [Theme.gold.opacity(0), Theme.gold], center: .center,
+                                        startAngle: .degrees(0), endAngle: .degrees(27)),
+                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                .frame(width: diameter, height: diameter)
+                .rotationEffect(.degrees(Double(beats) * 360 - 90 - 27))
+                .animation(reduceMotion ? nil : .easeInOut(duration: 2.6), value: beats)
+                .opacity(lit ? 1 : 0)
+                .animation(.easeInOut(duration: 0.5), value: lit)
+            Text("BLOCK \(shown.formatted(.number.grouping(.automatic).locale(Locale(identifier: "en_US"))))")
+                .font(Theme.text(9, weight: .medium)).tracking(1.5)
+                .foregroundStyle(Theme.gold.opacity(0.8))
+                .fixedSize()
+                // Inside the milestone ring, under its gold dot and above
+                // the shackle: clear of the wallet chips and the balance.
+                .offset(y: -diameter / 2 + 46)
+                .opacity(labelOn ? 1 : 0)
+                .animation(.easeInOut(duration: 0.6), value: labelOn)
+        }
+        // Drawn on its own layer with a fixed size, so nothing around it
+        // moves while it runs.
+        .frame(width: diameter, height: diameter)
+        .drawingGroup()
+        .shadow(color: Theme.gold.opacity(lit ? 0.6 : 0), radius: 5)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onChange(of: height) { new in beat(new) }
+    }
+
+    private func beat(_ new: Int) {
+        guard active, new > 0, new != shown else { shown = new; return }
+        shown = new
+        let mine = UUID()
+        token = mine
+        labelOn = true
+        if !reduceMotion { beats += 1; lit = true }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_300_000_000)
+            if token == mine { lit = false }
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            if token == mine { labelOn = false }
+        }
+    }
+}

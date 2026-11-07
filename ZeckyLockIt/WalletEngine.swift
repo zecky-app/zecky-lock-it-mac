@@ -615,6 +615,17 @@ final class WalletEngine: ObservableObject {
 
     // MARK: Sync details (as Lock it iPhone's sync sheet)
 
+    /// Up to date for what the screen shows: also while the engine quickly
+    /// checks a new block or two (every 25 seconds), so the status line and
+    /// the dot do not flicker with each block.
+    var isCurrent: Bool {
+        switch status {
+        case .upToDate: return true
+        case .syncing: return SyncMath.nearlyCurrent(network: networkHeight, wallet: walletHeight)
+        default: return false
+        }
+    }
+
     /// The wallet's birthday block, from start.
     @Published private(set) var birthdayHeight = 0
     /// Every block up to here is checked, without gaps.
