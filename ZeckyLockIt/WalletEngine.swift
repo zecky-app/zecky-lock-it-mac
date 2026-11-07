@@ -627,9 +627,14 @@ final class WalletEngine: ObservableObject {
     }
 
     /// True while a payment we made is created but not yet mined or expired.
-    func hasWaitingPayment() async -> Bool {
+    /// Whether a payment sent from this wallet (nil: the one on the key ring)
+    /// is still waiting for its block. Other wallets' payments do not count.
+    func hasWaitingPayment(from wallet: AccountUUID? = nil) async -> Bool {
         guard let synchronizer, let txs = try? await synchronizer.allTransactions() else { return false }
-        return txs.contains { $0.isSentTransaction && $0.minedHeight == nil && $0.isExpiredUmined != true }
+        let id = wallet ?? current
+        return txs.contains {
+            $0.accountUUID == id && $0.isSentTransaction && $0.minedHeight == nil && $0.isExpiredUmined != true
+        }
     }
 
     /// Uses another server from now on.

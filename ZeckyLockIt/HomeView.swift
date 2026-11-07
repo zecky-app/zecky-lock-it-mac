@@ -375,8 +375,8 @@ struct HomeView: View {
     /// "Receiving +0.001 ZEC" or "Sending −0.5 ZEC" while a payment waits for
     /// its block (as on the iPhone); nil when there is none.
     private var paymentLine: String? {
-        // The activity list is the main wallet's; another wallet shows none.
-        guard model.selectedWallet == nil else { return nil }
+        // Activity follows the wallet on the key ring, so this works for a
+        // sealed wallet too.
         if let waiting = engine.activity.first(where: { $0.state == .waiting }) {
             let what = waiting.kind == .received ? "Receiving" : "Sending"
             if model.amountsHidden { return what }

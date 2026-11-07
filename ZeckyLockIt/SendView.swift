@@ -179,7 +179,9 @@ struct SendComposer: View {
         Group {
             if let plan { review(plan) } else { form }
         }
-        .task { waiting = await engine.hasWaitingPayment() }
+        // Checked again with every new block, so the note goes away as soon
+        // as the earlier payment is in one.
+        .task(id: engine.walletHeight) { waiting = await engine.hasWaitingPayment(from: account) }
         // The wallet checks for new blocks now and then, which flips the
         // status for a moment. Only warn when it stays behind for a while.
         .task(id: engine.status == .upToDate) {
