@@ -209,9 +209,19 @@ final class WalletEngine: ObservableObject {
     @Published private(set) var spendable: Int64 = 0
     @Published private(set) var total: Int64 = 0
     @Published private(set) var activity: [ActivityItem] = []
-    /// When the current holding began: the first payment in, counted again
-    /// from the next payment in if the wallet was ever completely emptied.
+    /// When the current holding began: the first payment in after the lock
+    /// was last empty (from the history; see Holding).
     @Published private(set) var lockedSince: Date?
+    /// The confirmed history of the wallet on the key ring, for the count.
+    @Published private(set) var holdingEntries: [HoldingEntry] = []
+    /// Payments to that wallet still waiting for their block, in zatoshi.
+    @Published private(set) var pendingIn: Int64 = 0
+
+    /// Fully synced at least once on this Mac. After a restore the newest
+    /// blocks are scanned first, so the count waits for this; later
+    /// catch-ups keep it (no flicker at launch). Cleared on Erase.
+    static let syncedOnceKey = "app.zecky.lockit.mac.syncedOnce"
+    @Published private(set) var syncedOnce = UserDefaults.standard.bool(forKey: WalletEngine.syncedOnceKey)
 
     /// One line in Activity.
     struct ActivityItem: Identifiable, Equatable {
@@ -451,7 +461,7 @@ final class WalletEngine: ObservableObject {
 
     /// What to show when pricing a payment failed: the engine's "not enough
     /// funds" in plain words, never its raw text.
-    static func planProblem(_ error: Error) -> String {
+    nonisolated static func planProblem(_ error: Error) -> String {
         if let e = error as? ZcashError, case .rustProposalInsufficientFunds = e { return SendError.notEnough.description }
         return String(describing: error)
     }
@@ -658,6 +668,9 @@ final class WalletEngine: ObservableObject {
         focus = nil
         activity = []
         lockedSince = nil
+        holdingEntries = []
+        pendingIn = 0
+        syncedOnce = false
         spendable = 0
         total = 0
         orchardHeld = 0
@@ -680,18 +693,21 @@ final class WalletEngine: ObservableObject {
         }
         .sorted { ($0.date ?? .distantFuture) > ($1.date ?? .distantFuture) }
 
-        var running: Int64 = 0
-        var since: Date?
-        for item in activity.reversed() where item.state == .confirmed {
-            if item.kind == .received {
-                if running <= 0 { since = item.date }
-                running += item.amount
-            } else {
-                running -= item.amount
-                if running <= 0 { since = nil }
-            }
+        // How long it has been in the lock: from the wallet history alone, as
+        // Lock it iPhone. Only payments in a block count. The engine's value
+        // is the signed balance change and a send's already includes its fee.
+        // Internal moves (locking in, the Ironwood move, a payment to an own
+        // address, which changes the balance by the fee only) never start
+        // anything.
+        let mine = txs.filter { $0.accountUUID == current && $0.isExpiredUmined != true }
+        holdingEntries = mine.compactMap { tx -> HoldingEntry? in
+            guard let height = tx.minedHeight, let time = tx.blockTime else { return nil }
+            return HoldingEntry(height: Int(height), date: Date(timeIntervalSince1970: time),
+                                change: tx.value.amount,
+                                internalMove: tx.isShielding || tx.poolCrossingValue != nil)
         }
-        lockedSince = since
+        pendingIn = mine.filter { $0.minedHeight == nil && $0.value.amount > 0 }.reduce(0) { $0 + $1.value.amount }
+        lockedSince = Holding.since(holdingEntries)
     }
 
     // MARK: Sync details (as Lock it iPhone's sync sheet)
@@ -754,6 +770,10 @@ final class WalletEngine: ObservableObject {
         case .syncing(let progress, _): status = .syncing(max(0, min(100, Int((progress * 100).rounded(.down)))))
         case .upToDate:
             status = .upToDate
+            if !syncedOnce {
+                syncedOnce = true
+                UserDefaults.standard.set(true, forKey: Self.syncedOnceKey)
+            }
             Task { await refreshActivity() }
         case .stopped: break
         case .error(let error): status = .failed(String(describing: error))

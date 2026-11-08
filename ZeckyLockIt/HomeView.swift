@@ -74,13 +74,14 @@ struct HomeView: View {
                                 .animation(.easeOut(duration: 0.6), value: tilt)
                                 .frame(width: 330, height: 330)
                             if !model.isSealedSelected, let days = heldDays {
-                                EngravedRings(count: Milestone.reached(after: days), newestBright: Milestone.reachedToday(after: days), diameter: 640)
+                                EngravedRings(count: Milestone.engraved(after: days), newestBright: Milestone.engravedToday(after: days), diameter: 640)
                                     .frame(width: 330, height: 330)
                             }
                             ChainHeartbeat(height: engine.networkHeight, active: engine.isCurrent, diameter: 356)
-                            MilestoneRing(progress: milestone?.progress ?? 0, diameter: 320)
-                                .opacity(engine.lockedSince == nil ? 0.5 : 1)
-                                .animation(.easeOut(duration: 1.2), value: milestone?.progress ?? 0)
+                            MilestoneRing(progress: Milestone.progress(after: heldDays ?? 0), diameter: 320,
+                                          glow: heldDays.map { Milestone.reachedToday(after: $0) } ?? false)
+                                .opacity(heldDays == nil ? 0.5 : 1)
+                                .animation(.easeOut(duration: 1.2), value: Milestone.progress(after: heldDays ?? 0))
                             Button { if !model.lockOpen && engine.status != .connecting { model.askToOpen() } } label: {
                                 PadlockView(open: model.lockOpen, size: 212, tilt: tilt, plateText: plateText)
                                     .animation(.spring(response: 0.55, dampingFraction: 0.62), value: model.lockOpen)
@@ -112,15 +113,11 @@ struct HomeView: View {
                                 .padding(.top, -4)
                         }
 
-                        if model.isSealedSelected {
-                            Text("Keys in Seal it")
-                                .font(Theme.text(13)).foregroundStyle(Theme.muted)
-                        } else if model.selectedWallet != nil {
-                            Text(shownTotal > 0 ? "Locked on this Mac" : "Nothing locked yet. Choose Receive to begin.")
-                                .font(Theme.text(13)).foregroundStyle(Theme.muted)
+                        if model.selectedWallet != nil {
+                            heldLineView
                         } else {
                         VStack(spacing: 3) {
-                            heldText
+                            heldLineView
                             if engine.orchardHeld > 0 && engine.status == .upToDate {
                                 Button { model.sheet = .ironwood } label: {
                                     HStack(spacing: 4) {
@@ -311,7 +308,7 @@ struct HomeView: View {
         .animation(.easeOut(duration: 0.15), value: model.sheet?.isPanel == true)
         .sheet(item: sheetBinding, onDismiss: { model.sheetClosed() }) { sheet in
             switch sheet {
-            case .receive, .activity, .sync: EmptyView()
+            case .receive, .activity, .sync, .holding: EmptyView()
             case .send: SendView(engine: engine, prices: prices, opened: model.opened, signing: { model.signing = $0 }, onReleased: { model.released = true }) { model.sheet = nil }
             case .settings: SettingsView(model: model, prices: prices) { model.sheet = nil }
             case .ironwood: IronwoodSheet(model: model, engine: engine, kind: .ironwood) { model.sheet = nil }
@@ -342,6 +339,7 @@ struct HomeView: View {
                     switch sheet {
                     case .receive: ReceiveView(engine: engine, prices: prices) { model.sheet = nil }
                     case .activity: ActivitySheet(model: model, engine: engine) { model.sheet = nil }
+                    case .holding: HoldingSheet(model: model, engine: engine) { model.sheet = nil }
                     default: SyncSheet(engine: engine) { model.sheet = nil }
                     }
                 }
@@ -368,9 +366,6 @@ struct HomeView: View {
         }
     }
 
-    private var milestone: (name: String, inDays: Int, progress: Double)? {
-        Milestone.next(after: heldDays ?? 0)
-    }
 
     /// "Receiving +0.001 ZEC" or "Sending −0.5 ZEC" while a payment waits for
     /// its block (as on the iPhone); nil when there is none.
@@ -386,11 +381,17 @@ struct HomeView: View {
         return nil
     }
 
+    /// How long the wallet on the key ring has been held, as Lock it iPhone.
+    /// An empty lock has no count, whatever the history says. The count waits
+    /// until the wallet has been fully synced once on this Mac (after a
+    /// restore the newest blocks are scanned first, so it would jump), and is
+    /// left out when the history does not reach back to the start (a restore
+    /// from a later date).
     private var heldDays: Int? {
-        guard let since = engine.lockedSince else { return nil }
-        let cal = Calendar.current
-        let days = cal.dateComponents([.day], from: cal.startOfDay(for: since), to: cal.startOfDay(for: Date())).day ?? 0
-        return max(0, days)
+        guard shownTotal > 0, engine.status == .upToDate || engine.syncedOnce,
+              Holding.historyComplete(engine.holdingEntries, pendingIn: engine.pendingIn, balance: shownTotal),
+              let since = engine.lockedSince else { return nil }
+        return Holding.days(since: since)
     }
 
     /// Under Lock more: where the time lock stands, when one is on.
@@ -425,18 +426,32 @@ struct HomeView: View {
         }
     }
 
-    /// One line: how long it is locked, and the next milestone in gold.
-    private var heldText: Text {
-        guard engine.lockedSince != nil, let days = heldDays else {
-            return Text(engine.total > 0 ? "Locked on this Mac" : "Nothing locked yet. Choose Receive to begin.")
-                .font(Theme.text(13)).foregroundColor(Theme.muted)
+    /// The line under the balance. With a count it opens the holding page.
+    @ViewBuilder private var heldLineView: some View {
+        if let heldLine {
+            if heldDays != nil {
+                Button { model.sheet = .holding } label: {
+                    HStack(spacing: 4) {
+                        Text(heldLine)
+                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).opacity(0.7)
+                    }
+                    .font(Theme.text(13)).foregroundStyle(Theme.muted)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Milestones and highlights")
+            } else {
+                Text(heldLine).font(Theme.text(13)).foregroundStyle(Theme.muted)
+            }
         }
-        let held = Text(days == 0 ? "Locked since today" : "Locked for \(days) \(days == 1 ? "day" : "days")")
-            .font(Theme.text(13)).foregroundColor(Theme.muted)
-        guard let m = milestone else { return held }
-        let date = Calendar.current.date(byAdding: .day, value: m.inDays, to: Date()) ?? Date()
-        return held + Text(" · next: \(m.name) on \(date.formatted(.dateTime.month(.wide).day().year()))")
-            .font(Theme.text(13, weight: .medium)).foregroundColor(Theme.gold)
+    }
+
+    /// One quiet line, the largest unit only and never a date (a date was
+    /// read as an unlock date). An empty lock shows no line at all.
+    private var heldLine: String? {
+        guard shownTotal > 0 else { return nil }
+        guard let days = heldDays else { return "Locked on this Mac" }
+        return "Locked \(Holding.heldFor(days: days))"
     }
 
     @State private var now = Date()
@@ -656,8 +671,7 @@ struct OpenLockPrompt: View {
         let held: String
         switch days {
         case .none: held = ""
-        case .some(0): held = "This Zcash was locked today. "
-        case .some(let d): held = "This Zcash has been locked for \(d) \(d == 1 ? "day" : "days"). "
+        case .some(let d): held = d < 1 ? "This Zcash was locked today. " : "This Zcash has been locked \(Holding.heldFor(days: d)). "
         }
         return held + "Nobody legitimate will ever rush you, ask for your 24 words, or tell you to move your Zcash to keep it safe."
     }

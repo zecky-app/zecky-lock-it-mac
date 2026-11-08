@@ -180,3 +180,201 @@ struct SyncSheet: View {
 
     private func n(_ v: Int) -> String { v.formatted(.number.grouping(.automatic).locale(Locale(identifier: "en_US"))) }
 }
+
+/// "Locked for …": opened from the line under the balance. How long the
+/// Zcash in this wallet has been in the lock, the milestone path and a few
+/// highlights, all worked out on this Mac from the wallet history (as Lock
+/// it iPhone's HoldingScreen). Nothing is sent or stored but which milestone
+/// moment was already shown.
+struct HoldingSheet: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var engine: WalletEngine
+    let onClose: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var all = false
+    /// The milestone moment: once, the first time the page opens that day.
+    @State private var moment: Int?
+    @State private var light: Double = 0
+
+    private var summary: Holding.Summary? { Holding.summary(engine.holdingEntries) }
+
+    var body: some View {
+        let h = summary
+        let held = h.map { Holding.heldFor(days: $0.days) }
+        SheetScaffold(title: h == nil ? "Nothing locked" : "Locked \(held!)",
+                      subtitle: h.map { "Since \(Self.date($0.since))" },
+                      width: 520, height: 640, onClose: onClose) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let h {
+                        ring(h)
+                        if let moment {
+                            Text("\(Milestone.name(moment)). \(Milestone.line(moment))")
+                                .font(Theme.serif(17)).foregroundStyle(Theme.gold)
+                                .frame(maxWidth: .infinity)
+                                .opacity(light)
+                        }
+                        section("Milestones") { milestones(h) }
+                        section("Highlights") { highlights(h) }
+                    }
+                    Text(h == nil ? "The count starts when Zcash comes into the lock."
+                                  : "Worked out on this Mac from your own payments. Sending or receiving more never resets it; only an empty lock does.")
+                        .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.bottom, 8)
+            }
+        }
+        .onAppear { showMoment() }
+    }
+
+    // MARK: Ring
+
+    private func ring(_ h: Holding.Summary) -> some View {
+        let words = Holding.heldFor(days: h.days).replacingOccurrences(of: "for ", with: "").split(separator: " ")
+        return ZStack {
+            MilestoneRing(progress: Milestone.progress(after: h.days), diameter: 150,
+                          glow: Milestone.reachedToday(after: h.days))
+            VStack(spacing: 0) {
+                if h.days < 1 {
+                    Text("since today").font(Theme.serif(20)).foregroundStyle(Theme.text)
+                } else {
+                    Text(String(words.first ?? "")).font(Theme.serif(36, weight: .medium)).foregroundStyle(Theme.text)
+                        .monospacedDigit()
+                    Text(words.dropFirst().joined(separator: " ")).font(Theme.text(13)).foregroundStyle(Theme.muted)
+                }
+            }
+        }
+        .frame(width: 170, height: 170)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: Milestones
+
+    private func milestones(_ h: Holding.Summary) -> some View {
+        let full = Milestone.path(since: h.since, held: h.days)
+        let path = all ? full : Milestone.shortPath(full)
+        return Button { withAnimation(.easeOut(duration: 0.2)) { all.toggle() } } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(path.enumerated()), id: \.element.days) { i, step in
+                    stepRow(step, last: i == path.count - 1, nextReached: i + 1 < path.count && path[i + 1].reached)
+                }
+                Text(all ? "Show less" : "Show all milestones ›")
+                    .font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                    .padding(.top, 6)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(all ? "Shows fewer milestones" : "Shows every milestone")
+    }
+
+    private func stepRow(_ step: Milestone.Step, last: Bool, nextReached: Bool) -> some View {
+        let next = step.progress != nil
+        let dim = !step.reached && !next
+        return HStack(alignment: .top, spacing: 12) {
+            VStack(spacing: 0) {
+                Circle()
+                    .fill(step.reached ? Theme.gold : Color.clear)
+                    .overlay(Circle().stroke(step.reached || next ? Theme.gold : Theme.line, lineWidth: 1.5))
+                    .frame(width: 10, height: 10)
+                    .padding(.top, 4)
+                if !last {
+                    Rectangle().fill(step.reached && nextReached ? Theme.gold : Theme.line)
+                        .frame(width: 1.5).frame(maxHeight: .infinity)
+                }
+            }
+            .frame(width: 12)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(step.name).font(Theme.text(14, weight: .semibold))
+                    .foregroundStyle(dim ? Theme.muted : Theme.text)
+                Text(step.reached ? "\(step.length) · \(Self.date(step.at))"
+                     : next ? "\(step.length) · in \(step.inDays ?? 0) \(step.inDays == 1 ? "day" : "days")"
+                     : step.length)
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted.opacity(dim ? 0.7 : 1))
+                if next {
+                    GeometryReader { g in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Theme.line)
+                            Capsule().fill(Theme.gold).frame(width: max(3, g.size.width * (step.progress ?? 0)))
+                        }
+                    }
+                    .frame(height: 4).padding(.top, 3)
+                }
+            }
+            .padding(.bottom, last ? 0 : 12)
+            .padding(.horizontal, moment == step.days ? 6 : 0)
+            .background(alignment: .leading) {
+                if moment == step.days {
+                    RoundedRectangle(cornerRadius: 6).fill(Theme.gold.opacity(0.12 * light))
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // MARK: Highlights
+
+    private func highlights(_ h: Holding.Summary) -> some View {
+        let pace = Holding.pace(received: h.current.received, days: h.days)
+        return VStack(spacing: 0) {
+            line("Since", Self.date(h.since))
+            line("Received since then", amount(h.current.received))
+            if let pace { line("Stacking pace", "+\(amount(pace.zatoshi)) a \(pace.per.rawValue)") }
+            line("Payments in", "\(h.current.paymentsIn)", last: h.current.largest == nil && h.longestBefore == nil)
+            if let largest = h.current.largest {
+                line("Largest payment in", "\(amount(largest.zatoshi)) · \(Self.date(largest.at))", last: h.longestBefore == nil)
+            }
+            if let longest = h.longestBefore {
+                line("Longest before", Holding.heldFor(days: longest.days).replacingOccurrences(of: "for ", with: ""), last: true)
+            }
+        }
+    }
+
+    // MARK: The milestone moment
+
+    private func showMoment() {
+        guard let h = summary, Milestone.reachedToday(after: h.days) else { moment = nil; return }
+        moment = h.days
+        if MilestoneMoment.seen(since: h.since, days: h.days) || reduceMotion {
+            MilestoneMoment.markSeen(since: h.since, days: h.days)
+            light = 1
+            return
+        }
+        MilestoneMoment.markSeen(since: h.since, days: h.days)
+        light = 0
+        withAnimation(.easeInOut(duration: 1.8).delay(0.4)) { light = 1 }
+    }
+
+    // MARK: Helpers
+
+    private func amount(_ zatoshi: Int64) -> String { model.amountsHidden ? "••••" : Amount.text(zatoshi, model.unit) }
+
+    static func date(_ d: Date) -> String {
+        d.formatted(.dateTime.month(.abbreviated).day().year().locale(Locale(identifier: "en_US")))
+    }
+
+    private func section<C: View>(_ title: String, @ViewBuilder _ rows: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased()).font(Theme.text(11, weight: .semibold)).tracking(2).foregroundStyle(Theme.gold).padding(.leading, 4)
+            VStack(spacing: 0) { rows() }
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+        }
+    }
+
+    private func line(_ label: String, _ value: String, last: Bool = false) -> some View {
+        HStack {
+            Text(label).font(Theme.text(13)).foregroundStyle(Theme.muted)
+            Spacer(minLength: 12)
+            Text(value).font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.text).textSelection(.enabled)
+        }
+        .padding(.horizontal, 14).frame(height: 40)
+        .overlay(alignment: .bottom) { if !last { Rectangle().fill(Theme.line).frame(height: 1).padding(.leading, 14) } }
+    }
+}

@@ -1008,8 +1008,15 @@ struct HowItWorks: View {
         Chapter(title: "The lock", icon: "lock.fill", summary: "A place to keep Zcash, not to spend it.", essentials: [
             "Receiving is always one click. Opening the lock to send takes a deliberate moment: the pause, your keys, and then Send.",
             "The lock closes again after a payment, after 2 minutes, or when you hide Lock it.",
+            "The line under your balance says how long your Zcash has been in the lock, shielded and transparent alike: \u{201C}Locked for 3 weeks\u{201D}. It is never a date, and nothing unlocks on a date.",
+            "The ring around the lock fills towards your next milestone: 1 week, then every month of the first year, then every year. On the day you reach one, the ring glows softly.",
+            "Click the line for highlights and milestones, each with its own name, from Locked at 1 week to Legend at 4 years.",
         ], more: [
-            "Every milestone you hold (1 week, 1 month, 100 days, 1 year …) engraves a fine line into the medallion. With every new Zcash block a light runs once around it.",
+            "The count starts at your first payment in after the lock was last empty. Sending, of any size, and receiving more do not reset it; only an empty lock does, and then the line is gone until Zcash comes in again.",
+            "Moves inside the lock (locking in transparent Zcash, the Ironwood move, a payment to your own address) count as nothing.",
+            "It is worked out on this Mac from your own payment history, with no timer stored. After a restore it waits for the first full sync, and it needs the history from before your first payment in; without it the line says \u{201C}Locked on this Mac\u{201D}.",
+            "Every wallet on the key ring has its own count. 1 week, 1 year and every year after also engrave a fine line into the medallion. With every new Zcash block a light runs once around it.",
+            "Milestones bring no notifications, badges or pop-ups.",
         ]),
         Chapter(title: "Receive and send", icon: "arrow.left.arrow.right", summary: "Waiting times, fees and what can't be undone.", essentials: [
             "Receive gives you a shielded address: amount, sender and receiver are encrypted on the blockchain. It is safe to share; only your 24 words must stay secret.",

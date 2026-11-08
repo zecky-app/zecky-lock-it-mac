@@ -24,12 +24,12 @@ final class AppModel: ObservableObject {
     @Published var screen: Screen = .loading
     /// The sheet over the home screen, also opened from the menu bar.
     enum Sheet: Identifiable {
-        case receive, send, settings, activity, ironwood, lockIn, signer, addWallet, walletWords, sync
+        case receive, send, settings, activity, ironwood, lockIn, signer, addWallet, walletWords, sync, holding
         var id: Self { self }
         /// Read-only screens: shown as a panel over the main screen that a
         /// click beside it closes. Everything where you type or a step is
         /// under way stays a sheet that only Done or Esc closes.
-        var isPanel: Bool { self == .sync || self == .activity || self == .receive }
+        var isPanel: Bool { self == .sync || self == .activity || self == .receive || self == .holding }
     }
     @Published var sheet: Sheet?
     /// Open Settings straight at a page (for "Choose another server").
@@ -374,6 +374,8 @@ final class AppModel: ObservableObject {
         Server.reset()
         Amount.resetChoices()
         UserDefaults.standard.removeObject(forKey: "tour.seen")
+        UserDefaults.standard.removeObject(forKey: WalletEngine.syncedOnceKey)
+        MilestoneMoment.reset()
         prices.reset()
         themeMode = .dark
         unit = .zec

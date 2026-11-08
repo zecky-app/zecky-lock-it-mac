@@ -348,13 +348,228 @@ final class ZeckyLockItTests: XCTestCase {
     }
     // MARK: Engraving
 
-    func testOneEngravedLinePerMilestone() {
-        XCTAssertEqual(Milestone.reached(after: 0), 0)
-        XCTAssertEqual(Milestone.reached(after: 7), 1)
-        XCTAssertEqual(Milestone.reached(after: 120), 3)
-        XCTAssertEqual(Milestone.reached(after: 400), 4)
-        XCTAssertTrue(Milestone.reachedToday(after: 30))
-        XCTAssertFalse(Milestone.reachedToday(after: 31))
+    func testEngravedLinesOnlyForOneWeekAndEachYear() {
+        XCTAssertEqual(Milestone.engraved(after: 0), 0)
+        XCTAssertEqual(Milestone.engraved(after: 7), 1)
+        XCTAssertEqual(Milestone.engraved(after: 120), 1, "monthly milestones engrave nothing")
+        XCTAssertEqual(Milestone.engraved(after: 400), 2)
+        XCTAssertEqual(Milestone.engraved(after: 365 * 3), 4)
+        XCTAssertTrue(Milestone.engravedToday(after: 365))
+        XCTAssertFalse(Milestone.engravedToday(after: 30))
+    }
+
+    // MARK: Milestones (as Lock it iPhone: 1 week, every month of the first year, then every year)
+
+    func testMilestoneDays() {
+        XCTAssertEqual(Milestone.list(through: 400), [7, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 365, 730])
+    }
+
+    func testDayOneIsOnTheWayToOneWeek() {
+        XCTAssertEqual(Milestone.progress(after: 0), 0)
+        XCTAssertFalse(Milestone.reachedToday(after: 0))
+        XCTAssertEqual(Milestone.progress(after: 3), 3.0 / 7, accuracy: 1e-9)
+    }
+
+    func testTheRingStartsOverAfterEachMilestone() {
+        XCTAssertEqual(Milestone.progress(after: 10), 3.0 / 23, accuracy: 1e-9)
+        XCTAssertEqual(Milestone.progress(after: 45), 15.0 / 30, accuracy: 1e-9)
+        XCTAssertEqual(Milestone.progress(after: 350), 20.0 / 35, accuracy: 1e-9)
+        XCTAssertEqual(Milestone.progress(after: 400), 35.0 / 365, accuracy: 1e-9)
+    }
+
+    func testOnTheMilestoneDayOnlyTheRingIsFullAndGlows() {
+        for day in [7, 30, 60, 330, 365, 730, 1095, 3650] {
+            XCTAssertTrue(Milestone.reachedToday(after: day), "day \(day)")
+            XCTAssertEqual(Milestone.progress(after: day), 1)
+            XCTAssertFalse(Milestone.reachedToday(after: day + 1))
+            XCTAssertFalse(Milestone.reachedToday(after: day - 1))
+        }
+        XCTAssertFalse(Milestone.reachedToday(after: 100))
+        XCTAssertFalse(Milestone.reachedToday(after: 5000))
+    }
+
+    func testEveryMilestoneHasItsOwnNameRisingToLegend() {
+        let days = [7, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 365, 730, 1095, 1460]
+        let names = days.map(Milestone.name)
+        XCTAssertEqual(Set(names).count, days.count)
+        XCTAssertEqual(names.first, "Locked")
+        XCTAssertEqual(Milestone.name(365), "Guardian")
+        XCTAssertEqual(Milestone.name(1460), "Legend")
+        XCTAssertEqual(Milestone.name(1825), "Legend · 5 years")
+        XCTAssertEqual(Milestone.line(30), "1 month in the lock.")
+        XCTAssertEqual(Milestone.line(90), "3 months in the lock.")
+        XCTAssertEqual(Milestone.line(7), "1 week in the lock.")
+        XCTAssertEqual(Milestone.line(1460), "4 years in the lock.")
+    }
+
+    private var gregorian: Calendar { Calendar(identifier: .gregorian) }
+    private func localDay(_ y: Int, _ m: Int, _ d: Int) -> Date { gregorian.date(from: DateComponents(year: y, month: m, day: d))! }
+
+    func testTheWholePathRunsToLegend() {
+        let path = Milestone.path(since: localDay(2026, 1, 10), held: 10, calendar: gregorian)
+        XCTAssertEqual(path.map(\.days), [7, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 365, 730, 1095, 1460])
+        XCTAssertTrue(path[0].reached)
+        XCTAssertEqual(gregorian.component(.day, from: path[0].at), 17)
+        XCTAssertEqual(path[1].inDays, 20)
+        XCTAssertEqual(path[1].progress ?? 0, 3.0 / 23, accuracy: 1e-9)
+        XCTAssertNil(path[2].progress)
+    }
+
+    func testPastLegendThePathKeepsTheNextThreeYears() {
+        let path = Milestone.path(since: localDay(2020, 1, 1), held: 1500, calendar: gregorian)
+        XCTAssertEqual(path.suffix(4).map(\.days), [1460, 1825, 2190, 2555])
+    }
+
+    func testTheShortViewIsTheLastReachedAndTheNextTwo() {
+        let since = localDay(2026, 1, 10)
+        XCTAssertEqual(Milestone.shortPath(Milestone.path(since: since, held: 3, calendar: gregorian)).map(\.days), [7, 30, 60])
+        XCTAssertEqual(Milestone.shortPath(Milestone.path(since: since, held: 45, calendar: gregorian)).map(\.days), [30, 60, 90])
+        XCTAssertEqual(Milestone.shortPath(Milestone.path(since: since, held: 400, calendar: gregorian)).map(\.days), [365, 730, 1095])
+    }
+
+    // MARK: Locked for … (the line under the balance)
+
+    func testLockedLineUsesTheLargestWholeUnitOnly() {
+        let cases: [(Int, String)] = [
+            (0, "since today"), (1, "for 1 day"), (2, "for 2 days"), (6, "for 6 days"),
+            (7, "for 1 week"), (13, "for 1 week"), (14, "for 2 weeks"), (29, "for 4 weeks"),
+            (30, "for 1 month"), (59, "for 1 month"), (60, "for 2 months"), (364, "for 11 months"),
+            (365, "for 1 year"), (729, "for 1 year"), (730, "for 2 years"),
+        ]
+        for (days, text) in cases { XCTAssertEqual(Holding.heldFor(days: days), text, "\(days) days") }
+    }
+
+    func testDaysAreCalendarDays() {
+        let cal = gregorian
+        let since = cal.date(from: DateComponents(year: 2026, month: 1, day: 10, hour: 23, minute: 30))!
+        XCTAssertEqual(Holding.days(since: since, now: cal.date(from: DateComponents(year: 2026, month: 1, day: 10, hour: 23, minute: 59))!, calendar: cal), 0)
+        XCTAssertEqual(Holding.days(since: since, now: cal.date(from: DateComponents(year: 2026, month: 1, day: 11, hour: 0, minute: 5))!, calendar: cal), 1)
+        XCTAssertEqual(Holding.days(since: since, now: cal.date(from: DateComponents(year: 2026, month: 2, day: 9, hour: 8))!, calendar: cal), 30)
+    }
+
+    // MARK: When the count starts and restarts (from the history, as Lock it iPhone)
+
+    private let fee: Int64 = 10_000
+    private func at(_ day: Int) -> Date { Date(timeIntervalSince1970: 1_768_046_400 + Double(day) * 86_400) }
+    private func receive(_ day: Int, _ zats: Int64) -> HoldingEntry {
+        HoldingEntry(height: day, date: at(day), change: zats, internalMove: false)
+    }
+    /// The engine's signed change: a send's value already includes its fee.
+    private func send(_ day: Int, _ zatsWithFee: Int64) -> HoldingEntry {
+        HoldingEntry(height: day, date: at(day), change: -zatsWithFee, internalMove: false)
+    }
+    /// Locking in, the Ironwood move or a payment to an own address: only the fee leaves.
+    private func move(_ day: Int) -> HoldingEntry {
+        HoldingEntry(height: day, date: at(day), change: -fee, internalMove: true)
+    }
+
+    func testNothingInGivesNoCount() {
+        XCTAssertNil(Holding.since([]))
+    }
+
+    func testStartsAtTheFirstPaymentIn() {
+        XCTAssertEqual(Holding.since([receive(5, 100), receive(1, 100)]), at(1))
+    }
+
+    func testASmallSendDoesNotResetIt() {
+        XCTAssertEqual(Holding.since([receive(1, 100_000_000), send(3, 1_010_000)]), at(1))
+    }
+
+    func testABigSendThatLeavesSomethingDoesNotResetIt() {
+        XCTAssertEqual(Holding.since([receive(1, 100_000_000), send(3, 99_990_000)]), at(1))
+    }
+
+    func testTheFeeIsCountedOnce() {
+        // 0.001 in, 0.0009 out including its fee: 0.0001 stays, not zero.
+        XCTAssertEqual(Holding.since([receive(1, 100_000), send(2, 90_000)]), at(1))
+    }
+
+    func testAPaymentInBetweenDoesNotResetIt() {
+        XCTAssertEqual(Holding.since([receive(1, 100_000), send(2, 50_000), receive(4, 70_000)]), at(1))
+    }
+
+    func testRestartsOnlyAfterTheBalanceWasZero() {
+        XCTAssertEqual(Holding.since([receive(1, 100_000), send(2, 100_000), receive(6, 50_000)]), at(6))
+    }
+
+    func testAnEmptyLockHasNoCount() {
+        XCTAssertNil(Holding.since([receive(1, 100_000), send(2, 100_000)]))
+    }
+
+    func testInternalMovesCountAsNothing() {
+        XCTAssertEqual(Holding.since([receive(1, 100_000), move(2), move(3)]), at(1))
+        // A history that begins with a move never starts the count there.
+        XCTAssertEqual(Holding.since([move(1), receive(3, 50_000)]), at(3))
+        XCTAssertNil(Holding.since([HoldingEntry(height: 1, date: at(1), change: 5_000, internalMove: true)]))
+    }
+
+    func testARestoreGivesTheSameStartInAnyOrder() {
+        let list = [receive(1, 100_000), send(2, 100_000), receive(6, 50_000), send(9, 20_000)]
+        XCTAssertEqual(Holding.since(list.reversed()), Holding.since(list))
+        XCTAssertEqual(Holding.since(list.shuffled()), at(6))
+    }
+
+    func testAHistoryMissingItsStartGivesNoCount() {
+        XCTAssertTrue(Holding.historyComplete([receive(1, 300_000), send(2, 50_000)], pendingIn: 0, balance: 250_000))
+        // Held 1 ZEC since long ago; a restore from later only shows 0.1 ZEC in.
+        XCTAssertFalse(Holding.historyComplete([receive(30, 10_000_000)], pendingIn: 0, balance: 110_000_000))
+    }
+
+    func testAPaymentStillWaitingToComeInIsNotAMissingStart() {
+        XCTAssertTrue(Holding.historyComplete([receive(1, 300_000)], pendingIn: 200_000, balance: 500_000))
+    }
+
+    // MARK: The holding page
+
+    func testThePageCountsWhatCameInSinceTheStart() {
+        let h = Holding.summary([receive(1, 300_000), send(2, 50_000), receive(3, 900_000), move(4), receive(5, 200_000)],
+                                now: at(12), calendar: gregorian)
+        XCTAssertEqual(h?.since, at(1))
+        XCTAssertEqual(h?.days, 11)
+        XCTAssertEqual(h?.current.paymentsIn, 3)
+        XCTAssertEqual(h?.current.received, 1_400_000)
+        XCTAssertEqual(h?.current.largest?.zatoshi, 900_000)
+        XCTAssertEqual(h?.current.largest?.at, at(3))
+        XCTAssertNil(Holding.summary([]))
+        XCTAssertNil(Holding.summary([receive(1, 100), send(2, 100)]))
+    }
+
+    func testOnlyWhatCameInAfterTheLastEmptyLockCounts() {
+        let h = Holding.summary([receive(1, 5_000_000), send(2, 5_000_000), receive(4, 100_000)], now: at(6), calendar: gregorian)
+        XCTAssertEqual(h?.current.received, 100_000)
+        XCTAssertEqual(h?.current.paymentsIn, 1)
+    }
+
+    func testLongestBeforeOnlyWhenItWasLongerThanNow() {
+        let list = [receive(1, 100_000), send(41, 100_000), receive(50, 100_000)]
+        XCTAssertEqual(Holding.summary(list, now: at(60), calendar: gregorian)?.longestBefore?.days, 40)
+        XCTAssertNil(Holding.summary(list, now: at(95), calendar: gregorian)?.longestBefore)
+    }
+
+    func testStackingPacePeriodsAndRounding() {
+        XCTAssertNil(Holding.pace(received: 1_000_000, days: 0))
+        XCTAssertNil(Holding.pace(received: 0, days: 10))
+        XCTAssertEqual(Holding.pace(received: 3_000_000, days: 3)?.zatoshi, 1_000_000)
+        XCTAssertEqual(Holding.pace(received: 3_000_000, days: 3)?.per, .day)
+        XCTAssertEqual(Holding.pace(received: 14_000_000, days: 14)?.zatoshi, 7_000_000)
+        XCTAssertEqual(Holding.pace(received: 14_000_000, days: 14)?.per, .week)
+        XCTAssertEqual(Holding.pace(received: 120_000_000, days: 120)?.zatoshi, 30_000_000)
+        XCTAssertEqual(Holding.pace(received: 120_000_000, days: 120)?.per, .month)
+        // 1,234,567 zats over 10 days is 864,196.9 a week: 864,000.
+        XCTAssertEqual(Holding.pace(received: 1_234_567, days: 10)?.zatoshi, 864_000)
+    }
+
+    func testTheMilestoneMomentIsShownOnceAndResetByErase() {
+        let defaults = UserDefaults(suiteName: "zecky.tests.moment")!
+        defaults.removePersistentDomain(forName: "zecky.tests.moment")
+        XCTAssertFalse(MilestoneMoment.seen(since: at(1), days: 30, defaults: defaults))
+        MilestoneMoment.markSeen(since: at(1), days: 30, defaults: defaults)
+        XCTAssertTrue(MilestoneMoment.seen(since: at(1), days: 30, defaults: defaults))
+        XCTAssertFalse(MilestoneMoment.seen(since: at(1), days: 365, defaults: defaults))
+        XCTAssertFalse(MilestoneMoment.seen(since: at(2), days: 30, defaults: defaults))
+        MilestoneMoment.reset(defaults: defaults)
+        XCTAssertFalse(MilestoneMoment.seen(since: at(1), days: 30, defaults: defaults))
+        defaults.removePersistentDomain(forName: "zecky.tests.moment")
     }
     // MARK: Lost my keys
 
