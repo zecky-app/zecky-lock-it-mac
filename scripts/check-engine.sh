@@ -1,13 +1,13 @@
 #!/bin/bash
 # Runs as the first build step. Stops the build unless the Zcash engine is
-# exactly the Zecky engine release Lock it iPhone ships: v4.0.0-zecky.4
-# (tag commit 556a838), without local changes, and its Mac slice and header
+# exactly the Zecky engine release Lock it iPhone ships: v4.0.0-zecky.5
+# (tag commit 52850f6), without local changes, and its Mac slice and header
 # (unpacked from the release's SwiftPM file) match their fingerprints. See docs/ENGINE.md. Never
 # change a pin without rebuilding the engine from its tag and comparing first.
 set -euo pipefail
 
-ENGINE_TAG="v4.0.0-zecky.4"
-ENGINE_COMMIT="556a8386f45e6cfb57cfd5c7d5846c93e4a603a9"
+ENGINE_TAG="v4.0.0-zecky.5"
+ENGINE_COMMIT="52850f64a938ea20cddc1f797ca6ac155e5671ec"
 SWIFTPM_ZIP_SHA256="35a3e6829555d4a3f5a5b0aafea5577318e8f81d8b27ec6a2de98ce76ba15a7c"
 MAC_LIB_SHA256="ec88e07329e28e5b691b389d79631e88b91aadf19f54b14416c353dfef3079fa"
 HEADER_SHA256="1d9cada2baa1c0f3c7f8035422e1feecd9f0bd696ce7b07ea686313d2844a2dc"

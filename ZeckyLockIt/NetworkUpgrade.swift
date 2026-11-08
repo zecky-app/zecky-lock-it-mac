@@ -8,7 +8,7 @@ enum NetworkUpgrade {
     static let nu7Height = 3_543_405
 
     /// Whether this build's engine builds NU7 transactions. True since the
-    /// Zecky engine v4.0.0-zecky.2 (now v4.0.0-zecky.4), checked at every build
+    /// Zecky engine v4.0.0-zecky.2 (now v4.0.0-zecky.5), checked at every build
     /// (scripts/check-engine.sh) and in WalletSelfTest. Kept as a switch for
     /// the next network upgrade: an engine that does not know it pauses here.
     static let engineKnowsNU7 = true

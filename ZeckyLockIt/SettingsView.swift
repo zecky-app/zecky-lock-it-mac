@@ -35,7 +35,7 @@ struct SettingsView: View {
                       subtitle: sheetSubtitle,
                       closeLabel: showingPhrase ? "Hide" : (codeStep != nil || page != nil ? "Back" : "Done"),
                       height: 740,
-                      onClose: { if showingPhrase { revealed = nil } else if codeStep != nil { codeStep = nil } else if keyPage != nil { keyPage = nil } else if page != nil { page = nil } else { onClose() } }) {
+                      onClose: { if showingPhrase { revealed = nil } else if codeStep != nil { codeStep = nil } else if keyPage != nil { keyPage = nil } else if page != nil { withAnimation(.easeOut(duration: 0.2)) { page = nil } } else { onClose() } }) {
             if let revealed {
                 PhraseView(wallet: revealed)
             } else if let codeStep {
@@ -79,6 +79,7 @@ struct SettingsView: View {
 
     private var settings: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Group {
             switch page {
             case nil: overview
             case .keys?: pageBody { keysPage }
@@ -90,6 +91,9 @@ struct SettingsView: View {
             case .how?: pageBody { HowItWorks { model.sheet = nil; model.tourShown = true } }
             case .about?: pageBody { aboutPage }
             }
+            }
+            .id(page)
+            .transition(.opacity.combined(with: .move(edge: page == nil ? .leading : .trailing)))
             if let problem { Text(problem).font(Theme.text(12)).foregroundStyle(Theme.red) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -103,11 +107,7 @@ struct SettingsView: View {
         let _ = model.timeLockChanged
         return VStack(alignment: .leading, spacing: 18) {
             // The current block and how fast blocks come, as on the iPhone.
-            if model.engine.networkHeight > 0 {
-                Text("Block \(model.engine.networkHeight.formatted(.number.grouping(.automatic).locale(Locale(identifier: "en_US")))) · a new block about every \(BlockTime.spacing(at: model.engine.networkHeight)) seconds")
-                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
-                    .padding(.leading, 4)
-            }
+            NetworkCard(engine: model.engine)
             group("Security") {
                 row(.keys, "Keys to the lock", "key.fill", keysSummary)
                 row(.timeLock, "Time lock", "clock", TimeLock.isOn ? TimeLock.label(TimeLock.hours) : "Off")
@@ -186,7 +186,7 @@ struct SettingsView: View {
     }
 
     private func row(_ target: Page, _ title: String, _ icon: String, _ detail: String) -> some View {
-        Button { page = target } label: {
+        Button { withAnimation(.easeOut(duration: 0.2)) { page = target } } label: {
             HStack(spacing: 12) {
                 Image(systemName: icon).font(.system(size: 14)).foregroundStyle(Theme.gold).frame(width: 22)
                 Text(title).font(Theme.text(14, weight: .medium)).foregroundStyle(Theme.text)
@@ -599,7 +599,7 @@ struct SettingsView: View {
                 let n = { (v: Int) in v > 0 ? v.formatted(.number.grouping(.automatic).locale(Locale(identifier: "en_US"))) : "…" }
                 VStack(spacing: 6) {
                     aboutLine("Version", version)
-                    aboutLine("Zcash engine", "Zecky engine v4.0.0-zecky.4")
+                    aboutLine("Zcash engine", "Zecky engine v4.0.0-zecky.5")
                     aboutLine("Current block", n(engine.networkHeight))
                     aboutLine("Wallet birthday", n(engine.birthdayHeight))
                     aboutLine("Server", Server.nodeLabel.map { "\($0) (\(Server.host))" } ?? Server.host)
@@ -609,7 +609,7 @@ struct SettingsView: View {
                     .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
                 if showTechnical {
                     VStack(spacing: 6) {
-                        aboutLine("Engine tag", "v4.0.0-zecky.4 · commit 556a838")
+                        aboutLine("Engine tag", "v4.0.0-zecky.5 · commit 52850f6")
                         aboutLine("Engine fingerprint (Mac)", "ec88e073…3079fa")
                         aboutLine("NU7 check", WalletSelfTest.engineBranch(at: NetworkUpgrade.nu7Height) == 0x7719_0AD9 ? "Signs for NU7 (0x77190AD9)" : "Does not know NU7")
                         aboutLine("Swift SDK", "ZcashLightClientKit 4.0.0")
@@ -1067,7 +1067,7 @@ struct HowItWorks: View {
         Chapter(title: "On this Mac", icon: "laptopcomputer", summary: "Where your data lives.", essentials: [
             "Your history (amounts and dates, never the words) is kept in Lock it's own protected folder and left out of Time Machine. Keep FileVault on so the whole disk is encrypted as well.",
         ], more: [
-            "Keys, proofs, signatures and payments are made by librustzcash, the Zcash developers' own core (NU7 releases), not by Lock it. The Zecky engine only connects Lock it to it: release v4.0.0-zecky.4, the same as Lock it for iPhone. Every build checks the engine's commit and fingerprint, and the app checks that it signs for NU7.",
+            "Keys, proofs, signatures and payments are made by librustzcash, the Zcash developers' own core (NU7 releases), not by Lock it. The Zecky engine only connects Lock it to it: release v4.0.0-zecky.5, the same as Lock it for iPhone. Every build checks the engine's commit and fingerprint, and the app checks that it signs for NU7.",
             "The Zcash parameter files (about 50 MB) are inside the app, checked against the Zcash developers' published fingerprints. Lock it never downloads them.",
         ]),
         Chapter(title: "What Zecky never does", icon: "hand.raised", summary: "No account, no tracking.", essentials: [
@@ -1152,5 +1152,30 @@ struct AcknowledgementsSheet: View {
                     .padding(.bottom, 12)
             }
         }
+    }
+}
+
+/// "ZCASH NETWORK · Block 3,551,141 · A block every 25 seconds, since NU7",
+/// as the iPhone's Settings opens. The number moves with each new block.
+private struct NetworkCard: View {
+    @ObservedObject var engine: WalletEngine
+
+    var body: some View {
+        let height = engine.networkHeight
+        VStack(alignment: .leading, spacing: 4) {
+            Text("ZCASH NETWORK").font(Theme.text(11, weight: .semibold)).tracking(2).foregroundStyle(Theme.gold)
+            Text(height > 0 ? "Block \(height.formatted(.number.grouping(.automatic).locale(Locale(identifier: "en_US"))))" : "Catching up…")
+                .font(Theme.serif(28, weight: .medium)).foregroundStyle(Theme.text)
+                .monospacedDigit()
+            if height > 0 {
+                Text(height >= NetworkUpgrade.nu7Height ? "A block every 25 seconds, since NU7" : "A block every 75 seconds")
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+        .accessibilityElement(children: .combine)
     }
 }

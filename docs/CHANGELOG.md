@@ -38,6 +38,9 @@ Plain-words notes on what changed in Zecky Lock it for Mac, newest first.
   to 100% instead of jumping from 0. One decimal, gliding between readings
   (not with Reduce Motion), 100% only when up to date, and the line under it
   says how many new blocks are left. The status line uses the same number.
+- Engine v4.0.0-zecky.5: current checkpoints, so a new wallet (new,
+  restored or Seal it) starts checking near its birthday instead of months
+  of older blocks.
 - Network: your own server is remembered when you switch to a public one.
 - Send: "Fee included" works on a whole balance; the engine's not-enough
   message is shown in plain words.

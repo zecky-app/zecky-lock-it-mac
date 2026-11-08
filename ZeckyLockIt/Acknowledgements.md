@@ -4,7 +4,7 @@ Zecky Lock it for Mac includes the open-source software below. Only what is link
 
 ## Zcash engine
 
-The Zecky engine v4.0.0-zecky.4 is the official zcash-swift-wallet-sdk 4.0.0 (MIT, Electric Coin Company and contributors) adapted to the NU7 releases of librustzcash, the Zcash developers' own core, and its Rust dependencies, published under MIT OR Apache-2.0. Every crate is listed in the engine's Cargo.lock.
+The Zecky engine v4.0.0-zecky.5 is the official zcash-swift-wallet-sdk 4.0.0 (MIT, Electric Coin Company and contributors) adapted to the NU7 releases of librustzcash, the Zcash developers' own core, and its Rust dependencies, published under MIT OR Apache-2.0. Every crate is listed in the engine's Cargo.lock.
 
 ## gRPC Swift 1.27.6
 

@@ -27,7 +27,7 @@ def main(checkouts):
     out = ["# Acknowledgements", "",
            "Zecky Lock it for Mac includes the open-source software below. Only what is linked into the app is listed.", "",
            "## Zcash engine", "",
-           "The Zecky engine v4.0.0-zecky.4 is the official zcash-swift-wallet-sdk 4.0.0 (MIT, Electric Coin Company and contributors) "
+           "The Zecky engine v4.0.0-zecky.5 is the official zcash-swift-wallet-sdk 4.0.0 (MIT, Electric Coin Company and contributors) "
            "adapted to the NU7 releases of librustzcash, the Zcash developers' own core, and its Rust dependencies, published under "
            "MIT OR Apache-2.0. Every crate is listed in the engine's Cargo.lock.", ""]
     for folder, name in SHIPPED:
