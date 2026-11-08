@@ -116,7 +116,7 @@ struct AddWalletSheet: View {
                 Stepper("\(String(year))", value: $year, in: 2018...Calendar.current.component(.year, from: Date()))
                     .font(Theme.text(13, weight: .medium))
             }
-            Text("An earlier year finds everything but takes longer to scan.")
+            Text("An earlier year finds everything but takes longer: Lock it then checks every block from that year again, for all wallets on this Mac. Their Zcash stays safe meanwhile.")
                 .font(Theme.text(11)).foregroundStyle(Theme.muted)
         }
     }
@@ -147,7 +147,14 @@ struct AddWalletSheet: View {
             let birthday: Int
             if isNew {
                 phrase = words.joined(separator: " ")
-                birthday = (try? await ChainTip.latest()) ?? Birthday.estimatedTip()
+                // Today's block, as the running engine knows it. Adding a wallet
+                // makes the engine check every block from its start again for
+                // all wallets, so a new wallet must start at today's block.
+                if engine.networkHeight > 0 {
+                    birthday = engine.networkHeight
+                } else {
+                    birthday = (try? await ChainTip.latest()) ?? Birthday.estimatedTip()
+                }
             } else {
                 let joined = restoreWords.joined(separator: " ")
                 try Mnemonic.validate(joined)

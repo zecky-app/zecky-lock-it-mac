@@ -787,6 +787,21 @@ final class WalletEngine: ObservableObject {
         problems = SyncMath.adding(SyncMath.Problem(at: Date(), message: message), to: problems)
     }
 
+    // Keeps macOS from slowing Lock it down (App Nap) while it checks
+    // blocks. The Mac can still sleep; dropped once up to date.
+    private var busyToken: NSObjectProtocol?
+
+    private func keepAwake(_ busy: Bool) {
+        if busy, busyToken == nil {
+            busyToken = ProcessInfo.processInfo.beginActivity(
+                options: .userInitiatedAllowingIdleSystemSleep,
+                reason: "Checking blocks")
+        } else if !busy, let token = busyToken {
+            ProcessInfo.processInfo.endActivity(token)
+            busyToken = nil
+        }
+    }
+
     private func apply(_ state: SynchronizerState) {
         let scanned = Int(state.fullyScannedHeight)
         if case .error(let error) = state.syncStatus, SyncMath.isDroppedConnection(String(describing: error)) {
@@ -808,6 +823,11 @@ final class WalletEngine: ObservableObject {
         switch state.syncStatus {
         case .syncing(let progress, _): syncFraction = Double(max(0, min(1, progress)))
         case .upToDate: syncFraction = 1
+        default: break
+        }
+        switch state.syncStatus {
+        case .syncing: keepAwake(true)
+        case .upToDate, .stopped, .error: keepAwake(false)
         default: break
         }
         switch state.syncStatus {
