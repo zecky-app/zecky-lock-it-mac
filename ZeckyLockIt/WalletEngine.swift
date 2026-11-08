@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import ZcashLightClientKit
+import libzcashlc
 
 /// The light-wallet server, over TLS. Same default and choices as the
 /// iPhone app. The chosen server can name your own node (a home or Tailscale
@@ -375,8 +376,17 @@ final class WalletEngine: ObservableObject {
         let tool = DerivationTool(networkType: .mainnet)
         let usk = try tool.deriveUnifiedSpendingKey(seed: seed, accountIndex: Zip32AccountIndex(0))
         let ufvk = try tool.deriveUnifiedFullViewingKey(from: usk)
+        // The engine wants the seed's ZIP 32 fingerprint together with the
+        // account index (both or neither). It comes from the engine itself.
+        var fingerprint = [UInt8](repeating: 0, count: 32)
+        let made = seed.withUnsafeBufferPointer { s in
+            fingerprint.withUnsafeMutableBufferPointer { f in
+                zcashlc_seed_fingerprint(s.baseAddress, UInt(s.count), f.baseAddress)
+            }
+        }
+        guard made else { throw EngineError.notReady }
         let id = try await synchronizer.importAccount(
-            ufvk: ufvk.stringEncoded, seedFingerprint: nil, zip32AccountIndex: Zip32AccountIndex(0),
+            ufvk: ufvk.stringEncoded, seedFingerprint: fingerprint, zip32AccountIndex: Zip32AccountIndex(0),
             purpose: .spending, name: name, keySource: Self.macKeySource, birthday: BlockHeight(birthday))
         await refreshSealedWallets()
         return id

@@ -924,7 +924,7 @@ struct PhraseView: View {
                     }
                 }
             }
-            Text("The words show only while you hold the button, so a screenshot or someone watching your screen catches nothing by accident. They leave the screen when you let go, click Hide, close Settings or switch to another app.")
+            Text("The words show only after you click Show the words, so a screenshot or someone watching your screen catches nothing by accident. They leave the screen after 2 minutes, when you click Hide, close Settings or switch to another app.")
                 .font(.system(size: 12)).foregroundStyle(Theme.muted)
             Spacer()
         }
@@ -1029,7 +1029,7 @@ struct HowItWorks: View {
         ]),
         Chapter(title: "Your 24 words", icon: "doc.text.magnifyingglass", summary: "They are your Zcash. Keep them on paper.", essentials: [
             "Your 24 words and birthday block restore the wallet in Lock it or any Zcash wallet. Whoever has them has your Zcash.",
-            "They are sealed by this Mac's Secure Enclave and shown only while you hold a button, so a screenshot never catches them by accident.",
+            "They are sealed by this Mac's Secure Enclave and shown only when you click to show them, for at most 2 minutes, so a screenshot does not catch them by accident.",
         ], more: [
             "They are made on this Mac from the system's secure random generator (256 bits), checked, and mixed with a second source.",
             "Only Touch ID or your Mac password (and your Zecky code, if set) opens the seal. They are never synced, never in a backup, never written to a log and never sent anywhere. They are opened only to sign a payment or to show them to you, and let go straight after.",

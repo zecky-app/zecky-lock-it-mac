@@ -376,6 +376,7 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "tour.seen")
         UserDefaults.standard.removeObject(forKey: WalletEngine.syncedOnceKey)
         MilestoneMoment.reset()
+        KeyRingOrder.erase()
         prices.reset()
         themeMode = .dark
         unit = .zec

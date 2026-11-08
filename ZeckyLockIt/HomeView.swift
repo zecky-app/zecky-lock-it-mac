@@ -493,26 +493,35 @@ private struct KeyRing: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            chip(title: "This Mac", icon: "lock.fill", on: model.selectedWallet == nil) { choose(nil) }
-            ForEach(engine.macWallets, id: \.id) { wallet in
-                chip(title: WalletNames.name(for: wallet, fallback: "Wallet"), icon: "lock.fill", on: model.selectedWallet == wallet.id) {
-                    choose(wallet.id)
-                }
-                .contextMenu {
-                    Button("Rename…") { newName = WalletNames.name(for: wallet, fallback: ""); renaming = wallet }
-                    Button("Show its words…") { model.startShowingWords(wallet.id) }
-                    Divider()
-                    Button("Remove from Lock it…") { removing = wallet }
-                }
-            }
-            ForEach(engine.sealedWallets, id: \.id) { wallet in
-                chip(title: WalletNames.name(for: wallet, fallback: "Seal it"), icon: "envelope.fill", on: model.selectedWallet == wallet.id) {
-                    choose(wallet.id)
-                }
-                .contextMenu {
-                    Button("Rename…") { newName = WalletNames.name(for: wallet, fallback: ""); renaming = wallet }
-                    Divider()
-                    Button("Remove from Lock it…") { removing = wallet }
+            let items = orderedItems
+            ForEach(Array(items.enumerated()), id: \.element.key) { index, item in
+                switch item {
+                case .main:
+                    chip(title: "This Mac", icon: "lock.fill", on: model.selectedWallet == nil) { choose(nil) }
+                        .contextMenu { moveButtons(item, index: index, count: items.count) }
+                case .mac(let wallet):
+                    chip(title: WalletNames.name(for: wallet, fallback: "Wallet"), icon: "lock.fill", on: model.selectedWallet == wallet.id) {
+                        choose(wallet.id)
+                    }
+                    .contextMenu {
+                        Button("Rename…") { newName = WalletNames.name(for: wallet, fallback: ""); renaming = wallet }
+                        Button("Show its words…") { model.startShowingWords(wallet.id) }
+                        Divider()
+                        moveButtons(item, index: index, count: items.count)
+                        Divider()
+                        Button("Remove from Lock it…") { removing = wallet }
+                    }
+                case .sealed(let wallet):
+                    chip(title: WalletNames.name(for: wallet, fallback: "Seal it"), icon: "envelope.fill", on: model.selectedWallet == wallet.id) {
+                        choose(wallet.id)
+                    }
+                    .contextMenu {
+                        Button("Rename…") { newName = WalletNames.name(for: wallet, fallback: ""); renaming = wallet }
+                        Divider()
+                        moveButtons(item, index: index, count: items.count)
+                        Divider()
+                        Button("Remove from Lock it…") { removing = wallet }
+                    }
                 }
             }
             Menu {
@@ -564,6 +573,36 @@ private struct KeyRing: View {
     }
 
     @State private var removing: Account?
+    /// The owner's order of the chips (see KeyRingOrder); kept on this Mac.
+    @State private var order = KeyRingOrder.saved
+
+    private enum Item {
+        case main, mac(Account), sealed(Account)
+        var key: String {
+            switch self {
+            case .main: return KeyRingOrder.main
+            case .mac(let a), .sealed(let a): return KeyRingVault.hex(a.id)
+            }
+        }
+    }
+
+    /// This Mac, the Mac wallets and the Seal it wallets, in the owner's order.
+    private var orderedItems: [Item] {
+        let all: [Item] = [.main] + engine.macWallets.map(Item.mac) + engine.sealedWallets.map(Item.sealed)
+        let keys = KeyRingOrder.ordered(all.map(\.key), saved: order)
+        return keys.compactMap { key in all.first { $0.key == key } }
+    }
+
+    @ViewBuilder private func moveButtons(_ item: Item, index: Int, count: Int) -> some View {
+        Button("Move left") { move(item, by: -1) }.disabled(index == 0)
+        Button("Move right") { move(item, by: 1) }.disabled(index == count - 1)
+    }
+
+    private func move(_ item: Item, by step: Int) {
+        let current = orderedItems.map(\.key)
+        order = KeyRingOrder.moved(item.key, by: step, in: current)
+        KeyRingOrder.saved = order
+    }
     @State private var renaming: Account?
     @State private var newName = ""
 
@@ -1096,4 +1135,34 @@ struct TourCard: View {
             .shadow(color: .black.opacity(0.4), radius: 30, y: 12)
         }
     }
+}
+
+/// The order of the wallets on the key ring, chosen by the owner with Move
+/// left / Move right. Kept on this Mac only, as wallet ids; a wallet it does
+/// not know yet follows in the usual order (this Mac, Mac wallets, Seal it).
+enum KeyRingOrder {
+    static let key = "app.zecky.lockit.mac.keyRingOrder"
+    static let main = "main"
+
+    static var saved: [String] {
+        get { UserDefaults.standard.stringArray(forKey: key) ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+
+    /// `ids` in the saved order; ids not saved yet keep their place after them.
+    static func ordered(_ ids: [String], saved: [String]) -> [String] {
+        let known = saved.filter { ids.contains($0) }
+        return known + ids.filter { !known.contains($0) }
+    }
+
+    /// `order` with `id` moved one place left (-1) or right (+1).
+    static func moved(_ id: String, by step: Int, in order: [String]) -> [String] {
+        guard let i = order.firstIndex(of: id), order.indices.contains(i + step) else { return order }
+        var result = order
+        result.swapAt(i, i + step)
+        return result
+    }
+
+    /// For Erase wallet.
+    static func erase() { UserDefaults.standard.removeObject(forKey: key) }
 }

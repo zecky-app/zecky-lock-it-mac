@@ -586,4 +586,38 @@ final class ZeckyLockItTests: XCTestCase {
         let raw = ZcashError.rustProposalInsufficientFunds(Zatoshi(100_000), Zatoshi(110_000))
         XCTAssertEqual(WalletEngine.planProblem(raw), "Not enough available for this amount plus the fee.")
     }
+
+    // MARK: Checking three words after writing them down
+
+    func testTheWordCheckAsksThreeDifferentPositionsInOrder() {
+        for _ in 0..<200 {
+            let picked = WordCheck.pick(24)
+            XCTAssertEqual(picked.count, 3)
+            XCTAssertEqual(Set(picked).count, 3)
+            XCTAssertEqual(picked, picked.sorted())
+            XCTAssertTrue(picked.allSatisfy { (0..<24).contains($0) })
+        }
+    }
+
+    func testTypedWordsCompareWithoutCaseOrSpaces() {
+        XCTAssertTrue(WordCheck.matches("  Legal ", "legal"))
+        XCTAssertFalse(WordCheck.matches("legel", "legal"))
+        XCTAssertFalse(WordCheck.matches("", "legal"))
+    }
+
+    // MARK: Key ring order
+
+    func testTheKeyRingKeepsTheOwnersOrderAndAddsNewWalletsAfter() {
+        XCTAssertEqual(KeyRingOrder.ordered(["main", "a", "b"], saved: []), ["main", "a", "b"])
+        XCTAssertEqual(KeyRingOrder.ordered(["main", "a", "b", "c"], saved: ["b", "main", "a"]), ["b", "main", "a", "c"])
+        // A removed wallet drops out of the order.
+        XCTAssertEqual(KeyRingOrder.ordered(["main", "b"], saved: ["a", "b", "main"]), ["b", "main"])
+    }
+
+    func testMovingAChipLeftAndRight() {
+        XCTAssertEqual(KeyRingOrder.moved("b", by: -1, in: ["main", "a", "b"]), ["main", "b", "a"])
+        XCTAssertEqual(KeyRingOrder.moved("main", by: 1, in: ["main", "a"]), ["a", "main"])
+        XCTAssertEqual(KeyRingOrder.moved("main", by: -1, in: ["main", "a"]), ["main", "a"], "nothing left of the first")
+        XCTAssertEqual(KeyRingOrder.moved("x", by: 1, in: ["main", "a"]), ["main", "a"])
+    }
 }

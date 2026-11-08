@@ -14,7 +14,10 @@ struct AddWalletSheet: View {
     @State private var words: [String] = []
     @State private var restoreText = ""
     @State private var year = Calendar.current.component(.year, from: Date())
-    @State private var wroteThemDown = false
+    /// "I wrote them down" pressed: the three-word check is shown.
+    @State private var checking = false
+    /// The three words were typed back correctly.
+    @State private var checked = false
     @State private var working = false
     @State private var problem: String?
 
@@ -45,8 +48,13 @@ struct AddWalletSheet: View {
         }
         .hiddenFromCapture()
         .task {
-            if isNew && words.isEmpty, let phrase = try? Mnemonic.phrase(from: Entropy.secure(32)) {
-                words = phrase.split(separator: " ").map(String.init)
+            if isNew && words.isEmpty {
+                do {
+                    words = try Mnemonic.phrase(from: Entropy.secure(32)).split(separator: " ").map(String.init)
+                } catch {
+                    // Never a weaker fallback: no words, and the reason.
+                    problem = String(describing: error)
+                }
             }
         }
         .onDisappear { words = []; restoreText = "" }
@@ -59,23 +67,33 @@ struct AddWalletSheet: View {
             Text("Write these 24 words on paper, in order. They are the only way back to this wallet.")
                 .font(Theme.text(13)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
-            HoldToReveal {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                    ForEach(Array(words.enumerated()), id: \.offset) { index, word in
-                        HStack(spacing: 6) {
-                            Text("\(index + 1)").font(Theme.text(11)).foregroundStyle(Theme.muted).frame(width: 18, alignment: .trailing)
-                            Text(word).font(Theme.text(13, weight: .medium))
-                            Spacer(minLength: 0)
+            if checked {
+                Label("The 24 words are written down and checked.", systemImage: "checkmark.seal.fill")
+                    .font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.green)
+            } else if checking {
+                WordCheck(words: words, onShowAgain: { checking = false }, onPassed: { checked = true })
+            } else {
+                HoldToReveal {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                        ForEach(Array(words.enumerated()), id: \.offset) { index, word in
+                            HStack(spacing: 6) {
+                                Text("\(index + 1)").font(Theme.text(11)).foregroundStyle(Theme.muted).frame(width: 18, alignment: .trailing)
+                                Text(word).font(Theme.text(13, weight: .medium))
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 8).frame(height: 28)
+                            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line, lineWidth: 1))
                         }
-                        .padding(.horizontal, 8).frame(height: 28)
-                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line, lineWidth: 1))
                     }
                 }
+                HStack {
+                    Spacer()
+                    SecondaryButton(title: "I wrote the 24 words down") { checking = true }
+                        .frame(width: 240)
+                        .disabled(words.count != 24)
+                }
             }
-            Toggle("I wrote the 24 words down", isOn: $wroteThemDown)
-                .toggleStyle(.checkbox)
-                .font(Theme.text(13))
         }
     }
 
@@ -113,7 +131,7 @@ struct AddWalletSheet: View {
 
     private var canAdd: Bool {
         guard !trimmedName.isEmpty else { return false }
-        return isNew ? (wroteThemDown && words.count == 24) : restoreWords.count == 24
+        return isNew ? (checked && words.count == 24) : restoreWords.count == 24
     }
 
     private func add() async {
