@@ -303,6 +303,7 @@ struct HomeView: View {
         .animation(.easeInOut(duration: 0.2), value: model.timeLockShown)
         .onReceive(clock) { now = $0 }
         .overlay { panel }
+        .overlay { ArrivalToast(model: model, engine: engine) }
         .overlay { if model.tourShown { TourCard(model: model).transition(.opacity) } }
         .animation(.easeInOut(duration: 0.2), value: model.tourShown)
         .animation(.easeOut(duration: 0.15), value: model.sheet?.isPanel == true)
@@ -745,7 +746,8 @@ struct ActivitySheet: View {
         let lock = events.map { ActivityEntry.event($0) }
         let chosen: [ActivityEntry]
         switch filter {
-        case .all: chosen = payments + lock
+        // Payments only: changes to the lock have their own filter.
+        case .all: chosen = payments
         case .locked: chosen = payments.filter { $0.isLocked }
         case .released: chosen = payments.filter { $0.isReleased }
         case .lock: chosen = lock
@@ -763,7 +765,7 @@ struct ActivitySheet: View {
 
     var body: some View {
         SheetScaffold(title: "Activity",
-                      subtitle: "Everything you received and sent, and every change to the lock.",
+                      subtitle: "Everything you received and sent. Changes to the lock are under The lock.",
                       height: 640, onClose: onClose) {
             if engine.activity.isEmpty && events.isEmpty {
                 VStack(spacing: 14) {

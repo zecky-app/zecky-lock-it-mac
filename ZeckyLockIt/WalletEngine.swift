@@ -336,6 +336,7 @@ final class WalletEngine: ObservableObject {
             }
             account = first
             await refreshSealedWallets()
+            await refreshActivity()
             try await synchronizer.start(retry: false)
             // Ask the server for today's block right away, instead of
             // waiting until the engine has prepared its first batch.
@@ -731,6 +732,7 @@ final class WalletEngine: ObservableObject {
     /// Re-reads the wallet's payments, newest first.
     func refreshActivity() async {
         guard let synchronizer, let txs = try? await synchronizer.allTransactions() else { return }
+        noteArrivals(txs)
         activity = txs.filter { $0.accountUUID == current }.map { tx in
             let kind: ActivityItem.Kind = tx.isSentTransaction ? .sent : .received
             let state: ActivityItem.State
@@ -758,6 +760,60 @@ final class WalletEngine: ObservableObject {
         }
         pendingIn = mine.filter { $0.minedHeight == nil && $0.value.amount > 0 }.reduce(0) { $0 + $1.value.amount }
         lockedSince = Holding.since(holdingEntries)
+    }
+
+    // MARK: Arrival messages (as Lock it iPhone's "Locked in" message)
+
+    /// A payment that arrived after the wallet was up to date, for the short
+    /// message on the home screen. Any wallet on the key ring.
+    struct Arrival: Identifiable, Equatable {
+        enum Kind { case lockedIn, shielded }
+        let id: Data
+        let account: AccountUUID
+        let kind: Kind
+        let amount: Int64
+    }
+    /// Waiting to be shown, oldest first.
+    @Published private(set) var arrivals: [Arrival] = []
+    private var seenPayments: Set<Data> = []
+    private var shieldingsWaiting: Set<Data> = []
+    private var caughtUp = false
+
+    func takeArrival() -> Arrival? { arrivals.isEmpty ? nil : arrivals.removeFirst() }
+
+    /// Payments already there when the wallet catches up are history, not
+    /// news: only what arrives after that gets a message.
+    private func noteArrivals(_ txs: [ZcashTransaction.Overview]) {
+        let fresh = txs.filter { !seenPayments.contains($0.rawID) }
+        fresh.forEach { seenPayments.insert($0.rawID) }
+        // Locking in transparent Zcash: news once it is in a block.
+        let shielded = txs.filter { $0.isShielding && $0.minedHeight != nil && shieldingsWaiting.contains($0.rawID) }
+        shielded.forEach { shieldingsWaiting.remove($0.rawID) }
+        txs.filter { $0.isShielding && $0.minedHeight == nil && $0.isExpiredUmined != true }
+            .forEach { shieldingsWaiting.insert($0.rawID) }
+        let wasCaughtUp = caughtUp
+        if status == .upToDate { caughtUp = true }
+        // Before the first catch-up, only what is clearly new is news: still
+        // waiting for a block, or in a block from the last 30 minutes. So a
+        // payment that arrives while Lock it is still checking gets its
+        // message too, and old history does not.
+        let recent = Date().addingTimeInterval(-30 * 60).timeIntervalSince1970
+        let received = fresh.filter {
+            !$0.isSentTransaction && !$0.isShielding && $0.poolCrossingValue == nil
+                && $0.isExpiredUmined != true && $0.value.amount > 0
+                && (wasCaughtUp || $0.minedHeight == nil || ($0.blockTime ?? 0) >= recent)
+        }
+        arrivals += shielded.map { Arrival(id: $0.rawID, account: $0.accountUUID, kind: .shielded, amount: Int64($0.value.amount.magnitude)) }
+        arrivals += received.map { Arrival(id: $0.rawID, account: $0.accountUUID, kind: .lockedIn, amount: $0.value.amount) }
+    }
+
+    /// The key ring name of a wallet, for the arrival message.
+    func walletName(_ id: AccountUUID) -> String {
+        if let lead = leadWallet, lead.id == id { return WalletNames.display(lead, lead: true) }
+        if let wallet = (macWallets + sealedWallets).first(where: { $0.id == id }) {
+            return WalletNames.display(wallet, lead: false)
+        }
+        return id == account ? "This Mac" : "Wallet"
     }
 
     // MARK: Sync details (as Lock it iPhone's sync sheet)
@@ -807,6 +863,8 @@ final class WalletEngine: ObservableObject {
         }
     }
 
+    private var activityAt = Date.distantPast
+
     private func apply(_ state: SynchronizerState) {
         let scanned = Int(state.fullyScannedHeight)
         if case .error(let error) = state.syncStatus, SyncMath.isDroppedConnection(String(describing: error)) {
@@ -817,6 +875,8 @@ final class WalletEngine: ObservableObject {
         if scanned > walletHeight || state.syncStatus == .upToDate { droppedSince = nil }
         if scanned > 0, scanned != walletHeight {
             walletHeight = scanned
+            // Activity follows each finished batch, not only when up to date.
+            if Date().timeIntervalSince(activityAt) >= 5 { activityAt = Date(); Task { await refreshActivity() } }
             heightSamples = Array((heightSamples + [SyncMath.Sample(at: Date(), height: scanned)]).suffix(15))
         }
         // Security keys: remember the highest height seen while synced, and
@@ -906,6 +966,21 @@ final class WalletEngine: ObservableObject {
     @Published private(set) var openBlocks: Int?
     /// How far this wallet is checked without gaps from its own birthday.
     @Published private(set) var walletCheckedTo: Int?
+    /// Older blocks below this wallet's birthday that the engine checks for
+    /// another wallet on the key ring: from where, and the share done (0…1).
+    @Published private(set) var olderStart: Int?
+    @Published private(set) var olderShare: Double?
+    /// The last numbers from the previous run, shown until fresh ones arrive.
+    @Published private(set) var lastWalletCheckedTo: Int? = WalletEngine.remembered("app.zecky.lockit.mac.lastCheckedTo")
+    @Published private(set) var lastCheckedPercent: Double? = UserDefaults.standard.object(forKey: "app.zecky.lockit.mac.lastPercent") as? Double
+    private static let olderStartKey = "app.zecky.lockit.mac.olderStart"
+    private nonisolated static func remembered(_ key: String) -> Int? {
+        let v = UserDefaults.standard.integer(forKey: key); return v > 0 ? v : nil
+    }
+    private func remember(percent: Double?, checkedTo: Int?) {
+        if let percent { UserDefaults.standard.set(percent, forKey: "app.zecky.lockit.mac.lastPercent") }
+        if let checkedTo { UserDefaults.standard.set(checkedTo, forKey: "app.zecky.lockit.mac.lastCheckedTo") }
+    }
 
     /// "Syncing 99.6%" from the checked share; "Syncing…" until it is known.
     var syncingText: String {
@@ -918,7 +993,13 @@ final class WalletEngine: ObservableObject {
     private var readingOverview = false
 
     private func refreshCheckedPercent() {
-        if status == .upToDate { checkedPercent = 100; openBlocks = 0; walletCheckedTo = networkHeight > 0 ? networkHeight : nil; return }
+        if status == .upToDate {
+            checkedPercent = 100; openBlocks = 0; walletCheckedTo = networkHeight > 0 ? networkHeight : nil
+            olderStart = nil; olderShare = nil
+            UserDefaults.standard.removeObject(forKey: Self.olderStartKey)
+            remember(percent: 100, checkedTo: walletCheckedTo)
+            return
+        }
         guard let synchronizer, !readingOverview, Date().timeIntervalSince(overviewAt) >= 2 else { return }
         guard networkHeight > 0, birthdayHeight > 0 else { checkedPercent = nil; openBlocks = nil; walletCheckedTo = nil; return }
         readingOverview = true
@@ -933,6 +1014,18 @@ final class WalletEngine: ObservableObject {
             openBlocks = open
             checkedPercent = SyncMath.ringPercent(share: share, synced: status == .upToDate || open == 0)
             walletCheckedTo = SyncMath.checkedThrough(toScan: ranges, birthday: birthdayHeight, tip: networkHeight)
+            remember(percent: checkedPercent, checkedTo: walletCheckedTo)
+            // Older blocks, below this wallet's birthday: read from the same
+            // ranges. Where they started is remembered, so the share grows.
+            let older = SyncMath.older(toScan: ranges, birthday: birthdayHeight,
+                                       start: Self.remembered(Self.olderStartKey))
+            if let older {
+                UserDefaults.standard.set(older.start, forKey: Self.olderStartKey)
+                olderStart = older.start; olderShare = older.share
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.olderStartKey)
+                olderStart = nil; olderShare = nil
+            }
         }
     }
 

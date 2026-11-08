@@ -32,6 +32,7 @@
 		A1000000000000000000003F /* ConfirmView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003E /* ConfirmView.swift */; };
 		A10000000000000000000041 /* RestoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000040 /* RestoreView.swift */; };
 		A10000000000000000000043 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000042 /* HomeView.swift */; };
+		A100000000000000000000F1 /* ArrivalToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000F0 /* ArrivalToast.swift */; };
 		A10000000000000000000051 /* AddressBook.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000050 /* AddressBook.swift */; };
 		A10000000000000000000053 /* ReceiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000052 /* ReceiveView.swift */; };
 		A10000000000000000000055 /* SendView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000054 /* SendView.swift */; };
@@ -100,6 +101,7 @@
 		A1000000000000000000003E /* ConfirmView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmView.swift; sourceTree = "<group>"; };
 		A10000000000000000000040 /* RestoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoreView.swift; sourceTree = "<group>"; };
 		A10000000000000000000042 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		A100000000000000000000F0 /* ArrivalToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArrivalToast.swift; sourceTree = "<group>"; };
 		A10000000000000000000050 /* AddressBook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressBook.swift; sourceTree = "<group>"; };
 		A10000000000000000000052 /* ReceiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiveView.swift; sourceTree = "<group>"; };
 		A10000000000000000000054 /* SendView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendView.swift; sourceTree = "<group>"; };
@@ -220,6 +222,7 @@
 				A1000000000000000000003E /* ConfirmView.swift */,
 				A10000000000000000000040 /* RestoreView.swift */,
 				A10000000000000000000042 /* HomeView.swift */,
+				A100000000000000000000F0 /* ArrivalToast.swift */,
 				A1000000000000000000001C /* Mnemonic.swift */,
 				A1000000000000000000001E /* Entropy.swift */,
 				A10000000000000000000020 /* Birthday.swift */,
@@ -431,6 +434,7 @@
 				A1000000000000000000003F /* ConfirmView.swift in Sources */,
 				A10000000000000000000041 /* RestoreView.swift in Sources */,
 				A10000000000000000000043 /* HomeView.swift in Sources */,
+				A100000000000000000000F1 /* ArrivalToast.swift in Sources */,
 				A1000000000000000000001D /* Mnemonic.swift in Sources */,
 				A1000000000000000000001F /* Entropy.swift in Sources */,
 				A10000000000000000000021 /* Birthday.swift in Sources */,

@@ -67,6 +67,21 @@ enum SyncMath {
     /// the first block still to check at or after the birthday, or the
     /// network block when none is left. Older ranges (another wallet's) do
     /// not count. Nil while the network block is not known.
+    /// Older blocks still to check below the birthday (for another wallet):
+    /// where they start and the share done. nil when there are none. The
+    /// start is the lowest seen, so the share grows as the engine works.
+    static func older(toScan: [(first: Int, end: Int)], birthday: Int, start remembered: Int?) -> (start: Int, share: Double)? {
+        let below = toScan.compactMap { r -> (Int, Int)? in
+            let end = min(r.end, birthday)
+            return r.first < end ? (r.first, end) : nil
+        }
+        guard let lowest = below.map({ $0.0 }).min() else { return nil }
+        let start = min(lowest, remembered ?? lowest)
+        guard birthday > start else { return nil }
+        let open = below.reduce(0) { $0 + ($1.1 - $1.0) }
+        return (start, max(0, min(1, 1 - Double(open) / Double(birthday - start))))
+    }
+
     static func checkedThrough(toScan: [(first: Int, end: Int)], birthday: Int, tip: Int) -> Int? {
         guard tip > 0, tip > birthday else { return nil }
         let starts = toScan.filter { $0.end > birthday && $0.first < tip }.map { max($0.first, birthday) }
@@ -100,13 +115,6 @@ struct SyncSheet: View {
     private var upToDate: Bool { engine.status == .upToDate || engine.openBlocks == 0 }
     private var network: Int { engine.networkHeight }
     private var wallet: Int { engine.walletCheckedTo ?? (upToDate && engine.walletHeight == 0 ? network : engine.walletHeight) }
-    /// Older blocks the engine still checks for another wallet (below this
-    /// wallet's birthday), from where; nil when there are none.
-    private var olderFrom: Int? {
-        let h = engine.walletHeight
-        guard engine.status != .upToDate, h > 0, engine.birthdayHeight > 0, h < engine.birthdayHeight else { return nil }
-        return h
-    }
     private var behind: Int? { SyncMath.behind(network: network, wallet: wallet) }
     /// Right after a start, the engine reports placeholder heights until it
     /// has read its own scan state. Until then the rows show "…".
@@ -122,10 +130,10 @@ struct SyncSheet: View {
                     line("Network", network > 0 ? n(network) : "…")
                     // Until the network block is known, the engine's own
                     // heights are placeholders: show "…" instead.
-                    line("This wallet", known && wallet > 0 ? n(wallet) : "…")
+                    line("This wallet", known && wallet > 0 ? n(wallet) : engine.lastWalletCheckedTo.map { n($0) + " (last time)" } ?? "…")
                     line("Behind", behindText)
-                    if known, let olderFrom {
-                        line("Older blocks", "checking from \(n(olderFrom))")
+                    if known, let start = engine.olderStart, let share = engine.olderShare {
+                        line("Older blocks", String(format: "%.0f%% checked", (share * 100).rounded(.down)) + " · from \(n(start))")
                     }
                     line("Block time", network == 0 ? "…" : BlockTime.spacing(at: network) == 25 ? "25 seconds (since NU7)" : "75 seconds")
                     line("Wallet birthday", engine.birthdayHeight > 0 ? "Block \(n(engine.birthdayHeight))" : "…", last: true)
@@ -236,7 +244,8 @@ struct SyncSheet: View {
 
     private var ringNote: String {
         guard engine.checkedPercent != nil else {
-            return network > 0 ? "Reading where the wallet is…" : "Waiting for the network block"
+            let last = engine.lastCheckedPercent.map { " Last time: " + String(format: "%.1f", min(100, $0)) + "%." } ?? ""
+            return (network > 0 ? "Reading where the wallet is…" : "Waiting for the network block") + last
         }
         if upToDate { return "Every block since the wallet birthday" }
         if let open = engine.openBlocks, open > 0 {

@@ -697,4 +697,16 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(SyncMath.checkedThrough(toScan: [(3_540_000, 3_541_000)], birthday: 3_524_536, tip: 3_551_141), 3_540_000)
         XCTAssertNil(SyncMath.checkedThrough(toScan: [], birthday: 100, tip: 0))
     }
+
+    func testOlderBlocksShareGrowsFromWhereTheyStarted() {
+        // Nothing below the birthday: no older blocks.
+        XCTAssertNil(SyncMath.older(toScan: [(150, 200)], birthday: 100, start: nil))
+        // 0..<100 below a birthday of 100, half still open.
+        let first = SyncMath.older(toScan: [(50, 120)], birthday: 100, start: nil)
+        XCTAssertEqual(first?.start, 50)
+        XCTAssertEqual(first?.share, 0)
+        let later = SyncMath.older(toScan: [(75, 120)], birthday: 100, start: 50)
+        XCTAssertEqual(later?.start, 50)
+        XCTAssertEqual(later?.share ?? 0, 0.5, accuracy: 0.0001)
+    }
 }
