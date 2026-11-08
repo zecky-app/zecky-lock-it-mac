@@ -7,9 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A1000000000000000000008D /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008C /* PrivacyInfo.xcprivacy */; };
-		A1000000000000000000007D /* LockRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000007C /* LockRules.swift */; };
-		A10000000000000000000081 /* ZeckyLockItTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000080 /* ZeckyLockItTests.swift */; };
 		A1000000000000000000000A /* ZeckyLockItApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000005 /* ZeckyLockItApp.swift */; };
 		A1000000000000000000000B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000006 /* ContentView.swift */; };
 		A1000000000000000000000C /* ZcashLightClientKit in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000018 /* ZcashLightClientKit */; };
@@ -19,9 +16,6 @@
 		A10000000000000000000021 /* Birthday.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000020 /* Birthday.swift */; };
 		A10000000000000000000023 /* WalletSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000022 /* WalletSelfTest.swift */; };
 		A10000000000000000000025 /* bip39-english.txt in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000024 /* bip39-english.txt */; };
-		A100000000000000000000B0 /* sapling-spend.params in Resources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000AF /* sapling-spend.params */; };
-		A100000000000000000000B2 /* sapling-output.params in Resources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B1 /* sapling-output.params */; };
-		A100000000000000000000AE /* Acknowledgements.md in Resources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000AD /* Acknowledgements.md */; };
 		A10000000000000000000031 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000030 /* Theme.swift */; };
 		A10000000000000000000033 /* Amount.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000032 /* Amount.swift */; };
 		A10000000000000000000035 /* WalletVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000034 /* WalletVault.swift */; };
@@ -32,7 +26,6 @@
 		A1000000000000000000003F /* ConfirmView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000003E /* ConfirmView.swift */; };
 		A10000000000000000000041 /* RestoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000040 /* RestoreView.swift */; };
 		A10000000000000000000043 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000042 /* HomeView.swift */; };
-		A100000000000000000000F1 /* ArrivalToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000F0 /* ArrivalToast.swift */; };
 		A10000000000000000000051 /* AddressBook.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000050 /* AddressBook.swift */; };
 		A10000000000000000000053 /* ReceiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000052 /* ReceiveView.swift */; };
 		A10000000000000000000055 /* SendView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000054 /* SendView.swift */; };
@@ -48,10 +41,11 @@
 		A10000000000000000000075 /* SheetScaffold.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000074 /* SheetScaffold.swift */; };
 		A10000000000000000000077 /* CombinationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000076 /* CombinationView.swift */; };
 		A10000000000000000000079 /* TimeLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000078 /* TimeLock.swift */; };
-		A1000000000000000000008F /* SecurityKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008E /* SecurityKeys.swift */; };
-		A100000000000000000000A9 /* NetworkUpgrade.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A8 /* NetworkUpgrade.swift */; };
-		A100000000000000000000AC /* SyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000AB /* SyncView.swift */; };
 		A1000000000000000000007B /* Contacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000007A /* Contacts.swift */; };
+		A1000000000000000000007D /* LockRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000007C /* LockRules.swift */; };
+		A10000000000000000000081 /* ZeckyLockItTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000080 /* ZeckyLockItTests.swift */; };
+		A1000000000000000000008D /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008C /* PrivacyInfo.xcprivacy */; };
+		A1000000000000000000008F /* SecurityKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000008E /* SecurityKeys.swift */; };
 		A10000000000000000000095 /* SealItCBOR.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000090 /* SealItCBOR.swift */; };
 		A10000000000000000000096 /* SealItUR.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000091 /* SealItUR.swift */; };
 		A10000000000000000000097 /* SealItQRViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000092 /* SealItQRViews.swift */; };
@@ -61,6 +55,12 @@
 		A100000000000000000000A3 /* SealMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A2 /* SealMark.swift */; };
 		A100000000000000000000A5 /* KeyRingVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A4 /* KeyRingVault.swift */; };
 		A100000000000000000000A7 /* AddWalletSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A6 /* AddWalletSheet.swift */; };
+		A100000000000000000000A9 /* NetworkUpgrade.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A8 /* NetworkUpgrade.swift */; };
+		A100000000000000000000AC /* SyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000AB /* SyncView.swift */; };
+		A100000000000000000000AE /* Acknowledgements.md in Resources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000AD /* Acknowledgements.md */; };
+		A100000000000000000000B0 /* SaplingParams/sapling-spend.params in Resources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000AF /* SaplingParams/sapling-spend.params */; };
+		A100000000000000000000B2 /* SaplingParams/sapling-output.params in Resources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B1 /* SaplingParams/sapling-output.params */; };
+		A100000000000000000000F1 /* ArrivalToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000F0 /* ArrivalToast.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -74,23 +74,16 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		A1000000000000000000008C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		A1000000000000000000007C /* LockRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockRules.swift; sourceTree = "<group>"; };
-		A10000000000000000000080 /* ZeckyLockItTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZeckyLockItTests.swift; sourceTree = "<group>"; };
-		A10000000000000000000082 /* ZeckyLockItTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZeckyLockItTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000005 /* ZeckyLockItApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZeckyLockItApp.swift; sourceTree = "<group>"; };
 		A10000000000000000000006 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A10000000000000000000008 /* ZeckyLockIt.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ZeckyLockIt.entitlements; sourceTree = "<group>"; };
-		A10000000000000000000009 /* ZeckyLockIt.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ZeckyLockIt.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000009 /* Zecky Lock it.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Zecky Lock it.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000000000000000000001A /* KeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyStore.swift; sourceTree = "<group>"; };
 		A1000000000000000000001C /* Mnemonic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mnemonic.swift; sourceTree = "<group>"; };
 		A1000000000000000000001E /* Entropy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Entropy.swift; sourceTree = "<group>"; };
 		A10000000000000000000020 /* Birthday.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Birthday.swift; sourceTree = "<group>"; };
 		A10000000000000000000022 /* WalletSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletSelfTest.swift; sourceTree = "<group>"; };
-		A10000000000000000000024 /* bip39-english.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = bip39-english.txt; sourceTree = "<group>"; };
-		A100000000000000000000AF /* sapling-spend.params */ = {isa = PBXFileReference; lastKnownFileType = file; path = SaplingParams/sapling-spend.params; sourceTree = "<group>"; };
-		A100000000000000000000B1 /* sapling-output.params */ = {isa = PBXFileReference; lastKnownFileType = file; path = SaplingParams/sapling-output.params; sourceTree = "<group>"; };
-		A100000000000000000000AD /* Acknowledgements.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = Acknowledgements.md; sourceTree = "<group>"; };
+		A10000000000000000000024 /* bip39-english.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "bip39-english.txt"; sourceTree = "<group>"; };
 		A10000000000000000000030 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		A10000000000000000000032 /* Amount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Amount.swift; sourceTree = "<group>"; };
 		A10000000000000000000034 /* WalletVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletVault.swift; sourceTree = "<group>"; };
@@ -101,26 +94,27 @@
 		A1000000000000000000003E /* ConfirmView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmView.swift; sourceTree = "<group>"; };
 		A10000000000000000000040 /* RestoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoreView.swift; sourceTree = "<group>"; };
 		A10000000000000000000042 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
-		A100000000000000000000F0 /* ArrivalToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArrivalToast.swift; sourceTree = "<group>"; };
 		A10000000000000000000050 /* AddressBook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressBook.swift; sourceTree = "<group>"; };
 		A10000000000000000000052 /* ReceiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiveView.swift; sourceTree = "<group>"; };
 		A10000000000000000000054 /* SendView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendView.swift; sourceTree = "<group>"; };
 		A10000000000000000000056 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A10000000000000000000058 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A1000000000000000000005A /* Fonts/Inter-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/Inter-Medium.ttf; sourceTree = "<group>"; };
-		A1000000000000000000005C /* Fonts/Inter-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/Inter-Regular.ttf; sourceTree = "<group>"; };
-		A1000000000000000000005E /* Fonts/Inter-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/Inter-SemiBold.ttf; sourceTree = "<group>"; };
-		A10000000000000000000060 /* Fonts/Newsreader-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/Newsreader-Medium.ttf; sourceTree = "<group>"; };
-		A10000000000000000000062 /* Fonts/Newsreader-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/Newsreader-Regular.ttf; sourceTree = "<group>"; };
+		A1000000000000000000005A /* Fonts/Inter-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Fonts/Inter-Medium.ttf"; sourceTree = "<group>"; };
+		A1000000000000000000005C /* Fonts/Inter-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Fonts/Inter-Regular.ttf"; sourceTree = "<group>"; };
+		A1000000000000000000005E /* Fonts/Inter-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Fonts/Inter-SemiBold.ttf"; sourceTree = "<group>"; };
+		A10000000000000000000060 /* Fonts/Newsreader-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Fonts/Newsreader-Medium.ttf"; sourceTree = "<group>"; };
+		A10000000000000000000062 /* Fonts/Newsreader-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Fonts/Newsreader-Regular.ttf"; sourceTree = "<group>"; };
 		A10000000000000000000070 /* PadlockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PadlockView.swift; sourceTree = "<group>"; };
 		A10000000000000000000072 /* PriceFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PriceFeed.swift; sourceTree = "<group>"; };
 		A10000000000000000000074 /* SheetScaffold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SheetScaffold.swift; sourceTree = "<group>"; };
 		A10000000000000000000076 /* CombinationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CombinationView.swift; sourceTree = "<group>"; };
 		A10000000000000000000078 /* TimeLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeLock.swift; sourceTree = "<group>"; };
-		A1000000000000000000008E /* SecurityKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityKeys.swift; sourceTree = "<group>"; };
-		A100000000000000000000A8 /* NetworkUpgrade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkUpgrade.swift; sourceTree = "<group>"; };
-		A100000000000000000000AB /* SyncView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncView.swift; sourceTree = "<group>"; };
 		A1000000000000000000007A /* Contacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Contacts.swift; sourceTree = "<group>"; };
+		A1000000000000000000007C /* LockRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockRules.swift; sourceTree = "<group>"; };
+		A10000000000000000000080 /* ZeckyLockItTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZeckyLockItTests.swift; sourceTree = "<group>"; };
+		A10000000000000000000082 /* ZeckyLockItTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ZeckyLockItTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000000000000000000008C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A1000000000000000000008E /* SecurityKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityKeys.swift; sourceTree = "<group>"; };
 		A10000000000000000000090 /* SealItCBOR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SealItCBOR.swift; sourceTree = "<group>"; };
 		A10000000000000000000091 /* SealItUR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SealItUR.swift; sourceTree = "<group>"; };
 		A10000000000000000000092 /* SealItQRViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SealItQRViews.swift; sourceTree = "<group>"; };
@@ -130,16 +124,15 @@
 		A100000000000000000000A2 /* SealMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SealMark.swift; sourceTree = "<group>"; };
 		A100000000000000000000A4 /* KeyRingVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyRingVault.swift; sourceTree = "<group>"; };
 		A100000000000000000000A6 /* AddWalletSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddWalletSheet.swift; sourceTree = "<group>"; };
+		A100000000000000000000A8 /* NetworkUpgrade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkUpgrade.swift; sourceTree = "<group>"; };
+		A100000000000000000000AB /* SyncView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncView.swift; sourceTree = "<group>"; };
+		A100000000000000000000AD /* Acknowledgements.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = Acknowledgements.md; sourceTree = "<group>"; };
+		A100000000000000000000AF /* SaplingParams/sapling-spend.params */ = {isa = PBXFileReference; lastKnownFileType = file; path = "SaplingParams/sapling-spend.params"; sourceTree = "<group>"; };
+		A100000000000000000000B1 /* SaplingParams/sapling-output.params */ = {isa = PBXFileReference; lastKnownFileType = file; path = "SaplingParams/sapling-output.params"; sourceTree = "<group>"; };
+		A100000000000000000000F0 /* ArrivalToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArrivalToast.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		A10000000000000000000086 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		A1000000000000000000000E /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -148,17 +141,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10000000000000000000086 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		A10000000000000000000083 /* ZeckyLockItTests */ = {
-			isa = PBXGroup;
-			children = (
-				A10000000000000000000080 /* ZeckyLockItTests.swift */,
-			);
-			path = ZeckyLockItTests;
-			sourceTree = "<group>";
-		};
 		A10000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
@@ -171,7 +163,7 @@
 		A10000000000000000000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A10000000000000000000009 /* ZeckyLockIt.app */,
+				A10000000000000000000009 /* Zecky Lock it.app */,
 				A10000000000000000000082 /* ZeckyLockItTests.xctest */,
 			);
 			name = Products;
@@ -228,8 +220,8 @@
 				A10000000000000000000020 /* Birthday.swift */,
 				A10000000000000000000022 /* WalletSelfTest.swift */,
 				A10000000000000000000024 /* bip39-english.txt */,
-				A100000000000000000000AF /* sapling-spend.params */,
-				A100000000000000000000B1 /* sapling-output.params */,
+				A100000000000000000000AF /* SaplingParams/sapling-spend.params */,
+				A100000000000000000000B1 /* SaplingParams/sapling-output.params */,
 				A100000000000000000000AD /* Acknowledgements.md */,
 				A1000000000000000000008C /* PrivacyInfo.xcprivacy */,
 				A10000000000000000000008 /* ZeckyLockIt.entitlements */,
@@ -237,9 +229,40 @@
 			path = ZeckyLockIt;
 			sourceTree = "<group>";
 		};
+		A10000000000000000000083 /* ZeckyLockItTests */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000080 /* ZeckyLockItTests.swift */,
+			);
+			path = ZeckyLockItTests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A10000000000000000000010 /* ZeckyLockIt */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000012 /* Build configuration list for PBXNativeTarget "ZeckyLockIt" */;
+			buildPhases = (
+				A100000000000000000000AA /* Check Zecky engine */,
+				A1000000000000000000000D /* Sources */,
+				A1000000000000000000000E /* Frameworks */,
+				A1000000000000000000000F /* Resources */,
+				A10000000000000000000019 /* Fix libzcashlc layout for macOS */,
+				A100000000000000000000F2 /* Neutral build paths */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ZeckyLockIt;
+			packageProductDependencies = (
+				A10000000000000000000018 /* ZcashLightClientKit */,
+			);
+			productName = ZeckyLockIt;
+			productReference = A10000000000000000000009 /* Zecky Lock it.app */;
+			productType = "com.apple.product-type.application";
+		};
 		A10000000000000000000084 /* ZeckyLockItTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A10000000000000000000087 /* Build configuration list for PBXNativeTarget "ZeckyLockItTests" */;
@@ -256,28 +279,6 @@
 			productName = ZeckyLockItTests;
 			productReference = A10000000000000000000082 /* ZeckyLockItTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
-		};
-		A10000000000000000000010 /* ZeckyLockIt */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = A10000000000000000000012 /* Build configuration list for PBXNativeTarget "ZeckyLockIt" */;
-			buildPhases = (
-				A100000000000000000000AA /* Check Zecky engine */,
-				A1000000000000000000000D /* Sources */,
-				A1000000000000000000000E /* Frameworks */,
-				A1000000000000000000000F /* Resources */,
-				A10000000000000000000019 /* Fix libzcashlc layout for macOS */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = ZeckyLockIt;
-			packageProductDependencies = (
-				A10000000000000000000018 /* ZcashLightClientKit */,
-			);
-			productName = ZeckyLockIt;
-			productReference = A10000000000000000000009 /* ZeckyLockIt.app */;
-			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
@@ -334,8 +335,8 @@
 				A1000000000000000000005B /* Fonts/Inter-Medium.ttf in Resources */,
 				A10000000000000000000059 /* Assets.xcassets in Resources */,
 				A10000000000000000000025 /* bip39-english.txt in Resources */,
-				A100000000000000000000B0 /* sapling-spend.params in Resources */,
-				A100000000000000000000B2 /* sapling-output.params in Resources */,
+				A100000000000000000000B0 /* SaplingParams/sapling-spend.params in Resources */,
+				A100000000000000000000B2 /* SaplingParams/sapling-output.params in Resources */,
 				A100000000000000000000AE /* Acknowledgements.md in Resources */,
 				A1000000000000000000008D /* PrivacyInfo.xcprivacy in Resources */,
 			);
@@ -344,25 +345,6 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		A100000000000000000000AA /* Check Zecky engine */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Check Zecky engine";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/bash;
-			shellScript = "\"$PROJECT_DIR/scripts/check-engine.sh\"\n";
-		};
 		A10000000000000000000019 /* Fix libzcashlc layout for macOS */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -383,17 +365,47 @@
 			shellPath = /bin/sh;
 			shellScript = "# The Zcash engine (libzcashlc) is a static library, already linked into\n# the app. Its macOS package uses the flat iPhone framework layout, which\n# macOS rejects. Xcode still embeds a copy (with a small stub binary), so\n# rebuild that copy in the Mac layout (Versions/A) and sign it again.\n# Works whatever state the copy is in, so it is safe on every build.\nset -e\nF=\"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/libzcashlc.framework\"\n[ -d \"$F\" ] || exit 0\n# Already in the Mac layout (an earlier build): leave it, so Xcode's own\n# signing of this copy never meets a half-rebuilt framework.\nif [ -L \"$F/libzcashlc\" ] && [ -f \"$F/Versions/A/libzcashlc\" ]; then exit 0; fi\n# A fresh flat copy: wait until Xcode has signed it (at most 60 s).\nfor i in $(seq 1 120); do [ -f \"$F/_CodeSignature/CodeResources\" ] && break; sleep 0.5; done\nT=\"${DERIVED_FILE_DIR}/libzcashlc-fix\"\nrm -rf \"$T\" && mkdir -p \"$T\"\nif [ -f \"$F/libzcashlc\" ] && [ ! -L \"$F/libzcashlc\" ]; then cp \"$F/libzcashlc\" \"$T/bin\"\nelif [ -f \"$F/Versions/A/libzcashlc\" ]; then cp \"$F/Versions/A/libzcashlc\" \"$T/bin\"\nelse echo \"error: libzcashlc binary not found in $F\"; exit 1; fi\nif [ -f \"$F/Info.plist\" ] && [ ! -L \"$F/Info.plist\" ]; then cp \"$F/Info.plist\" \"$T/Info.plist\"\nelif [ -f \"$F/Versions/A/Resources/Info.plist\" ]; then cp \"$F/Versions/A/Resources/Info.plist\" \"$T/Info.plist\"\nelse echo \"error: libzcashlc Info.plist not found in $F\"; exit 1; fi\nrm -rf \"$F\"\nmkdir -p \"$F/Versions/A/Resources\"\nmv \"$T/bin\" \"$F/Versions/A/libzcashlc\"\nmv \"$T/Info.plist\" \"$F/Versions/A/Resources/Info.plist\"\nln -s A \"$F/Versions/Current\"\nln -s Versions/Current/libzcashlc \"$F/libzcashlc\"\nln -s Versions/Current/Resources \"$F/Resources\"\nP=\"$F/Versions/A/Resources/Info.plist\"\n/usr/bin/plutil -replace CFBundleSupportedPlatforms -json '[\"MacOSX\"]' \"$P\"\n/usr/bin/plutil -replace CFBundlePackageType -string FMWK \"$P\"\n/usr/bin/plutil -remove MinimumOSVersion \"$P\" 2>/dev/null || true\n/usr/bin/plutil -replace LSMinimumSystemVersion -string \"${MACOSX_DEPLOYMENT_TARGET}\" \"$P\"\n/usr/bin/codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY:--}\" --timestamp=none \"$F/Versions/A\"\n";
 		};
+		A100000000000000000000AA /* Check Zecky engine */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Check Zecky engine";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"$PROJECT_DIR/scripts/check-engine.sh\"\n";
+		};
+		A100000000000000000000F2 /* Neutral build paths */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Neutral build paths";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Swift puts source file paths in the app (for messages from the engine\n# and its packages). They start with this Mac's home folder, which holds\n# the user name. Replace that folder with a neutral one of the same\n# length, so nothing else in the binary moves. Xcode signs the app after\n# this step. Only for an archive: a Debug build loads its code from a\n# file next to the app by path, so it is left as it is.\nset -e\n[ \"$ACTION\" = \"install\" ] || exit 0\nB=\"${TARGET_BUILD_DIR}/${EXECUTABLE_PATH}\"\n[ -f \"$B\" ] || exit 0\ncase \"$HOME\" in /Users/?*) ;; *) exit 0 ;; esac\n/usr/bin/perl -0777 -pi -e 'BEGIN { $h = $ENV{HOME}; $n = \"/Users/\" . (\"_\" x (length($h) - 7)); } s/\\Q$h\\E/$n/g' \"$B\"\nchmod +x \"$B\"\nif /usr/bin/grep -q -a -F \"$HOME/\" \"$B\"; then echo \"error: the home folder is still in $B\"; exit 1; fi\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A10000000000000000000085 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				A10000000000000000000081 /* ZeckyLockItTests.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		A1000000000000000000000D /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -442,6 +454,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10000000000000000000085 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000081 /* ZeckyLockItTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -453,42 +473,6 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		A10000000000000000000088 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ARCHS = arm64;
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.zecky.lockit.tests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zecky Lock it.app/Contents/MacOS/Zecky Lock it";
-			};
-			name = Debug;
-		};
-		A10000000000000000000089 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ARCHS = arm64;
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = app.zecky.lockit.tests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zecky Lock it.app/Contents/MacOS/Zecky Lock it";
-			};
-			name = Release;
-		};
 		A10000000000000000000013 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -527,7 +511,8 @@
 		A10000000000000000000015 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = arm64;
+				ARCHS = "$(ARCHS_STANDARD)";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ZeckyLockIt/ZeckyLockIt.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
@@ -538,11 +523,10 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Zecky Lock it";
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "zecky.app";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "To reach your own Zcash node (Rock it) on your home network.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "To read QR codes from Zecky Seal it on your offline phone.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = zecky.app;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "To reach your own Zcash node (Rock it) on your home network.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -558,7 +542,8 @@
 		A10000000000000000000016 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = arm64;
+				ARCHS = "$(ARCHS_STANDARD)";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ZeckyLockIt/ZeckyLockIt.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
@@ -569,11 +554,10 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Zecky Lock it";
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "zecky.app";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "To reach your own Zcash node (Rock it) on your home network.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "To read QR codes from Zecky Seal it on your offline phone.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = zecky.app;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "To reach your own Zcash node (Rock it) on your home network.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -586,18 +570,45 @@
 			};
 			name = Release;
 		};
+		A10000000000000000000088 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.zecky.lockit.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zecky Lock it.app/Contents/MacOS/Zecky Lock it";
+			};
+			name = Debug;
+		};
+		A10000000000000000000089 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.zecky.lockit.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Zecky Lock it.app/Contents/MacOS/Zecky Lock it";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A10000000000000000000087 /* Build configuration list for PBXNativeTarget "ZeckyLockItTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A10000000000000000000088 /* Debug */,
-				A10000000000000000000089 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		A10000000000000000000011 /* Build configuration list for PBXProject "ZeckyLockIt" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -616,12 +627,21 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A10000000000000000000087 /* Build configuration list for PBXNativeTarget "ZeckyLockItTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000088 /* Debug */,
+				A10000000000000000000089 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
 		A10000000000000000000017 /* XCLocalSwiftPackageReference "../ZeckyEngine/zecky-engine" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../ZeckyEngine/zecky-engine;
+			relativePath = "../ZeckyEngine/zecky-engine";
 		};
 /* End XCLocalSwiftPackageReference section */
 
