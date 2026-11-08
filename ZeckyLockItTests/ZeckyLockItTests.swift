@@ -620,4 +620,81 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(KeyRingOrder.moved("main", by: -1, in: ["main", "a"]), ["main", "a"], "nothing left of the first")
         XCTAssertEqual(KeyRingOrder.moved("x", by: 1, in: ["main", "a"]), ["main", "a"])
     }
+
+    // MARK: Handing the lock to another wallet
+
+    // Public BIP39 test phrases only.
+    private let lockA = "legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth useful legal winner thank year wave sausage worth title"
+    private let lockB = "letter advice cage absurd amount doctor acoustic avoid letter advice cage absurd amount doctor acoustic avoid letter advice cage absurd amount doctor acoustic bless"
+    private let other = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo vote"
+
+    private func entry(_ id: String, _ words: String, lock: String) throws -> KeyRingVault.Entry {
+        let k = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: try Mnemonic.seed(from: lock)),
+                                       salt: Data("zecky".utf8), info: Data("zecky-lockit-keyring-v1".utf8), outputByteCount: 32)
+        return KeyRingVault.Entry(id: id, name: id, birthday: 1, box: try AES.GCM.seal(Data(words.utf8), using: k).combined!)
+    }
+
+    private func words(_ e: KeyRingVault.Entry, lock: String) throws -> String? {
+        let k = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: try Mnemonic.seed(from: lock)),
+                                       salt: Data("zecky".utf8), info: Data("zecky-lockit-keyring-v1".utf8), outputByteCount: 32)
+        guard let plain = try? AES.GCM.open(AES.GCM.SealedBox(combined: e.box), using: k) else { return nil }
+        return String(data: plain, encoding: .utf8)
+    }
+
+    func testAHandoverReencryptsTheOthersForTheNewLockAndDropsTheNewLead() throws {
+        // Wallets b (becoming the lock) and c, both sealed under lock A.
+        let list = [try entry("b", lockB, lock: lockA), try entry("c", other, lock: lockA)]
+        let moved = try KeyRingVault.rekeyed(list, dropping: ["b"], oldMain: lockA, newMain: lockB)
+        XCTAssertEqual(moved.map(\.id), ["c"])
+        XCTAssertEqual(try words(moved[0], lock: lockB), other, "c opens to the same words with the new lock")
+        XCTAssertNil(try words(moved[0], lock: lockA), "and no longer with the old one")
+    }
+
+    func testAHandoverStopsOnADamagedEntry() throws {
+        var bad = try entry("c", other, lock: lockA)
+        bad.box = Data(repeating: 1, count: bad.box.count)
+        XCTAssertThrowsError(try KeyRingVault.rekeyed([bad], dropping: [], oldMain: lockA, newMain: lockB))
+        // Entries made for another lock are refused too, never re-sealed blindly.
+        XCTAssertThrowsError(try KeyRingVault.rekeyed([try entry("c", other, lock: lockB)], dropping: [], oldMain: lockA, newMain: lockB))
+    }
+
+    func testTheLockTagTellsLocksApartWithoutTheWords() throws {
+        XCTAssertEqual(try KeyRingVault.lockTag(mainPhrase: lockA), try KeyRingVault.lockTag(mainPhrase: lockA))
+        XCTAssertNotEqual(try KeyRingVault.lockTag(mainPhrase: lockA), try KeyRingVault.lockTag(mainPhrase: lockB))
+    }
+
+    // MARK: The sync ring (every block since the birthday, as Lock it iPhone)
+
+    func testANightOfNewBlocksStartsHighNotAtZero() {
+        // 100,000 blocks since the birthday, the newest 400 still to check.
+        let share = SyncMath.checkedShare(toScan: [(199_600, 200_000)], birthday: 100_000, tip: 200_000)
+        XCTAssertEqual(share ?? 0, 0.996, accuracy: 1e-9)
+        XCTAssertEqual(SyncMath.ringPercent(share: share ?? 0, synced: false), 99.6)
+    }
+
+    func testRangesAreClippedAndOverlapsCountOnce() {
+        // Open: 100…160 and 190…200 = 70 of 100.
+        let share = SyncMath.checkedShare(toScan: [(50, 150), (120, 160), (190, 400)], birthday: 100, tip: 200)
+        XCTAssertEqual(share ?? 0, 0.3, accuracy: 1e-9)
+        // Older ranges below the birthday (another wallet's) do not count.
+        XCTAssertEqual(SyncMath.checkedShare(toScan: [(10, 90)], birthday: 100, tip: 200), 1)
+    }
+
+    func testNever100BeforeUpToDateAlways100When() {
+        XCTAssertEqual(SyncMath.ringPercent(share: 0.99999, synced: false), 99.9)
+        XCTAssertEqual(SyncMath.ringPercent(share: 1, synced: false), 99.9)
+        XCTAssertEqual(SyncMath.ringPercent(share: 0.5, synced: true), 100)
+    }
+
+    func testNoNumberWithoutANetworkBlock() {
+        XCTAssertNil(SyncMath.checkedShare(toScan: [], birthday: 100, tip: 0))
+    }
+
+    func testThisWalletIsCheckedFromItsOwnBirthdayNotFromOlderRanges() {
+        // Only an older range (another wallet's) is left: this wallet is complete.
+        XCTAssertEqual(SyncMath.checkedThrough(toScan: [(3_425_600, 3_524_000)], birthday: 3_524_536, tip: 3_551_141), 3_551_141)
+        // A gap after the birthday: checked up to its start.
+        XCTAssertEqual(SyncMath.checkedThrough(toScan: [(3_540_000, 3_541_000)], birthday: 3_524_536, tip: 3_551_141), 3_540_000)
+        XCTAssertNil(SyncMath.checkedThrough(toScan: [], birthday: 100, tip: 0))
+    }
 }

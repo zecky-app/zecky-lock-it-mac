@@ -24,6 +24,21 @@ Plain-words notes on what changed in Zecky Lock it for Mac, newest first.
   (received since then, stacking pace, payments in, largest payment in,
   longest before). The first time you open it on a milestone day, that
   milestone lights up once.
+- Erase this wallet, in each wallet's menu on the key ring, removes only that
+  wallet: a page shows its name, balance and address start, and Erase stays
+  off until you type its name. Erasing the wallet that holds the lock passes
+  the lock to the next wallet with words (same code and keys, checked before
+  anything is removed). "This Mac" can be renamed. Settings now says plainly
+  "Erase everything on this Mac".
+- New wallets: the words show with a click and hide after 2 minutes; three
+  words are asked back before the wallet is added. Key ring chips can be
+  moved left or right.
+- Sync details: the ring counts every block since the wallet birthday, so
+  after a night closed it starts near the top (for example 99.6%) and moves
+  to 100% instead of jumping from 0. One decimal, gliding between readings
+  (not with Reduce Motion), 100% only when up to date, and the line under it
+  says how many new blocks are left. The status line uses the same number.
+- Network: your own server is remembered when you switch to a public one.
 - Send: "Fee included" works on a whole balance; the engine's not-enough
   message is shown in plain words.
 - Seal it uses the same Send screen as the lock, with the address book;

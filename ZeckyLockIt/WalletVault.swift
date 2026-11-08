@@ -320,6 +320,50 @@ enum WalletVault {
         resetTries()
     }
 
+    // MARK: Handing the lock to another wallet
+
+    /// The lock passes to another wallet on this Mac (the one holding it is
+    /// being erased): `wallet`'s words become the sealed ones. Same seal as
+    /// before: Touch ID or the Mac password, and the Zecky code (`secret`)
+    /// when the lock has one. One fresh Touch ID. The new seal is checked to
+    /// open to the very same words before it replaces the old one.
+    static func handOver(to wallet: StoredWallet, secret: String?) async throws {
+        guard let info else { throw Failure.damaged }
+        guard info.kind == .secureEnclave else {
+            throw Failure.sealing("handing the lock over needs this Mac's Secure Enclave")
+        }
+        let mode: Extra
+        if info.usesPassword == true {
+            guard let secret else { throw Failure.codeNeeded }
+            mode = .passwordOnly(secret)
+        } else if info.hasCode == true {
+            guard let secret else { throw Failure.codeNeeded }
+            mode = .code(secret)
+        } else {
+            mode = .none
+        }
+        let plain = try JSONEncoder().encode(wallet)
+        let context: LAContext
+        if info.usesPassword == true { context = LAContext() } else { context = try await confirmOwner(reason: "hand the lock to another wallet") }
+        defer { context.invalidate() }
+        let staged = try sealInEnclave(plain, mode: mode)
+        try KeyStore.save(staged, service: stagingService)
+        if let secret, info.hasCode == true || info.usesPassword == true {
+            _ = context.setCredential(Data(secret.utf8), type: .applicationPassword)
+        }
+        guard (try? openFromEnclave(context, service: stagingService)) == plain else {
+            try? KeyStore.delete(service: stagingService)
+            throw Failure.sealing("the new seal did not open to the same words")
+        }
+        try KeyStore.save(staged, service: sealedService)
+        try? KeyStore.delete(service: stagingService)
+        var updated = info
+        updated.birthday = wallet.birthday
+        try KeyStore.save(try JSONEncoder().encode(updated), service: infoService)
+        resetTries()
+        LockLog.add(.code, "The lock passed to another wallet")
+    }
+
     private static var tries: Tries {
         guard let data = (try? KeyStore.read(service: triesService)) ?? nil,
               let tries = try? JSONDecoder().decode(Tries.self, from: data) else { return Tries(count: 0, until: nil) }

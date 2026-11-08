@@ -22,7 +22,9 @@ other people's wallets or funds. Use small amounts on your own wallet.
 ## In scope
 
 - The recovery phrase: how it is made, sealed (Secure Enclave / Keychain),
-  shown and erased.
+  shown and erased; the key ring (each wallet's own 24 words, encrypted with
+  a key from the words that hold the lock) and handing the lock to another
+  wallet when that one is erased.
 - The keys to the lock: the Zecky code, the time lock and Break the glass,
   and the rules that weakening a key asks the owner first.
 - Anything that could release Zcash without the owner, or leak the phrase,

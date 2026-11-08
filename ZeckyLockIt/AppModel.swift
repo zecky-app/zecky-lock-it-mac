@@ -24,7 +24,7 @@ final class AppModel: ObservableObject {
     @Published var screen: Screen = .loading
     /// The sheet over the home screen, also opened from the menu bar.
     enum Sheet: Identifiable {
-        case receive, send, settings, activity, ironwood, lockIn, signer, addWallet, walletWords, sync, holding
+        case receive, send, settings, activity, ironwood, lockIn, signer, addWallet, walletWords, sync, holding, eraseWallet
         var id: Self { self }
         /// Read-only screens: shown as a panel over the main screen that a
         /// click beside it closes. Everything where you type or a step is
@@ -74,6 +74,15 @@ final class AppModel: ObservableObject {
         askToOpen()
     }
 
+    /// Erasing one wallet: the lock opens first (the words are needed when
+    /// the lock passes to another wallet), then the confirmation page.
+    @Published var erasingWallet = false
+    func startErasing(_ id: AccountUUID?) {
+        selectedWallet = id
+        erasingWallet = true
+        askToOpen()
+    }
+
     /// The main wallet's words while the lock is open, for the key ring vault.
     var openedPhrase: String? { mainOpened?.phrase }
     private var mainOpened: StoredWallet?
@@ -100,7 +109,7 @@ final class AppModel: ObservableObject {
         case .notAsked, .waiting: timeLockShown = true
         }
     }
-    func keepLocked() { asking = false; askingCode = false; timeLockShown = false; breakingGlass = false; adding = nil; showingWords = false }
+    func keepLocked() { asking = false; askingCode = false; timeLockShown = false; breakingGlass = false; adding = nil; showingWords = false; erasingWallet = false }
     func startTimeLockWait() { TimeLock.askToOpen(); timeLockShown = false; timeLockChanged += 1 }
     func cancelTimeLockRequest() { TimeLock.cancelRequest(); timeLockShown = false; timeLockChanged += 1 }
 
@@ -129,6 +138,8 @@ final class AppModel: ObservableObject {
             let main = try await WalletVault.unseal(reason: "open the lock", code: code, fresh: Keys.askOpeningLock)
             mainOpened = main
             opened = main
+            // A handover of the lock that stopped half-way is finished or undone.
+            KeyRingVault.finishInterruptedHandover(mainPhrase: main.phrase)
             // An extra wallet on this Mac: its words open with the main ones.
             if adding == nil, let id = selectedWallet, KeyRingVault.contains(id) {
                 opened = try KeyRingVault.open(id: id, mainPhrase: main.phrase)
@@ -153,6 +164,9 @@ final class AppModel: ObservableObject {
         } else if showingWords {
             released = true
             sheet = .walletWords
+        } else if erasingWallet {
+            released = true
+            sheet = .eraseWallet
         }
         // The open lock waits on home; it closes by itself after 2 minutes
         // unless Release is being filled in.
@@ -160,7 +174,7 @@ final class AppModel: ObservableObject {
         openToken = token
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(Self.openLimit * 1_000_000_000))
-            if lockOpen && openToken == token && sheet != .send && sheet != .signer && sheet != .addWallet && sheet != .walletWords { closeLock() }
+            if lockOpen && openToken == token && sheet != .send && sheet != .signer && sheet != .addWallet && sheet != .walletWords && sheet != .eraseWallet { closeLock() }
         }
     }
 
@@ -195,6 +209,7 @@ final class AppModel: ObservableObject {
         mainOpened = nil
         adding = nil
         showingWords = false
+        erasingWallet = false
         askingCode = false
         timeLockShown = false
         asking = false
@@ -241,11 +256,12 @@ final class AppModel: ObservableObject {
     func closeLock() {
         guard !signing else { return }
         openToken = nil
-        if sheet == .send || sheet == .signer || sheet == .addWallet || sheet == .walletWords { sheet = nil }
+        if sheet == .send || sheet == .signer || sheet == .addWallet || sheet == .walletWords || sheet == .eraseWallet { sheet = nil }
         opened = nil
         mainOpened = nil
         adding = nil
         showingWords = false
+        erasingWallet = false
         asking = false
         askingCode = false
         lockOpen = false
@@ -353,6 +369,63 @@ final class AppModel: ObservableObject {
     func confirmed(_ wallet: StoredWallet) {
         WalletVault.phraseUnconfirmed = false
         openHome(with: wallet)
+    }
+
+    /// What erasing the wallet `id` (nil: the one holding the lock) does.
+    enum EraseKind { case sealed, macWallet, handOver(to: Account), everything }
+
+    func eraseKind(_ id: AccountUUID?) -> EraseKind {
+        if let id, engine.sealedWallets.contains(where: { $0.id == id }) { return .sealed }
+        if let id, id != engine.leadWallet?.id { return .macWallet }
+        // The wallet holding the lock: the lock passes to the first other
+        // Mac wallet on the key ring; with none left, everything goes.
+        let order = KeyRingOrder.ordered(engine.macWallets.map { KeyRingVault.hex($0.id) }, saved: KeyRingOrder.saved)
+        if let next = order.compactMap({ hex in engine.macWallets.first { KeyRingVault.hex($0.id) == hex } }).first {
+            return .handOver(to: next)
+        }
+        return .everything
+    }
+
+    /// Erases one wallet (nil: the one holding the lock), after the owner
+    /// confirmed it on its page. The lock is open: its words are in memory.
+    func eraseWallet(_ id: AccountUUID?, secret: String?) async throws {
+        switch eraseKind(id) {
+        case .sealed:
+            guard let id else { return }
+            if selectedWallet == id { selectedWallet = nil }
+            try await engine.removeWallet(id)
+            WalletNames.forget(id)
+        case .macWallet:
+            guard let id else { return }
+            if selectedWallet == id { selectedWallet = nil }
+            try await engine.removeWallet(id)
+            KeyRingVault.remove(id: id)
+            WalletNames.forget(id)
+        case .handOver(let next):
+            guard let lockWords = mainOpened?.phrase, let old = engine.leadWallet?.id else {
+                throw WalletVault.Failure.cancelled
+            }
+            // 1. The next wallet's words, and every other wallet's entry made
+            //    and checked for them, kept aside.
+            let successor = try KeyRingVault.open(id: next.id, mainPhrase: lockWords)
+            try KeyRingVault.stageHandover(dropping: [KeyRingVault.hex(next.id)], oldMain: lockWords, newMain: successor.phrase)
+            // 2. Its words sealed as the lock (checked to open), or undo 1.
+            do { try await WalletVault.handOver(to: successor, secret: secret) }
+            catch { KeyRingVault.discardHandover(); throw error }
+            // 3. The new entries in place, the engine on the new wallet, the old one gone.
+            try KeyRingVault.commitHandover(newMain: successor.phrase)
+            selectedWallet = nil
+            try await engine.handLead(to: next.id)
+            WalletNames.forget(old)
+            mainOpened = nil
+            opened = nil
+        case .everything:
+            try await erase()
+            return
+        }
+        erasingWallet = false
+        sheet = nil
+        closeLock()
     }
 
     /// Erase wallet: the engine's data, the phrase and every other Keychain

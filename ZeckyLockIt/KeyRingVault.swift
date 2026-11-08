@@ -81,6 +81,77 @@ enum KeyRingVault {
 
     static func erase() {
         try? KeyStore.delete(service: service)
+        try? KeyStore.delete(service: stagingService)
+    }
+
+    // MARK: Handing the lock to another wallet
+
+    // When the wallet that holds the lock is erased, the lock passes to
+    // another Mac wallet: its words become the sealed ones, and every other
+    // entry is encrypted again with a key from those words. The new entries
+    // are made and checked first and kept aside (staged) with a tag of the
+    // new lock; only after the new seal is in place do they replace the old
+    // ones. If Lock it stops half-way, the next opening finishes or undoes it
+    // (finishInterruptedHandover), so no wallet's words are ever lost.
+
+    private static let stagingService = "app.zecky.lockit.mac.keyring-staging"
+
+    private struct Staged: Codable {
+        var lockTag: Data
+        var entries: [Entry]
+    }
+
+    /// Identifies the lock words a staged list belongs to, without revealing them.
+    static func lockTag(mainPhrase: String) throws -> Data {
+        let k = try key(mainPhrase: mainPhrase)
+        return Data(HMAC<SHA256>.authenticationCode(for: Data("zecky-keyring-lock-tag".utf8), using: k))
+    }
+
+    /// `entries` without `dropping`, each opened with the old lock words and
+    /// sealed again with the new ones, then checked to open to the same words.
+    static func rekeyed(_ entries: [Entry], dropping: Set<String>, oldMain: String, newMain: String) throws -> [Entry] {
+        let oldKey = try key(mainPhrase: oldMain)
+        let newKey = try key(mainPhrase: newMain)
+        return try entries.filter { !dropping.contains($0.id) }.map { entry in
+            guard let box = try? AES.GCM.SealedBox(combined: entry.box),
+                  let plain = try? AES.GCM.open(box, using: oldKey) else { throw Failure.damaged }
+            guard let combined = try AES.GCM.seal(plain, using: newKey).combined,
+                  let check = try? AES.GCM.open(AES.GCM.SealedBox(combined: combined), using: newKey),
+                  check == plain else { throw Failure.damaged }
+            return Entry(id: entry.id, name: entry.name, birthday: entry.birthday, box: combined)
+        }
+    }
+
+    /// Step 1 of a handover: the new entries, made, checked and kept aside.
+    static func stageHandover(dropping: Set<String>, oldMain: String, newMain: String) throws {
+        let staged = Staged(lockTag: try lockTag(mainPhrase: newMain),
+                            entries: try rekeyed(entries, dropping: dropping, oldMain: oldMain, newMain: newMain))
+        try KeyStore.save(try JSONEncoder().encode(staged), service: stagingService)
+    }
+
+    /// Step 3, after the new seal is in place: the staged entries become the key ring.
+    static func commitHandover(newMain: String) throws {
+        guard let data = (try? KeyStore.read(service: stagingService)) ?? nil,
+              let staged = try? JSONDecoder().decode(Staged.self, from: data),
+              staged.lockTag == (try lockTag(mainPhrase: newMain)) else { throw Failure.damaged }
+        try store(staged.entries)
+        try? KeyStore.delete(service: stagingService)
+    }
+
+    /// Undo step 1 when the new seal could not be made.
+    static func discardHandover() { try? KeyStore.delete(service: stagingService) }
+
+    /// Called with the lock words each time the lock opens. A staged list
+    /// left by an interrupted handover is used when it belongs to these words
+    /// (the new seal was already in place), and dropped otherwise (the old
+    /// seal still holds, with the old entries).
+    static func finishInterruptedHandover(mainPhrase: String) {
+        guard let data = (try? KeyStore.read(service: stagingService)) ?? nil else { return }
+        if let staged = try? JSONDecoder().decode(Staged.self, from: data),
+           staged.lockTag == (try? lockTag(mainPhrase: mainPhrase)) {
+            try? store(staged.entries)
+        }
+        try? KeyStore.delete(service: stagingService)
     }
 }
 
@@ -96,6 +167,14 @@ enum WalletNames {
 
     static func name(for account: Account, fallback: String) -> String {
         all[KeyRingVault.hex(account.id)] ?? account.name ?? fallback
+    }
+
+    /// The name on the key ring. The wallet holding the lock is "This Mac"
+    /// until renamed; a wallet the lock passed to keeps its own name.
+    static func display(_ account: Account, lead: Bool) -> String {
+        if let custom = all[KeyRingVault.hex(account.id)] { return custom }
+        if lead && account.keySource != WalletEngine.macKeySource { return "This Mac" }
+        return account.name ?? (SealItFlow.isSealIt(account) ? "Seal it" : "Wallet")
     }
 
     static func rename(_ id: AccountUUID, to name: String) {

@@ -27,7 +27,7 @@ struct SettingsView: View {
     @State private var erasing = false
 
     @State private var serverChoice = Server.presets.firstIndex { $0.host == Server.host } ?? -1
-    @State private var customServer = Server.presets.contains { $0.host == Server.host } ? "" : "\(Server.host):\(Server.port)"
+    @State private var customServer = Server.presets.contains { $0.host == Server.host } ? (Server.ownServer ?? "") : "\(Server.host):\(Server.port)"
     @State private var serverNote: String?
 
     var body: some View {
@@ -63,11 +63,11 @@ struct SettingsView: View {
         } message: {
             Text(timeLockMessage)
         }
-        .alert("Erase this wallet from this Mac?", isPresented: $confirmErase) {
+        .alert("Erase everything on this Mac?", isPresented: $confirmErase) {
             Button("Cancel", role: .cancel) {}
-            Button("Erase", role: .destructive) { Task { await erase() } }
+            Button("Erase everything", role: .destructive) { Task { await erase() } }
         } message: {
-            Text("The recovery phrase, history and settings are removed from this Mac. Without your 24 words on paper, the money in this wallet cannot be recovered.")
+            Text("Every wallet's 24 words, every Seal it pairing, the history, address book and settings are removed from this Mac. Without the 24 words on paper, the Zcash in those wallets cannot be recovered.")
         }
     }
 
@@ -124,12 +124,12 @@ struct SettingsView: View {
             }
             // Erase, on its own, with a red edge.
             VStack(alignment: .leading, spacing: 10) {
-                Label("Erase wallet", systemImage: "trash").font(Theme.text(13, weight: .semibold)).foregroundStyle(Theme.red)
-                Text("Removes the phrase, history and settings from this Mac. Make sure your 24 words are on paper first.")
+                Label("Erase everything", systemImage: "trash").font(Theme.text(13, weight: .semibold)).foregroundStyle(Theme.red)
+                Text("Removes every wallet, its words, the history and settings from this Mac. To erase one wallet, use its menu on the key ring (two-finger click on its name). Make sure the 24 words are on paper first.")
                     .font(Theme.text(12)).foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
                 Button { Task { await askErase() } } label: {
-                    Text(erasing ? "Erasing…" : "Erase this wallet…")
+                    Text(erasing ? "Erasing…" : "Erase everything on this Mac…")
                         .font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.red)
                         .padding(.horizontal, 14).frame(height: 32)
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.red.opacity(0.6)))
@@ -675,7 +675,7 @@ struct SettingsView: View {
         case .setUp: return "Set a Zecky code"
         case .change: return "Change the code"
         case .remove: return "Remove the code"
-        case .erase: return "Erase this wallet"
+        case .erase: return "Erase everything"
         case .guarded: return "Confirm it's you"
         case nil: break
         }
@@ -824,7 +824,12 @@ struct SettingsView: View {
                 port = p
             }
         }
+        // Leaving your own server for a public one: keep it for later.
+        if !Server.presets.contains(where: { $0.host == Server.host }) {
+            Server.rememberOwn(Server.port == 443 ? Server.host : "\(Server.host):\(Server.port)")
+        }
         Server.set(host: host, port: port)
+        if serverChoice < 0 { Server.rememberOwn(port == 443 ? host : "\(host):\(port)") }
         // A running "Lost my keys" removal starts its 48 hours again on a
         // new server (iPhone re-check R1).
         SecurityKeys.restartRemovalIfRunning()
@@ -882,7 +887,7 @@ struct SettingsView: View {
     private func askErase() async {
         problem = nil
         if WalletVault.needsSecret { codeStep = .erase; return }
-        if await OwnerCheck.confirm(reason: "erase this wallet") { confirmErase = true }
+        if await OwnerCheck.confirm(reason: "erase everything on this Mac") { confirmErase = true }
     }
 
     private func erase() async {
@@ -1031,9 +1036,11 @@ struct HowItWorks: View {
             "Your 24 words and birthday block restore the wallet in Lock it or any Zcash wallet. Whoever has them has your Zcash.",
             "They are sealed by this Mac's Secure Enclave and shown only when you click to show them, for at most 2 minutes, so a screenshot does not catch them by accident.",
         ], more: [
-            "They are made on this Mac from the system's secure random generator (256 bits), checked, and mixed with a second source.",
+            "They are made on this Mac from the system's secure random generator (256 bits), checked, and mixed with a second source. After you write them down, Lock it asks for three of them back.",
+            "Every wallet on the key ring has its own 24 words and restores on its own in any Zcash wallet. One lock opens them all: the first wallet's words are sealed by the Secure Enclave, and the other wallets' words are encrypted with a key that comes from them.",
+            "Erase this wallet, in a wallet's menu on the key ring, removes only that wallet after you type its name. Erasing the wallet that holds the lock passes the lock to the next wallet with words, with the same code and keys; each step is checked before anything old is removed. Only the last wallet with words takes everything with it.",
             "Only Touch ID or your Mac password (and your Zecky code, if set) opens the seal. They are never synced, never in a backup, never written to a log and never sent anywhere. They are opened only to sign a payment or to show them to you, and let go straight after.",
-            "Moving Lock it to the Trash does not remove the wallet. To remove it, use Settings › Erase first. The Zecky code, time lock, keys, address book and settings live on this Mac only and do not come back with a restore.",
+            "Moving Lock it to the Trash does not remove the wallets. To remove everything, use Settings › Erase everything first. The Zecky code, time lock, keys, address book and settings live on this Mac only and do not come back with a restore.",
         ]),
         Chapter(title: "Keys to the lock", icon: "key.fill", summary: "Up to four checks before Zcash leaves. You choose.", essentials: [
             "1 Opening Zecky, 2 Opening the lock (with an optional six-digit Zecky code), 3 Really open the lock?, 4 Security key.",

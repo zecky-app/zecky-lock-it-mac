@@ -229,3 +229,131 @@ struct WalletWordsSheet: View {
         .hiddenFromCapture()
     }
 }
+
+/// Erasing one wallet: which one, what it holds, and what happens, before
+/// anything is removed. Erase stays off until its name is typed.
+struct EraseWalletSheet: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var engine: WalletEngine
+    let onClose: () -> Void
+
+    @State private var typed = ""
+    @State private var secret = ""
+    @State private var address: String?
+    @State private var working = false
+    @State private var problem: String?
+
+    private var id: AccountUUID? { model.selectedWallet }
+    private var kind: AppModel.EraseKind { model.eraseKind(id) }
+
+    private var account: Account? {
+        guard let id else { return engine.leadWallet }
+        return (engine.macWallets + engine.sealedWallets).first { $0.id == id } ?? (engine.leadWallet?.id == id ? engine.leadWallet : nil)
+    }
+
+    private var name: String { account.map { WalletNames.display($0, lead: $0.id == engine.leadWallet?.id) } ?? "This wallet" }
+
+    private var balance: Int64 {
+        guard let account else { return 0 }
+        if account.id == engine.leadWallet?.id { return engine.total }
+        return engine.signerBalances[account.id]?.total ?? 0
+    }
+
+    private var needsSecret: Bool {
+        if case .handOver = kind { return WalletVault.needsSecret }
+        return false
+    }
+
+    private var confirmed: Bool {
+        typed.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == name.lowercased()
+            && (!needsSecret || !secret.isEmpty)
+    }
+
+    var body: some View {
+        SheetScaffold(title: "Erase \(name)?", subtitle: "Check that this is the right wallet.",
+                      closeLabel: "Cancel", width: 560, height: 600, onClose: onClose) {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(spacing: 0) {
+                    line("Wallet", name)
+                    line("Balance", model.amountsHidden ? "••••" : Amount.text(balance, model.unit))
+                    line("Address", address.map { String($0.prefix(14)) + "…" } ?? "…", last: true)
+                }
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+
+                Text(explanation)
+                    .font(Theme.text(13)).foregroundStyle(balance > 0 ? Theme.gold : Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if needsSecret {
+                    SecureField(WalletVault.usesPassword ? "Your Lock it password" : "Your Zecky code", text: $secret)
+                        .textFieldStyle(.roundedBorder)
+                    Text("The lock passes to the next wallet with the same code.")
+                        .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                }
+                Text("Type \(name) to confirm").font(Theme.text(12, weight: .medium))
+                TextField(name, text: $typed).textFieldStyle(.roundedBorder).autocorrectionDisabled()
+
+                if let problem {
+                    Text(problem).font(Theme.text(12)).foregroundStyle(Theme.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                HStack {
+                    Spacer()
+                    Button { Task { await erase() } } label: {
+                        Text(working ? "Erasing…" : (isEverything ? "Erase everything" : "Erase \(name)"))
+                            .font(Theme.text(13, weight: .semibold)).foregroundStyle(.white)
+                            .padding(.horizontal, 18).frame(height: 36)
+                            .background(Theme.red.opacity(confirmed && !working ? 1 : 0.35), in: Capsule())
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!confirmed || working)
+                }
+            }
+        }
+        .task {
+            guard let account, let sdk = engine.sdk else { return }
+            address = try? await sdk.getUnifiedAddress(accountUUID: account.id).stringEncoded
+        }
+        .onDisappear { secret = ""; typed = "" }
+    }
+
+    private var isEverything: Bool { if case .everything = kind { return true }; return false }
+
+    private var explanation: String {
+        let money = balance > 0 ? " It still holds Zcash: without its 24 words on paper, that Zcash cannot be recovered." : ""
+        switch kind {
+        case .sealed:
+            return "This Seal it wallet is removed from Lock it. Its keys and Zcash stay on your offline phone; you can pair it again at any time."
+        case .macWallet:
+            return "Its 24 words are deleted from this Mac. The other wallets stay as they are." + money
+        case .handOver(let next):
+            return "Its 24 words are deleted from this Mac, and the lock passes to \(WalletNames.display(next, lead: false)). Your code, keys, time lock and settings stay. The other wallets stay as they are." + money
+        case .everything:
+            return "This is the last wallet with words on this Mac, so everything is erased: its words, every Seal it pairing, the address book and the settings. Lock it starts fresh." + money
+        }
+    }
+
+    private func erase() async {
+        working = true
+        problem = nil
+        defer { working = false }
+        do {
+            try await model.eraseWallet(id, secret: needsSecret ? secret : nil)
+        } catch {
+            problem = "Stopped: \(error)"
+        }
+    }
+
+    private func line(_ label: String, _ value: String, last: Bool = false) -> some View {
+        HStack {
+            Text(label).font(Theme.text(13)).foregroundStyle(Theme.muted)
+            Spacer(minLength: 12)
+            Text(value).font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.text)
+        }
+        .padding(.horizontal, 14).frame(height: 40)
+        .overlay(alignment: .bottom) { if !last { Rectangle().fill(Theme.line).frame(height: 1).padding(.leading, 14) } }
+    }
+}

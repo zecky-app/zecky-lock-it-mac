@@ -43,6 +43,43 @@ enum SyncMath {
         return max(1, Int((Double(behind) / rate / 60).rounded()))
     }
 
+    /// How much of [birthday, tip) is checked, 0…1, from the engine's own
+    /// list of ranges still to scan (as Lock it iPhone: syncProblems.ts).
+    /// Each range is clipped to birthday…tip and overlaps count once. Nil
+    /// while the network block is not known yet.
+    static func checkedShare(toScan: [(first: Int, end: Int)], birthday: Int, tip: Int) -> Double? {
+        let span = tip - birthday
+        guard tip > 0, span > 0 else { return nil }
+        let parts = toScan.map { (max($0.first, birthday), min($0.end, tip)) }
+            .filter { $0.1 > $0.0 }
+            .sorted { $0.0 < $1.0 }
+        var open = 0
+        var reach = birthday
+        for (a, b) in parts {
+            let from = max(a, reach)
+            if b > from { open += b - from }
+            reach = max(reach, b)
+        }
+        return max(0, min(1, Double(span - open) / Double(span)))
+    }
+
+    /// How far this wallet is checked without gaps from its own birthday:
+    /// the first block still to check at or after the birthday, or the
+    /// network block when none is left. Older ranges (another wallet's) do
+    /// not count. Nil while the network block is not known.
+    static func checkedThrough(toScan: [(first: Int, end: Int)], birthday: Int, tip: Int) -> Int? {
+        guard tip > 0, tip > birthday else { return nil }
+        let starts = toScan.filter { $0.end > birthday && $0.first < tip }.map { max($0.first, birthday) }
+        return starts.min() ?? tip
+    }
+
+    /// The ring's number: one decimal, rounded down, so a few hundred new
+    /// blocks still move it. 100 only when the wallet really is up to date.
+    static func ringPercent(share: Double, synced: Bool) -> Double {
+        if synced { return 100 }
+        return min(99.9, (share * 1000).rounded(.down) / 10)
+    }
+
     /// How far along the span from the birthday to the network block the
     /// gap-free part reaches, 0…1.
     static func checkedFraction(birthday: Int, wallet: Int, network: Int) -> Double {
@@ -58,9 +95,18 @@ struct SyncSheet: View {
     @ObservedObject var engine: WalletEngine
     let onClose: () -> Void
 
-    private var upToDate: Bool { engine.status == .upToDate }
+    /// Up to date for this wallet: every block since its birthday is checked,
+    /// even while the engine still works on older blocks for another wallet.
+    private var upToDate: Bool { engine.status == .upToDate || engine.openBlocks == 0 }
     private var network: Int { engine.networkHeight }
-    private var wallet: Int { upToDate && engine.walletHeight == 0 ? network : engine.walletHeight }
+    private var wallet: Int { engine.walletCheckedTo ?? (upToDate && engine.walletHeight == 0 ? network : engine.walletHeight) }
+    /// Older blocks the engine still checks for another wallet (below this
+    /// wallet's birthday), from where; nil when there are none.
+    private var olderFrom: Int? {
+        let h = engine.walletHeight
+        guard engine.status != .upToDate, h > 0, engine.birthdayHeight > 0, h < engine.birthdayHeight else { return nil }
+        return h
+    }
     private var behind: Int? { SyncMath.behind(network: network, wallet: wallet) }
 
     var body: some View {
@@ -73,13 +119,17 @@ struct SyncSheet: View {
                     line("Network", network > 0 ? n(network) : "…")
                     line("This wallet", wallet > 0 ? n(wallet) : "…")
                     line("Behind", behindText)
+                    if let olderFrom {
+                        line("Older blocks", "checking from \(n(olderFrom))")
+                    }
                     line("Block time", BlockTime.spacing(at: max(network, 1)) == 25 ? "25 seconds (since NU7)" : "75 seconds")
                     line("Wallet birthday", engine.birthdayHeight > 0 ? "Block \(n(engine.birthdayHeight))" : "…", last: true)
                 }
                 section("Checked so far") {
                     VStack(alignment: .leading, spacing: 6) {
                         GeometryReader { g in
-                            let f = SyncMath.checkedFraction(birthday: engine.birthdayHeight, wallet: wallet, network: network)
+                            let f = engine.checkedPercent.map { $0 / 100 }
+                                ?? SyncMath.checkedFraction(birthday: engine.birthdayHeight, wallet: wallet, network: network)
                             ZStack(alignment: .leading) {
                                 Capsule().fill(Theme.ink)
                                 Capsule().fill(Theme.gold).frame(width: max(f > 0 ? 6 : 0, g.size.width * f))
@@ -129,34 +179,63 @@ struct SyncSheet: View {
     private var subtitle: String {
         switch engine.status {
         case .connecting: return "Connecting…"
-        case .syncing(let pct): return pct >= 100 ? "Finishing…" : "Syncing \(pct)%"
+        case .syncing: return engine.syncingText
         case .upToDate: return "Up to date"
         case .failed: return "Having trouble, see below"
         }
     }
 
     private var behindText: String {
-        guard let behind else { return "…" }
+        // Blocks since the wallet birthday still to check (the engine may also
+        // be checking older ranges that are not this wallet's).
+        guard let behind = upToDate ? 0 : (engine.openBlocks ?? behind) else { return "…" }
         if behind == 0 { return "Nothing" }
         let minutes = SyncMath.minutesLeft(behind: behind, samples: engine.heightSamples)
         return "\(n(behind)) blocks" + (minutes.map { ", about \($0) min" } ?? "")
     }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The ring counts every block from the wallet birthday to the network
+    /// block (as Lock it iPhone), one decimal, never 100 before up to date,
+    /// gliding to each new reading in half a second (straight there with
+    /// Reduce Motion). "…" until the network block is known.
     private var ring: some View {
-        let progress = upToDate ? 1 : engine.syncFraction
-        return ZStack {
-            Circle().stroke(Theme.line, lineWidth: 10)
-            Circle().trim(from: 0, to: progress)
-                .stroke(Theme.gold, style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .animation(.easeOut(duration: 0.4), value: progress)
-            VStack(spacing: 2) {
-                Text("\(Int((progress * 100).rounded(.down)))%").font(Theme.serif(30, weight: .medium)).foregroundStyle(Theme.text)
-                Text(upToDate ? "up to date" : "checked").font(Theme.text(12)).foregroundStyle(Theme.muted)
+        let percent = engine.checkedPercent
+        let shown = percent ?? 0
+        return VStack(spacing: 8) {
+            ZStack {
+                Circle().stroke(Theme.line, lineWidth: 10)
+                Circle().trim(from: 0, to: shown / 100)
+                    .stroke(Theme.gold, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                VStack(spacing: 2) {
+                    if percent == nil {
+                        Text("…").font(Theme.serif(30, weight: .medium)).foregroundStyle(Theme.text)
+                    } else {
+                        GlidingPercent(value: shown).font(Theme.serif(30, weight: .medium)).foregroundStyle(Theme.text)
+                    }
+                    Text(upToDate ? "up to date" : "checked").font(Theme.text(12)).foregroundStyle(Theme.muted)
+                }
             }
+            .frame(width: 150, height: 150)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.5), value: shown)
+            Text(ringNote)
+                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 150, height: 150)
         .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var ringNote: String {
+        guard engine.checkedPercent != nil else { return "Waiting for the network block" }
+        if upToDate { return "Every block since the wallet birthday" }
+        if let open = engine.openBlocks, open > 0 {
+            return "Of all blocks since the wallet birthday. Catching up \(n(open)) new \(open == 1 ? "block" : "blocks")."
+        }
+        return "Of all blocks since the wallet birthday"
     }
 
     private func section<C: View>(_ title: String, @ViewBuilder _ rows: () -> C) -> some View {
@@ -376,5 +455,19 @@ struct HoldingSheet: View {
         }
         .padding(.horizontal, 14).frame(height: 40)
         .overlay(alignment: .bottom) { if !last { Rectangle().fill(Theme.line).frame(height: 1).padding(.leading, 14) } }
+    }
+}
+
+/// A percentage that SwiftUI animates between readings: "99.6%", always one
+/// decimal, rounded down, and "100%" only at 100.
+struct GlidingPercent: View, Animatable {
+    var value: Double
+    var animatableData: Double {
+        get { value }
+        set { value = newValue }
+    }
+    var body: some View {
+        Text(value >= 100 ? "100%" : String(format: "%.1f%%", (value * 10).rounded(.down) / 10))
+            .monospacedDigit()
     }
 }

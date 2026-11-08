@@ -93,8 +93,20 @@ enum Server {
         cache = value
     }
 
+    /// Your own server (host:port), kept when you switch to a public one,
+    /// so switching back needs no typing. In the Keychain like the server
+    /// itself: a home or Tailscale address is private.
+    private static let ownService = "app.zecky.lockit.mac.server.own"
+    static var ownServer: String? {
+        (try? KeyStore.read(service: ownService)).flatMap { $0 }.map { String(decoding: $0, as: UTF8.self) }
+    }
+    static func rememberOwn(_ text: String) {
+        try? KeyStore.save(Data(text.utf8), service: ownService)
+    }
+
     static func reset() {
         try? KeyStore.delete(service: service)
+        try? KeyStore.delete(service: ownService)
         UserDefaults.standard.removeObject(forKey: "server.host")
         UserDefaults.standard.removeObject(forKey: "server.port")
         loaded = true
@@ -312,7 +324,11 @@ final class WalletEngine: ObservableObject {
             // The wallet's own account: the one made from the 24 words, not a
             // Seal it watch-only account imported next to it.
             let all = try await synchronizer.listAccounts()
-            guard let first = (all.first(where: { $0.keySource == nil })
+            // The wallet that holds the lock: the first one, or the one the
+            // lock passed to when that was erased.
+            let lead = UserDefaults.standard.string(forKey: Self.leadKey)
+            guard let first = (all.first(where: { lead != nil && KeyRingVault.hex($0.id) == lead })
+                               ?? all.first(where: { $0.keySource == nil })
                                ?? all.first(where: { !SealItFlow.isSealIt($0) && $0.keySource != Self.macKeySource }))?.id else {
                 if seed == nil { return false }
                 status = .failed("The wallet account could not be created.")
@@ -340,12 +356,29 @@ final class WalletEngine: ObservableObject {
     @Published private(set) var macWallets: [Account] = []
 
     nonisolated static let macKeySource = "lockit"
+    /// The account whose words hold the lock, once the lock has passed on.
+    nonisolated static let leadKey = "app.zecky.lockit.mac.leadAccount"
+    /// The wallet whose words hold the lock ("This Mac" until renamed).
+    @Published private(set) var leadWallet: Account?
 
     func refreshSealedWallets() async {
-        guard let synchronizer else { sealedWallets = []; macWallets = []; return }
+        guard let synchronizer else { sealedWallets = []; macWallets = []; leadWallet = nil; return }
         let all = (try? await synchronizer.listAccounts()) ?? []
         sealedWallets = all.filter { SealItFlow.isSealIt($0) }
-        macWallets = all.filter { $0.keySource == Self.macKeySource }
+        macWallets = all.filter { $0.keySource == Self.macKeySource && $0.id != account }
+        leadWallet = all.first { $0.id == account }
+    }
+
+    /// The lock has passed to `successor` (see WalletVault.handOver): it
+    /// becomes the wallet the engine starts with, and the old one goes.
+    func handLead(to successor: AccountUUID) async throws {
+        guard let synchronizer, let old = account, successor != old else { throw EngineError.notReady }
+        account = successor
+        UserDefaults.standard.set(KeyRingVault.hex(successor), forKey: Self.leadKey)
+        focus = nil
+        try await synchronizer.deleteAccount(old)
+        await refreshSealedWallets()
+        await refreshActivity()
     }
 
     /// The wallet on the key ring the screens show: nil is the main wallet.
@@ -670,6 +703,8 @@ final class WalletEngine: ObservableObject {
         synchronizer.stop()
         for try await _ in synchronizer.wipe().values {}
         account = nil
+        leadWallet = nil
+        UserDefaults.standard.removeObject(forKey: Self.leadKey)
         signerSpendable = 0
         signerTotal = 0
         signerBalances = [:]
@@ -830,6 +865,50 @@ final class WalletEngine: ObservableObject {
         if state.latestBlockHeight > 0 { self.networkHeight = Int(state.latestBlockHeight) }
         self.outsideTheLock = unshielded
         self.pools = Pools(ironwood: ironwood, orchard: orchard, sapling: sapling, transparent: unshielded)
+        refreshCheckedPercent()
+    }
+
+    // MARK: How much is checked (the sync ring, as Lock it iPhone)
+
+    /// The share of every block from the wallet birthday to the network block
+    /// that is checked, one decimal, worked out from the engine's own list of
+    /// ranges still to scan. The engine's progress only covers its current
+    /// batch, so after a night closed it jumped from 0 to 100; this starts
+    /// near the top (e.g. 99.6) instead. Nil until the network block is known.
+    @Published private(set) var checkedPercent: Double?
+    /// Blocks between the wallet birthday and the network block still to
+    /// check, from the same ranges (nil until known).
+    @Published private(set) var openBlocks: Int?
+    /// How far this wallet is checked without gaps from its own birthday.
+    @Published private(set) var walletCheckedTo: Int?
+
+    /// "Syncing 99.6%" from the checked share; "Syncing…" until it is known.
+    var syncingText: String {
+        // Every block since the birthday checked; the engine is only on older
+        // blocks for another wallet.
+        if openBlocks == 0 { return "Up to date · checking older blocks" }
+        return checkedPercent.map { "Syncing " + String(format: "%.1f", min(99.9, $0)) + "%" } ?? "Syncing…"
+    }
+    private var overviewAt = Date.distantPast
+    private var readingOverview = false
+
+    private func refreshCheckedPercent() {
+        if status == .upToDate { checkedPercent = 100; openBlocks = 0; walletCheckedTo = networkHeight > 0 ? networkHeight : nil; return }
+        guard let synchronizer, !readingOverview, Date().timeIntervalSince(overviewAt) >= 2 else { return }
+        guard networkHeight > 0, birthdayHeight > 0 else { checkedPercent = nil; openBlocks = nil; walletCheckedTo = nil; return }
+        readingOverview = true
+        overviewAt = Date()
+        Task {
+            defer { readingOverview = false }
+            // Read only: the engine's scan state, nothing is changed.
+            guard let overview = try? await synchronizer.scanOverview() else { return }
+            let ranges = overview.toScan.map { (first: Int($0.first), end: Int($0.end)) }
+            guard let share = SyncMath.checkedShare(toScan: ranges, birthday: birthdayHeight, tip: networkHeight) else { return }
+            let open = Int(((1 - share) * Double(networkHeight - birthdayHeight)).rounded())
+            openBlocks = open
+            checkedPercent = SyncMath.ringPercent(share: share, synced: status == .upToDate || open == 0)
+            walletCheckedTo = SyncMath.checkedThrough(toScan: ranges, birthday: birthdayHeight, tip: networkHeight)
+        }
     }
 
     /// Your Zcash by pool, straight from the engine's balance report.

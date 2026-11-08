@@ -316,6 +316,7 @@ struct HomeView: View {
             case .signer: SignerSheet(model: model, engine: engine) { model.sheet = nil }
             case .addWallet: AddWalletSheet(model: model, engine: engine, kind: model.adding ?? .new) { model.sheet = nil }
             case .walletWords: WalletWordsSheet(model: model, engine: engine) { model.sheet = nil }
+            case .eraseWallet: EraseWalletSheet(model: model, engine: engine) { model.sheet = nil }
             }
         }
     }
@@ -469,7 +470,7 @@ struct HomeView: View {
         if engine.isCurrent { return "Up to date" }
         switch engine.status {
         case .connecting: return "Connecting…"
-        case .syncing(let pct): return pct >= 100 ? "Finishing…" : "Syncing \(pct)%"
+        case .syncing: return engine.syncingText
         case .upToDate: return "Up to date"
         case .failed(let text): return "Problem: \(text)"
         }
@@ -497,8 +498,17 @@ private struct KeyRing: View {
             ForEach(Array(items.enumerated()), id: \.element.key) { index, item in
                 switch item {
                 case .main:
-                    chip(title: "This Mac", icon: "lock.fill", on: model.selectedWallet == nil) { choose(nil) }
-                        .contextMenu { moveButtons(item, index: index, count: items.count) }
+                    chip(title: engine.leadWallet.map { WalletNames.display($0, lead: true) } ?? "This Mac",
+                         icon: "lock.fill", on: model.selectedWallet == nil) { choose(nil) }
+                        .contextMenu {
+                            if let lead = engine.leadWallet {
+                                Button("Rename…") { newName = WalletNames.display(lead, lead: true); renaming = lead }
+                            }
+                            Divider()
+                            moveButtons(item, index: index, count: items.count)
+                            Divider()
+                            Button("Erase this wallet…") { model.startErasing(nil) }
+                        }
                 case .mac(let wallet):
                     chip(title: WalletNames.name(for: wallet, fallback: "Wallet"), icon: "lock.fill", on: model.selectedWallet == wallet.id) {
                         choose(wallet.id)
@@ -509,7 +519,7 @@ private struct KeyRing: View {
                         Divider()
                         moveButtons(item, index: index, count: items.count)
                         Divider()
-                        Button("Remove from Lock it…") { removing = wallet }
+                        Button("Erase this wallet…") { model.startErasing(wallet.id) }
                     }
                 case .sealed(let wallet):
                     chip(title: WalletNames.name(for: wallet, fallback: "Seal it"), icon: "envelope.fill", on: model.selectedWallet == wallet.id) {
