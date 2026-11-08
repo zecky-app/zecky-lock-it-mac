@@ -108,6 +108,9 @@ struct SyncSheet: View {
         return h
     }
     private var behind: Int? { SyncMath.behind(network: network, wallet: wallet) }
+    /// Right after a start, the engine reports placeholder heights until it
+    /// has read its own scan state. Until then the rows show "…".
+    private var known: Bool { network > 0 && (upToDate || engine.checkedPercent != nil) }
 
     var body: some View {
         SheetScaffold(title: "Sync", subtitle: subtitle, width: 520, height: 640, onClose: onClose) {
@@ -117,12 +120,14 @@ struct SyncSheet: View {
                 ring.frame(maxWidth: .infinity)
                 section("Blocks") {
                     line("Network", network > 0 ? n(network) : "…")
-                    line("This wallet", wallet > 0 ? n(wallet) : "…")
+                    // Until the network block is known, the engine's own
+                    // heights are placeholders: show "…" instead.
+                    line("This wallet", known && wallet > 0 ? n(wallet) : "…")
                     line("Behind", behindText)
-                    if let olderFrom {
+                    if known, let olderFrom {
                         line("Older blocks", "checking from \(n(olderFrom))")
                     }
-                    line("Block time", BlockTime.spacing(at: max(network, 1)) == 25 ? "25 seconds (since NU7)" : "75 seconds")
+                    line("Block time", network == 0 ? "…" : BlockTime.spacing(at: network) == 25 ? "25 seconds (since NU7)" : "75 seconds")
                     line("Wallet birthday", engine.birthdayHeight > 0 ? "Block \(n(engine.birthdayHeight))" : "…", last: true)
                 }
                 section("Checked so far") {
@@ -188,7 +193,7 @@ struct SyncSheet: View {
     private var behindText: String {
         // Blocks since the wallet birthday still to check (the engine may also
         // be checking older ranges that are not this wallet's).
-        guard let behind = upToDate ? 0 : (engine.openBlocks ?? behind) else { return "…" }
+        guard known, let behind = upToDate ? 0 : (engine.openBlocks ?? behind) else { return "…" }
         if behind == 0 { return "Nothing" }
         let minutes = SyncMath.minutesLeft(behind: behind, samples: engine.heightSamples)
         return "\(n(behind)) blocks" + (minutes.map { ", about \($0) min" } ?? "")
@@ -230,7 +235,9 @@ struct SyncSheet: View {
     }
 
     private var ringNote: String {
-        guard engine.checkedPercent != nil else { return "Waiting for the network block" }
+        guard engine.checkedPercent != nil else {
+            return network > 0 ? "Reading where the wallet is…" : "Waiting for the network block"
+        }
         if upToDate { return "Every block since the wallet birthday" }
         if let open = engine.openBlocks, open > 0 {
             return "Of all blocks since the wallet birthday. Catching up \(n(open)) new \(open == 1 ? "block" : "blocks")."

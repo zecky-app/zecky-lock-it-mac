@@ -73,19 +73,24 @@ struct HoldToReveal<Content: View>: View {
                     .opacity(showing ? 1 : 0)
                     .accessibilityHidden(!showing)
                 if !showing {
+                    // The whole hidden panel, eye included, shows the words too.
+                    Button { show() } label: {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(Theme.surface)
                         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
                         .overlay(
                             VStack(spacing: 6) {
                                 Image(systemName: "eye.slash").font(.system(size: 18)).foregroundStyle(Theme.gold)
-                                Text("Hidden. Click Show the words when nobody can see your screen.")
+                                Text("Hidden. Click the eye or Show the words when nobody can see your screen.")
                                     .font(Theme.text(12)).foregroundStyle(Theme.muted)
                                     .multilineTextAlignment(.center)
                             }
                             .padding(.horizontal, 20)
                         )
-                        .accessibilityHidden(true)
+                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHidden(true)
                 }
             }
             Button { showing ? hide() : show() } label: {

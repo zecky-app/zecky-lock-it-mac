@@ -337,6 +337,11 @@ final class WalletEngine: ObservableObject {
             account = first
             await refreshSealedWallets()
             try await synchronizer.start(retry: false)
+            // Ask the server for today's block right away, instead of
+            // waiting until the engine has prepared its first batch.
+            if networkHeight == 0, let tip = try? await synchronizer.latestHeight(), tip > 0, networkHeight == 0 {
+                networkHeight = tip
+            }
         } catch {
             status = .failed(String(describing: error))
         }
