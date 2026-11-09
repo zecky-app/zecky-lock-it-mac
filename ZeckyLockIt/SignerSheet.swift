@@ -31,7 +31,9 @@ struct SignerSheet: View {
                       subtitle: pairingAtOpen ? "Pair the offline phone that holds the keys."
                                 : (sending ? "Written here, sealed on your offline phone, sent from here."
                                            : "Zcash sent here is kept in this sealed wallet."),
-                      width: 560, height: 760, onClose: onClose) {
+                      width: 560, height: 760,
+                      wallet: pairingAtOpen ? nil : model.selectedWallet.map { WalletTag(name: engine.walletName($0), sealed: true) },
+                      onClose: onClose) {
             if let flow {
                 // Scrolls inside the sheet, so the title and Done stay in view
                 // when the QR code is shown.

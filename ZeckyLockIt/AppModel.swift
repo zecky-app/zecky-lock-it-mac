@@ -448,6 +448,7 @@ final class AppModel: ObservableObject {
         Amount.resetChoices()
         UserDefaults.standard.removeObject(forKey: "tour.seen")
         UserDefaults.standard.removeObject(forKey: WalletEngine.syncedOnceKey)
+        UserDefaults.standard.removeObject(forKey: WalletEngine.announcedKey)
         MilestoneMoment.reset()
         KeyRingOrder.erase()
         prices.reset()

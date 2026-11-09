@@ -394,10 +394,23 @@ final class WalletEngine: ObservableObject {
 
     private var current: AccountUUID? { focus ?? account }
 
+    /// The wallet Receive and Send work on, as named on the key ring.
+    var currentTag: WalletTag? { current.map(tag) }
+
+    func tag(_ id: AccountUUID) -> WalletTag {
+        WalletTag(name: walletName(id), sealed: sealedWallets.contains { $0.id == id })
+    }
+
     /// What the chosen wallet can spend now.
     var focusSpendable: Int64 {
         guard let focus else { return spendable }
         return signerBalances[focus]?.spendable ?? 0
+    }
+
+    /// A given wallet's whole balance, also what still waits for confirmations.
+    func balance(of account: AccountUUID?) -> Int64 {
+        guard let id = account ?? focus, id != self.account else { return total }
+        return signerBalances[id]?.total ?? 0
     }
 
     /// What a given wallet can spend now: nil is the one on the key ring.
@@ -436,6 +449,7 @@ final class WalletEngine: ObservableObject {
         guard let synchronizer, id != account else { return }
         if focus == id { focus = nil }
         try await synchronizer.deleteAccount(id)
+        AddressBook.forget(id)
         await refreshSealedWallets()
     }
 
@@ -449,16 +463,19 @@ final class WalletEngine: ObservableObject {
 
     /// A new shielded-only address (Sapling + Orchard, no transparent part).
     /// Every one belongs to the same account and the same balance.
-    func freshShieldedAddress() async throws -> String {
-        guard let synchronizer, let current else { throw EngineError.notReady }
-        return try await synchronizer.getCustomUnifiedAddress(accountUUID: current, receivers: [.sapling, .orchard]).stringEncoded
+    func freshShieldedAddress(of wallet: AccountUUID) async throws -> String {
+        guard let synchronizer else { throw EngineError.notReady }
+        return try await synchronizer.getCustomUnifiedAddress(accountUUID: wallet, receivers: [.sapling, .orchard]).stringEncoded
     }
 
+    /// The wallet chosen on the key ring (the main one when none is).
+    var currentAccount: AccountUUID? { current }
+
     /// How many incoming payments each of the wallet's own addresses received.
-    func addressUsage() async throws -> [String: Int] {
+    func addressUsage(of wallet: AccountUUID) async throws -> [String: Int] {
         guard let synchronizer else { throw EngineError.notReady }
         var counts: [String: Int] = [:]
-        for tx in try await synchronizer.allTransactions() where !tx.isSentTransaction && tx.accountUUID == current {
+        for tx in try await synchronizer.allTransactions() where !tx.isSentTransaction && tx.accountUUID == wallet {
             var paidTo = Set<String>()
             for output in await synchronizer.getTransactionOutputs(for: tx) where !output.isChange {
                 if case .address(let recipient) = output.recipient { paidTo.insert(recipient.stringEncoded) }
@@ -564,7 +581,7 @@ final class WalletEngine: ObservableObject {
             switch recipient { case .transparent, .tex: throw SendError.noteToPublic; default: break }
             memo = try Memo(string: text)
         }
-        let own = Set(AddressBook.load())
+        let own = Set(AddressBook.load(account))
             .union([(try? await synchronizer.getUnifiedAddress(accountUUID: account).stringEncoded) ?? ""])
         let toSelf = own.contains(trimmed)
 
@@ -778,8 +795,41 @@ final class WalletEngine: ObservableObject {
     private var seenPayments: Set<Data> = []
     private var shieldingsWaiting: Set<Data> = []
     private var caughtUp = false
+    /// Payments that already had their message, kept across restarts, so a
+    /// payment from the last 30 minutes is not announced again after Lock
+    /// it starts anew. Only the newest 100, on this Mac only.
+    nonisolated static let announcedKey = "app.zecky.lockit.mac.announced"
+    private var announced = Set(UserDefaults.standard.stringArray(forKey: WalletEngine.announcedKey) ?? [])
+    private var announcedOrder = UserDefaults.standard.stringArray(forKey: WalletEngine.announcedKey) ?? []
 
-    func takeArrival() -> Arrival? { arrivals.isEmpty ? nil : arrivals.removeFirst() }
+    private nonisolated static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
+
+    /// One payment for one wallet: a payment between two wallets on this
+    /// Mac has a line for each.
+    private nonisolated static func key(_ tx: ZcashTransaction.Overview) -> String {
+        hex(tx.rawID) + ":" + KeyRingVault.hex(tx.accountUUID)
+    }
+
+    private func markAnnounced(_ ids: [String]) {
+        for id in ids where !announced.contains(id) {
+            announced.insert(id); announcedOrder.append(id)
+        }
+        if announcedOrder.count > 100 {
+            announcedOrder.removeFirst(announcedOrder.count - 100)
+            announced = Set(announcedOrder)
+        }
+        UserDefaults.standard.set(announcedOrder, forKey: Self.announcedKey)
+    }
+
+    /// The next message, never one already shown in this session.
+    private var shownArrivals: Set<String> = []
+    func takeArrival() -> Arrival? {
+        while !arrivals.isEmpty {
+            let next = arrivals.removeFirst()
+            if shownArrivals.insert(Self.hex(next.id) + ":" + KeyRingVault.hex(next.account)).inserted { return next }
+        }
+        return nil
+    }
 
     /// Payments already there when the wallet catches up are history, not
     /// news: only what arrives after that gets a message.
@@ -798,13 +848,23 @@ final class WalletEngine: ObservableObject {
         // payment that arrives while Lock it is still checking gets its
         // message too, and old history does not.
         let recent = Date().addingTimeInterval(-30 * 60).timeIntervalSince1970
+        // A payment between two wallets on this Mac is one transaction with
+        // a line per wallet: only the receiving wallet's line is news. The
+        // sending wallet's line (it sent notes, its change comes back) never is.
         let received = fresh.filter {
-            !$0.isSentTransaction && !$0.isShielding && $0.poolCrossingValue == nil
+            !$0.isSentTransaction && $0.sentNoteCount == 0 && !$0.isShielding && $0.poolCrossingValue == nil
                 && $0.isExpiredUmined != true && $0.value.amount > 0
                 && (wasCaughtUp || $0.minedHeight == nil || ($0.blockTime ?? 0) >= recent)
         }
-        arrivals += shielded.map { Arrival(id: $0.rawID, account: $0.accountUUID, kind: .shielded, amount: Int64($0.value.amount.magnitude)) }
-        arrivals += received.map { Arrival(id: $0.rawID, account: $0.accountUUID, kind: .lockedIn, amount: $0.value.amount) }
+        // One message per payment: the engine can list a payment more than
+        // once (one line per pool it arrived in), so each id counts once.
+        // Counted per wallet and payment together.
+        var taken = Set<String>()
+        let newShielded = shielded.filter { !announced.contains(Self.key($0)) && taken.insert(Self.key($0)).inserted }
+        let newReceived = received.filter { !announced.contains(Self.key($0)) && taken.insert(Self.key($0)).inserted }
+        markAnnounced((newShielded + newReceived).map(Self.key))
+        arrivals += newShielded.map { Arrival(id: $0.rawID, account: $0.accountUUID, kind: .shielded, amount: Int64($0.value.amount.magnitude)) }
+        arrivals += newReceived.map { Arrival(id: $0.rawID, account: $0.accountUUID, kind: .lockedIn, amount: $0.value.amount) }
     }
 
     /// The key ring name of a wallet, for the arrival message.

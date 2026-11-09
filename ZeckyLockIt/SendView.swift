@@ -38,7 +38,7 @@ struct SendView: View {
 
     var body: some View {
         SheetScaffold(title: title, subtitle: subtitle, closeLabel: "Close", showsClose: !isSending,
-                      height: 580, onClose: onClose) {
+                      height: 580, wallet: engine.currentTag, onClose: onClose) {
             switch stage {
             case .compose:
                 SendComposer(engine: engine, prices: prices, purpose: .lock, account: nil,
@@ -174,6 +174,15 @@ struct SendComposer: View {
     @State private var notUpToDate = false
 
     private var spendable: Int64 { engine.spendable(of: account) }
+    /// Zcash already in the wallet but not yet usable: it waits for its
+    /// confirmations (10 blocks for a payment in, 3 for own change).
+    private var notYetUsable: Int64 { Swift.max(0, engine.balance(of: account) - spendable) }
+    private var notYetText: String? {
+        guard notYetUsable > 0 else { return nil }
+        let wait = WalletEngine.slowestWaiting(engine.activity, networkHeight: engine.networkHeight)
+        let when = wait.map { $0.minutes <= 1 ? "in about a minute" : "in about \($0.minutes) minutes" } ?? "shortly"
+        return "\(Amount.text(notYetUsable, unit)) more can be sent \(when), once it has enough confirmations."
+    }
 
     var body: some View {
         Group {
@@ -274,6 +283,10 @@ struct SendComposer: View {
                         .font(Theme.text(12)).foregroundStyle(Theme.muted)
                     Spacer()
                     Chip(title: "Max", on: max) { max.toggle() }
+                }
+                if let notYetText {
+                    Text(notYetText).font(Theme.text(12)).foregroundStyle(Theme.gold)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if !max {
                     Toggle(isOn: $feeIncluded) {

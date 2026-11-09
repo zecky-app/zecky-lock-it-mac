@@ -10,6 +10,9 @@ struct SheetScaffold<Content: View>: View {
     var showsClose = true
     var width: CGFloat = 560
     var height: CGFloat = 620
+    /// The wallet this screen works on, shown under the title so the right
+    /// one is chosen (Receive and Send). nil shows nothing.
+    var wallet: WalletTag? = nil
     let onClose: () -> Void
     @ViewBuilder var content: () -> Content
 
@@ -24,6 +27,17 @@ struct SheetScaffold<Content: View>: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("ZECKY").font(Theme.text(11, weight: .semibold)).tracking(4).foregroundStyle(Theme.gold)
                         Text(title).font(Theme.serif(30, weight: .medium))
+                        if let wallet {
+                            HStack(spacing: 6) {
+                                Image(systemName: wallet.sealed ? "envelope.fill" : "lock.fill").font(.system(size: 10))
+                                Text(wallet.name).font(Theme.text(12, weight: .semibold)).lineLimit(1)
+                            }
+                            .foregroundStyle(Theme.gold)
+                            .padding(.horizontal, 10).frame(height: 24)
+                            .overlay(Capsule().stroke(Theme.gold.opacity(0.6)))
+                            .accessibilityElement(children: .combine)
+                            .accessibilityLabel("Wallet: \(wallet.name)")
+                        }
                         if let subtitle {
                             Text(subtitle).font(Theme.text(13)).foregroundStyle(Theme.muted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -91,4 +105,10 @@ struct CardModifier: ViewModifier {
 
 extension View {
     func card(padding: CGFloat = 16) -> some View { modifier(CardModifier(padding: padding)) }
+}
+
+/// A wallet's name on a screen, and whether it is a Seal it wallet.
+struct WalletTag: Equatable {
+    let name: String
+    var sealed = false
 }

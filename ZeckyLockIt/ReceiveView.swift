@@ -1,6 +1,7 @@
 import AppKit
 import CoreImage.CIFilterBuiltins
 import SwiftUI
+import ZcashLightClientKit
 
 /// Lock more: the QR with the Z gets the room; the address as one short
 /// line, click to copy; then Request an amount and All addresses.
@@ -12,6 +13,8 @@ struct ReceiveView: View {
     private enum Mode { case address, request, all }
     @State private var mode: Mode = .address
     @State private var address: String?
+    /// The wallet the shown address belongs to: its name is on the screen.
+    @State private var wallet: AccountUUID?
     @State private var problem: String?
     @State private var copied = false
     @State private var requestText = ""
@@ -25,6 +28,7 @@ struct ReceiveView: View {
         SheetScaffold(title: mode == .all ? "All addresses" : "Receive",
                       subtitle: mode == .all ? "Every shielded address this wallet has handed out." : "Your shielded address: amount and sender stay hidden. Zcash sent here locks in by itself.",
                       height: 600,
+                      wallet: wallet.map(engine.tag) ?? engine.currentTag,
                       onClose: onClose) {
             if let address {
                 switch mode {
@@ -40,7 +44,11 @@ struct ReceiveView: View {
             }
         }
         .task {
-            do { address = try await AddressBook.addressToShow(engine: engine) }
+            do {
+                let shown = try await AddressBook.addressToShow(engine: engine)
+                wallet = shown.wallet
+                address = shown.address
+            }
             catch { problem = "No address could be shown. \(error)" }
         }
     }
@@ -91,7 +99,10 @@ struct ReceiveView: View {
                     mode = mode == .request ? .address : .request; requestText = ""
                 }
                 Text("·").foregroundStyle(Theme.muted.opacity(0.6))
-                link("All addresses") { mode = .all; Task { usage = (try? await engine.addressUsage()) ?? [:] } }
+                link("All addresses") {
+                    mode = .all
+                    if let wallet { Task { usage = (try? await engine.addressUsage(of: wallet)) ?? [:] } }
+                }
             }
             Spacer(minLength: 0)
             Label("Shielded: amounts, sender and this address stay private. Once it has been paid, a fresh one appears here.", systemImage: "shield.lefthalf.filled")
@@ -139,7 +150,7 @@ struct ReceiveView: View {
                 .fixedSize(horizontal: false, vertical: true)
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(Array(AddressBook.load().enumerated()), id: \.element) { i, a in
+                    ForEach(Array((wallet.map(AddressBook.load) ?? []).enumerated()), id: \.element) { i, a in
                         if i > 0 { Rectangle().fill(Theme.line).frame(height: 1) }
                         Button { copy(a); copiedOther = a } label: {
                             HStack {
