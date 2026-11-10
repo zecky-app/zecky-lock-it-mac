@@ -407,7 +407,9 @@ final class GoMaxNode: ObservableObject {
         if next == .ready {
             wasEverReady = true
             if !widened { await widen(); return }
-            if !switchedToNode { await switchToNode() }
+            // Only once Zaino accepts connections: it needs a while after a
+            // start, and Lock it would say it can't reach the node meanwhile.
+            if !switchedToNode, await LocalRPC.portOpen(GoMaxConfig.zainoPort) { await switchToNode() }
         }
     }
 
@@ -427,7 +429,7 @@ final class GoMaxNode: ObservableObject {
             widened = true
             retention = GoMaxConfig.retentionAtTip
             phase = .ready
-            await switchToNode()
+            // The next look switches Lock it over, once Zaino is listening.
         } catch {
             fail(error)
         }
