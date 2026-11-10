@@ -146,6 +146,9 @@ final class GoMaxNode: ObservableObject {
     func switchOn() async {
         if let blocker = blocker() { problem = blocker; return }
         enabled = true
+        // A node that reached the tip before (its window was widened there)
+        // is catching up, not checking history from the start.
+        wasEverReady = wasEverReady || widened
         await start()
     }
 
