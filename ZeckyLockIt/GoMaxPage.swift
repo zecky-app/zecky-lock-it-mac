@@ -20,14 +20,9 @@ struct GoMaxPage: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 if GoMaxNode.isAvailable {
-                    HStack(spacing: 12) {
-                        Toggle(isOn: Binding(get: { node.enabled }, set: { on in switchTo(on) })) {
-                            Text("Go Max").font(Theme.text(14, weight: .medium))
-                        }
-                        .toggleStyle(.switch)
-                        .disabled(working)
-                        Spacer()
-                    }
+                    GoMaxSwitch(on: node.enabled, busy: working) { switchTo(!node.enabled) }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
                     Text(GoMaxWords.status(node.phase, node.info))
                         .font(Theme.text(13)).foregroundStyle(node.phase == .ready ? Theme.green : Theme.text)
                         .fixedSize(horizontal: false, vertical: true)
@@ -221,5 +216,79 @@ struct GoMaxButton: View {
         case .problem: return Theme.red
         default: return Theme.muted
         }
+    }
+}
+
+/// The Go Max switch: the brass coin slides across a wide track and the
+/// track lights up when it is on. On a Force Touch trackpad the change is
+/// felt as a click. One click (or Space) switches; nothing starts without
+/// the price on the same page.
+struct GoMaxSwitch: View {
+    let on: Bool
+    var busy = false
+    let action: () -> Void
+    @State private var hover = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let width: CGFloat = 300
+    private static let height: CGFloat = 64
+    private static let knob: CGFloat = 54
+
+    private static func c(_ hex: Int) -> Color {
+        Color(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
+    }
+
+    var body: some View {
+        Button {
+            NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+            action()
+        } label: {
+            ZStack(alignment: on ? .trailing : .leading) {
+                // The track: dark when off, lit gold when on.
+                Capsule()
+                    .fill(on
+                          ? AnyShapeStyle(LinearGradient(colors: [Theme.gold.opacity(0.18), Theme.gold.opacity(0.42)], startPoint: .leading, endPoint: .trailing))
+                          : AnyShapeStyle(Theme.ink))
+                Capsule().stroke(Theme.gold.opacity(on ? 0.9 : (hover ? 0.7 : 0.45)), lineWidth: 1)
+                // The words sit on the side the coin is not.
+                Text(on ? "GO MAX IS ON" : "SWITCH ON")
+                    .font(Theme.text(12, weight: .semibold)).tracking(2.5)
+                    .foregroundStyle(on ? Theme.text : Theme.gold)
+                    .frame(maxWidth: .infinity)
+                    .padding(on ? .trailing : .leading, Self.knob + 8)
+                coin.padding(5)
+            }
+            .frame(width: Self.width, height: Self.height)
+            .shadow(color: Theme.gold.opacity(on ? 0.35 : (hover ? 0.2 : 0)), radius: on ? 16 : 10)
+            .opacity(busy ? 0.6 : 1)
+            .contentShape(Capsule())
+            .animation(reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.72), value: on)
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .onHover { h in withAnimation(.easeOut(duration: 0.18)) { hover = h } }
+        .help(on ? "Switch Go Max off" : "Switch Go Max on")
+        .accessibilityLabel("Go Max")
+        .accessibilityValue(on ? "On" : "Off")
+    }
+
+    /// The same brass coin as the home screen's button.
+    private var coin: some View {
+        ZStack {
+            Circle().fill(LinearGradient(stops: [
+                .init(color: Self.c(0xF6E2B0), location: 0),
+                .init(color: Self.c(0xD9AE5F), location: 0.48),
+                .init(color: Self.c(0xB88A3E), location: 0.52),
+                .init(color: Self.c(0x9C7330), location: 1),
+            ], startPoint: .top, endPoint: .bottom))
+            Circle().stroke(Self.c(0x5E4519).opacity(0.8), lineWidth: 1)
+            Circle().inset(by: 1.5).stroke(Self.c(0xFFF3D1).opacity(0.45), lineWidth: 1)
+            Image(systemName: on ? "power" : "point.3.connected.trianglepath.dotted")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(Self.c(0x3A2A0C))
+                .shadow(color: Self.c(0xFFF3D1).opacity(0.6), radius: 0, y: 1)
+        }
+        .frame(width: Self.knob, height: Self.knob)
+        .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
     }
 }
