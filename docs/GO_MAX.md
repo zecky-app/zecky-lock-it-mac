@@ -1,6 +1,6 @@
 # Go Max: a Zcash node inside Lock it for Mac
 
-Settings › Go Max. One switch: Lock it runs its own pruned Zcash node on this
+The GO MAX button on the home screen (above Settings) or Settings › Go Max. One switch: Lock it runs its own pruned Zcash node on this
 Mac, checks the chain itself, and reads it from there instead of a server.
 
 Status: **first build, branch `go-max`, 10 Nov 2026. Not yet built or run.**

@@ -4,7 +4,8 @@ Plain-words notes on what changed in Zecky Lock it for Mac, newest first.
 
 ## Unreleased
 
-- Go Max (first build, in testing): Settings › Go Max runs your own pruned
+- Go Max (first build, in testing): the GO MAX button on the home screen
+  (also Settings › Go Max) runs your own pruned
   Zcash node inside Lock it on this Mac. It checks every block since Canopy
   itself (about 20 GB of disk; the first check takes most of a day and
   downloads the chain once), and when it is up to date Lock it reads the

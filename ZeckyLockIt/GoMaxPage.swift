@@ -106,3 +106,64 @@ struct GoMaxPage: View {
         "It runs while Lock it is open. While it is checking or catching up, the Mac does not fall asleep on its own; up to date, it sleeps as usual.",
     ]
 }
+
+/// The Go Max button on the home screen, above Settings. Off, it invites;
+/// on, it shows where the node is. A click opens Settings › Go Max, where
+/// the price (disk, time, download) is read before anything starts.
+struct GoMaxButton: View {
+    @ObservedObject var node: GoMaxNode
+    let open: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 9) {
+                indicator.frame(width: 18, height: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("GO MAX").font(Theme.text(11, weight: .semibold)).tracking(2.5).foregroundStyle(Theme.gold)
+                    Text(subtitle).font(Theme.text(11)).foregroundStyle(Theme.muted).lineLimit(1)
+                }
+            }
+            .padding(.leading, 12).padding(.trailing, 16).frame(height: 42)
+            .background(Theme.surface, in: Capsule())
+            .overlay(Capsule().stroke(Theme.gold.opacity(hover ? 0.95 : 0.6), lineWidth: 1))
+            .shadow(color: Theme.gold.opacity(inviting ? (hover ? 0.4 : 0.2) : 0), radius: 12)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .animation(.easeOut(duration: 0.2), value: hover)
+        .help("Go Max: your own Zcash node on this Mac")
+        .accessibilityLabel("Go Max, \(subtitle)")
+    }
+
+    private var inviting: Bool { node.phase == .off || node.phase == .stopped }
+
+    @ViewBuilder private var indicator: some View {
+        switch node.phase {
+        case .starting, .syncing, .catchingUp, .updating:
+            ZStack {
+                Circle().stroke(Theme.gold.opacity(0.25), lineWidth: 2.5)
+                Circle().trim(from: 0, to: max(0.03, CGFloat(node.info?.verificationProgress ?? 0)))
+                    .stroke(Theme.gold, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+        case .ready:
+            Image(systemName: "checkmark.seal.fill").font(.system(size: 16)).foregroundStyle(Theme.green)
+        case .problem:
+            Image(systemName: "exclamationmark.circle.fill").font(.system(size: 16)).foregroundStyle(Theme.red)
+        case .off, .stopped:
+            Image(systemName: "point.3.connected.trianglepath.dotted").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.gold)
+        }
+    }
+
+    private var subtitle: String {
+        switch node.phase {
+        case .off: return "Run your own node"
+        case .stopped: return "Off · data kept"
+        case .ready: return "Your own node"
+        case .problem: return "Stopped · open to see why"
+        default: return GoMaxWords.short(node.phase, node.info)
+        }
+    }
+}

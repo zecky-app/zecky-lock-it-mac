@@ -211,6 +211,13 @@ struct HomeView: View {
                     .padding(.top, 20)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Go Max, above Settings: your own node, one click from home.
+                .overlay(alignment: .bottomTrailing) {
+                    if GoMaxNode.isAvailable {
+                        GoMaxButton(node: GoMaxNode.shared) { model.openGoMax() }
+                            .padding(.trailing, 20).padding(.bottom, 14)
+                    }
+                }
                 .background(GeometryReader { geo in
                     Color.clear.onAppear { area = geo.size }.onChange(of: geo.size) { area = $0 }
                 })

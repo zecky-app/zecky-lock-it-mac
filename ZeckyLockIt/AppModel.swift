@@ -35,6 +35,8 @@ final class AppModel: ObservableObject {
     /// Open Settings straight at a page (for "Choose another server").
     var settingsPage: SettingsView.Page?
     func openNetworkSettings() { settingsPage = .network; sheet = .settings }
+    /// The Go Max button on the home screen opens its page.
+    func openGoMax() { settingsPage = .goMax; sheet = .settings }
     /// The lock on the home screen: asking first, then open while releasing.
     @Published var asking = false
     /// ZEC or zats, and amounts hidden for bystanders. Remembered.
