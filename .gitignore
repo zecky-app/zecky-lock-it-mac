@@ -10,3 +10,6 @@ ZeckyLockIt/SaplingParams/*.params
 
 # Go Max: the node programs (local builds), pinned in GoMax/bin.sha256 (see scripts/gomax-helpers.sh)
 GoMax/bin/
+
+# Build output of xcodebuild runs
+build.log
