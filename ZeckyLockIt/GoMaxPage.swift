@@ -107,53 +107,101 @@ struct GoMaxPage: View {
     ]
 }
 
-/// The Go Max button on the home screen, above Settings. Off, it invites;
-/// on, it shows where the node is. A click opens Settings › Go Max, where
+/// The Go Max button on the home screen, above Settings: a brass coin
+/// with the node mark, in the padlock's metal, on a dark capsule (brass
+/// stays the main action's: the coin is a mark, not a fill). Off, it
+/// breathes a soft glow; checking, a ring fills around the coin; up to
+/// date, the coin carries a seal. A click opens Settings › Go Max, where
 /// the price (disk, time, download) is read before anything starts.
 struct GoMaxButton: View {
     @ObservedObject var node: GoMaxNode
     let open: () -> Void
     @State private var hover = false
+    @State private var breathe = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static func c(_ hex: Int) -> Color {
+        Color(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
+    }
 
     var body: some View {
         Button(action: open) {
-            HStack(spacing: 9) {
-                indicator.frame(width: 18, height: 18)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("GO MAX").font(Theme.text(11, weight: .semibold)).tracking(2.5).foregroundStyle(Theme.gold)
-                    Text(subtitle).font(Theme.text(11)).foregroundStyle(Theme.muted).lineLimit(1)
+            HStack(spacing: 12) {
+                coin
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Go Max").font(Theme.serif(18, weight: .medium)).foregroundStyle(Theme.text)
+                    Text(subtitle).font(Theme.text(12)).foregroundStyle(subtitleColor).lineLimit(1)
                 }
             }
-            .padding(.leading, 12).padding(.trailing, 16).frame(height: 42)
+            .padding(.leading, 8).padding(.trailing, 22).frame(height: 62)
             .background(Theme.surface, in: Capsule())
-            .overlay(Capsule().stroke(Theme.gold.opacity(hover ? 0.95 : 0.6), lineWidth: 1))
-            .shadow(color: Theme.gold.opacity(inviting ? (hover ? 0.4 : 0.2) : 0), radius: 12)
+            .overlay(Capsule().stroke(Theme.gold.opacity(hover ? 0.95 : 0.55), lineWidth: 1))
+            .shadow(color: Theme.gold.opacity(glow), radius: inviting ? 18 : 8, y: 3)
+            .scaleEffect(hover ? 1.02 : 1)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .onHover { hover = $0 }
-        .animation(.easeOut(duration: 0.2), value: hover)
+        .onHover { h in withAnimation(.easeOut(duration: 0.18)) { hover = h } }
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) { breathe = true }
+        }
         .help("Go Max: your own Zcash node on this Mac")
         .accessibilityLabel("Go Max, \(subtitle)")
     }
 
-    private var inviting: Bool { node.phase == .off || node.phase == .stopped }
-
-    @ViewBuilder private var indicator: some View {
-        switch node.phase {
-        case .starting, .syncing, .catchingUp, .updating:
-            ZStack {
-                Circle().stroke(Theme.gold.opacity(0.25), lineWidth: 2.5)
+    /// The brass coin, engraved with what the node is doing.
+    private var coin: some View {
+        ZStack {
+            Circle().fill(LinearGradient(stops: [
+                .init(color: Self.c(0xF6E2B0), location: 0),
+                .init(color: Self.c(0xD9AE5F), location: 0.48),
+                .init(color: Self.c(0xB88A3E), location: 0.52),
+                .init(color: Self.c(0x9C7330), location: 1),
+            ], startPoint: .top, endPoint: .bottom))
+            Circle().stroke(Self.c(0x5E4519).opacity(0.8), lineWidth: 1)
+            Circle().inset(by: 1.5).stroke(Self.c(0xFFF3D1).opacity(0.45), lineWidth: 1)
+            Image(systemName: glyph)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Self.c(0x3A2A0C))
+                .shadow(color: Self.c(0xFFF3D1).opacity(0.6), radius: 0, y: 1)
+            if checking {
+                Circle().stroke(Theme.gold.opacity(0.2), lineWidth: 2.5).frame(width: 52, height: 52)
                 Circle().trim(from: 0, to: max(0.03, CGFloat(node.info?.verificationProgress ?? 0)))
                     .stroke(Theme.gold, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
+                    .frame(width: 52, height: 52)
             }
-        case .ready:
-            Image(systemName: "checkmark.seal.fill").font(.system(size: 16)).foregroundStyle(Theme.green)
-        case .problem:
-            Image(systemName: "exclamationmark.circle.fill").font(.system(size: 16)).foregroundStyle(Theme.red)
-        case .off, .stopped:
-            Image(systemName: "point.3.connected.trianglepath.dotted").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.gold)
+            if let badge {
+                Circle().fill(badge).frame(width: 12, height: 12)
+                    .overlay(Circle().stroke(Theme.surface, lineWidth: 2))
+                    .offset(x: 16, y: 16)
+            }
+        }
+        .frame(width: 44, height: 44)
+        .padding(4)
+    }
+
+    private var inviting: Bool { node.phase == .off || node.phase == .stopped }
+    private var checking: Bool { [.starting, .syncing, .catchingUp, .updating].contains(node.phase) }
+    private var glow: Double {
+        if inviting { return hover ? 0.5 : (breathe ? 0.38 : 0.14) }
+        return node.phase == .ready ? 0.12 : 0
+    }
+
+    private var glyph: String {
+        switch node.phase {
+        case .ready: return "checkmark.seal.fill"
+        case .problem: return "exclamationmark"
+        default: return "point.3.connected.trianglepath.dotted"
+        }
+    }
+
+    private var badge: Color? {
+        switch node.phase {
+        case .ready: return Theme.green
+        case .problem: return Theme.red
+        default: return nil
         }
     }
 
@@ -164,6 +212,14 @@ struct GoMaxButton: View {
         case .ready: return "Your own node"
         case .problem: return "Stopped · open to see why"
         default: return GoMaxWords.short(node.phase, node.info)
+        }
+    }
+
+    private var subtitleColor: Color {
+        switch node.phase {
+        case .ready: return Theme.green
+        case .problem: return Theme.red
+        default: return Theme.muted
         }
     }
 }
