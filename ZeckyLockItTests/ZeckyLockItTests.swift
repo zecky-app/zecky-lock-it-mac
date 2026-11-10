@@ -787,6 +787,16 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(GoMaxWords.short(.syncing, syncing), "Checking history · 60%")
     }
 
+    func testGoMaxBlockDates() {
+        // Genesis, Blossom and NU7 by their known dates.
+        let date = { (h: Int) in GoMaxWords.verifiedDate(GoMaxChainInfo(blocks: h, estimatedHeight: 3_557_000, verificationProgress: 0)) }
+        XCTAssertEqual(date(0), "Oct 28, 2016")
+        XCTAssertEqual(date(653_600), "Dec 11, 2019")
+        XCTAssertEqual(date(3_543_405), "Oct 25, 2026")
+        // Canopy (Nov 18, 2020), between the anchors.
+        XCTAssertEqual(date(1_046_400), "Nov 18, 2020")
+    }
+
     func testGoMaxReadsHTTPAnswers() {
         let plain = Data("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}".utf8)
         XCTAssertEqual(LocalRPC.body(of: plain), Data("{}".utf8))

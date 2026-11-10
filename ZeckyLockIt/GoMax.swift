@@ -239,10 +239,31 @@ enum GoMaxWords {
         return "about \(Int((Double(hours) / 24).rounded())) days behind"
     }
 
-    /// The date of the last verified block, from how far behind the node is.
-    static func verifiedDate(_ info: GoMaxChainInfo, now: Date) -> String {
-        let then = now.addingTimeInterval(-Double(info.blocksBehind * blockSeconds))
-        return then.formatted(.dateTime.month(.abbreviated).day().year().locale(Locale(identifier: "en_US")))
+    /// When a block was made, close enough for a date: between the network
+    /// upgrades, whose dates are known, the height is spread evenly over
+    /// the time; after NU7, one block every 25 seconds.
+    static func blockDate(height: Int) -> Date {
+        // (height, noon UTC on the day): genesis, Blossom, Canopy, NU7.
+        let anchors: [(Int, TimeInterval)] = [
+            (0, 1477656000),             // Oct 28, 2016
+            (653_600, 1576065600),       // Dec 11, 2019
+            (1_046_400, 1605700800),     // Nov 18, 2020
+            (3_543_405, 1792929600),     // Oct 25, 2026
+        ]
+        let h = max(0, height)
+        for i in 1..<anchors.count where h < anchors[i].0 {
+            let (h0, t0) = anchors[i - 1], (h1, t1) = anchors[i]
+            return Date(timeIntervalSince1970: t0 + (t1 - t0) * Double(h - h0) / Double(h1 - h0))
+        }
+        let (last, time) = anchors[anchors.count - 1]
+        return Date(timeIntervalSince1970: time + Double(h - last) * 25)
+    }
+
+    /// "Oct 28, 2016": the date of the last verified block.
+    static func verifiedDate(_ info: GoMaxChainInfo) -> String {
+        blockDate(height: info.blocks).formatted(
+            Date.FormatStyle(date: .abbreviated, time: .omitted, locale: Locale(identifier: "en_US"),
+                             timeZone: TimeZone(identifier: "UTC")!))
     }
 
     /// The one line under the switch.
@@ -253,7 +274,7 @@ enum GoMaxWords {
         case .syncing:
             guard let info else { return "Checking history…" }
             let pct = Int((info.verificationProgress * 100).rounded(.down))
-            return "Checking history · \(pct)% · verified up to \(verifiedDate(info, now: now))"
+            return "Checking history · \(pct)% · verified up to \(verifiedDate(info))"
         case .ready: return "Up to date · every block since Canopy verified on this Mac"
         case .catchingUp: return info.map { "Catching up · \(behind($0.blocksBehind))" } ?? "Catching up…"
         case .updating: return "Updating…"
