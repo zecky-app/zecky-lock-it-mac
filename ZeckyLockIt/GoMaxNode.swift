@@ -237,9 +237,13 @@ final class GoMaxNode: ObservableObject {
     }
 
     private func startZaino(_ p: Paths) throws {
-        // Warnings only: at info Zaino logs the calls Lock it makes, with addresses.
+        // Warnings only: at info Zaino logs the calls Lock it makes, with
+        // addresses. For finding a fault, Lock it can be opened once with
+        // detailed logs: open "Zecky Lock it.app" --args -goMax.detailedLogs YES
+        // (not remembered; the log stays in Lock it's own folder).
+        let level = UserDefaults.standard.bool(forKey: "goMax.detailedLogs") ? "info" : "warn"
         zaino = try launch("zainod", ["start", "--config", p.zainoConfig.path], log: p.zainoLog, pidFile: p.zainoPid,
-                           environment: ["RUST_LOG": "warn", "ZAINOLOG_COLOR": "false"])
+                           environment: ["RUST_LOG": level, "ZAINOLOG_COLOR": "false"])
     }
 
     private func launch(_ name: String, _ arguments: [String], log: URL, pidFile: URL, environment: [String: String]) throws -> Process {
