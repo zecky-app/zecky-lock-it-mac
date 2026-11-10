@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Go Max's two programs (zakurad, zainod) run inside Lock it's own
+	     sandbox: they get exactly what Lock it has (its folder, its network
+	     entitlements) and nothing more. Apple's rule for a sandboxed app's
+	     helper programs: these two keys and no others. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.inherit</key>
+	<true/>
+</dict>
+</plist>

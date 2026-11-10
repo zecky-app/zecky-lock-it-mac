@@ -21,6 +21,11 @@ for f in $(grep -l 'NSPasteboard' *.swift); do [ "$f" = "ReceiveView.swift" ] ||
 for f in $(grep -lE 'URLSession|URLRequest' *.swift); do [ "$f" = "PriceFeed.swift" ] || bad "web request in $f"; done
 if grep -n 'NSSharingService' *.swift; then bad "sharing sheet in the app"; fi
 
+# Programs and connections: only Go Max starts programs (its own two) and
+# connects to its node, and only on this Mac.
+for f in $(grep -lE 'Process\(\)|NWConnection\(' *.swift); do [ "$f" = "GoMaxNode.swift" ] || bad "program or connection outside GoMaxNode: $f"; done
+if grep -n 'NWConnection(host' GoMaxNode.swift | grep -v '"127.0.0.1"'; then bad "Go Max connects beyond this Mac"; fi
+
 # The engine never logs.
 grep -q 'loggingPolicy: .noLogging' *.swift || bad "engine logging is not switched off"
 

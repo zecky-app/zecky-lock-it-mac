@@ -7,3 +7,6 @@ build/
 
 # Sapling parameters (50 MB): fetched by scripts/fetch-sapling-params.sh, checked by SHA-256
 ZeckyLockIt/SaplingParams/*.params
+
+# Go Max: the node programs (local builds), pinned in GoMax/bin.sha256 (see scripts/gomax-helpers.sh)
+GoMax/bin/

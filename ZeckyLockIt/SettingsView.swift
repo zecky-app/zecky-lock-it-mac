@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var prices: PriceFeed
+    @ObservedObject private var goMax = GoMaxNode.shared
     let onClose: () -> Void
 
     /// The opened phrase, only while it is on screen.
@@ -74,7 +75,7 @@ struct SettingsView: View {
     // MARK: Pages
 
     /// Settings is a calm list; each topic opens its own page.
-    enum Page: Hashable { case keys, timeLock, phrase, addressBook, display, network, how, about }
+    enum Page: Hashable { case keys, timeLock, phrase, addressBook, display, network, goMax, how, about }
     @State private var page: Page?
 
     private var settings: some View {
@@ -88,6 +89,7 @@ struct SettingsView: View {
             case .addressBook?: pageBody { addressBookPage }
             case .display?: pageBody { displayPage }
             case .network?: pageBody { networkPage }
+            case .goMax?: pageBody { GoMaxPage(node: goMax) }
             case .how?: pageBody { HowItWorks { model.sheet = nil; model.tourShown = true } }
             case .about?: pageBody { aboutPage }
             }
@@ -117,6 +119,7 @@ struct SettingsView: View {
             group("This Mac") {
                 row(.display, "Display", "circle.lefthalf.filled", "\(model.themeMode.label) · Value \(prices.currency.short)")
                 row(.network, "Network", "server.rack", Server.nodeLabel ?? Server.host)
+                row(.goMax, "Go Max", "point.3.connected.trianglepath.dotted", GoMaxWords.short(goMax.phase, goMax.info))
             }
             group("Lock it") {
                 row(.how, "How Zecky works", "book.closed", "The lock, the keys, your privacy")
@@ -154,7 +157,7 @@ struct SettingsView: View {
         case .tailscaleIP?:
             return "Rock it through Tailscale: the connection is encrypted by Tailscale and only reaches your tailnet. A 100.x address is a Tailscale IP; Lock it cannot prove it is your node, so only use the one Rock it shows you."
         case .thisMac?:
-            return "A node on this Mac itself, without TLS."
+            return "A node on this Mac itself (Go Max, or one you started), without TLS: the traffic never leaves this Mac."
         case nil:
             return "Encrypted (TLS). The server sees this Mac's internet address, never your phrase or balance. Your own node on a home or Tailscale address is used as Rock it."
         }
@@ -693,6 +696,7 @@ struct SettingsView: View {
         case .addressBook?: return "Address book"
         case .display?: return "Display"
         case .network?: return "Network"
+        case .goMax?: return "Go Max"
         case .how?: return "How Zecky works"
         case .about?: return "About"
         case nil: return "Settings"
@@ -714,6 +718,7 @@ struct SettingsView: View {
         case .addressBook?: return "Addresses you send to often, picked by name."
         case .display?: return "How Lock it looks on this Mac."
         case .network?: return "Where Lock it gets the Zcash chain from."
+        case .goMax?: return "Your own Zcash node, on this Mac."
         case .how?: return "Short chapters. Open the one you want."
         case .about?: return "Zecky Lock it for Mac."
         case nil: return "Everything stays on this Mac."
@@ -1057,11 +1062,21 @@ struct HowItWorks: View {
         ], more: [
             "Zcash that arrives on a transparent address (only possible after restoring) can be locked in with one step. A transparent address works like Bitcoin: its payments are visible to everyone until you lock them in.",
         ]),
+        Chapter(title: "Go Max", icon: "point.3.connected.trianglepath.dotted", summary: "Your own Zcash node, inside Lock it.", essentials: [
+            "Go Max runs a Zcash node in Lock it on this Mac. It checks every block since the Canopy upgrade itself and keeps only recent blocks in full. When it is up to date, Lock it reads the chain from it instead of a server.",
+            "It takes about 20 GB of disk. The first check takes most of a day and downloads the whole chain once, about 250 GB, deleting older blocks as it goes. It is off until you switch it on in Settings › Go Max.",
+        ], more: [
+            "Until the node is up to date, Lock it keeps using your server. Switching Go Max off, or a problem with the node, switches back, and the Go Max page says so.",
+            "The node connects to other Zcash nodes on the internet, like every node: they see this Mac's internet address, never your wallets, addresses or balance. Lock it talks to the node on this Mac only, and the node accepts no connections from outside.",
+            "Blocks from before Canopy (2020) are accepted on checkpoints built into the node, as every Zcash node does; every block since is checked here, proofs and all.",
+            "It runs while Lock it is open. Its files live in Lock it's own folder, left out of Time Machine; Remove node deletes them. Erase everything removes them too.",
+        ]),
         Chapter(title: "What others can see", icon: "server.rack", summary: "The server and the price.", essentials: [
             "Lock it talks to one Zcash server (zec.rocks by default) over an encrypted connection. The server sees this Mac's internet address, never your words or your balance.",
         ], more: [
             "Your own node (Rock it) on a home or Tailscale address is reached without that layer: at home the traffic stays in your network, and Tailscale encrypts it on the way. A home address cannot prove it is your node; away from home use Rock it's Tailscale address.",
             "Value is off unless you choose a currency. Then CoinGecko is asked for the price every 5 minutes and sees only this Mac's internet address.",
+            "With Go Max up to date, Lock it uses no server at all: it reads the chain from its own node on this Mac.",
             "Lock it for Mac has no Tor yet.",
         ]),
         Chapter(title: "On this Mac", icon: "laptopcomputer", summary: "Where your data lives.", essentials: [

@@ -12,6 +12,10 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- Go Max: the node and its light-wallet server listen on this Mac
+	     (127.0.0.1) only. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)app.zecky.lockit</string>

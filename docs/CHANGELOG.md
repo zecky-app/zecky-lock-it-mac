@@ -4,6 +4,12 @@ Plain-words notes on what changed in Zecky Lock it for Mac, newest first.
 
 ## Unreleased
 
+- Go Max (first build, in testing): Settings › Go Max runs your own pruned
+  Zcash node inside Lock it on this Mac. It checks every block since Canopy
+  itself (about 20 GB of disk; the first check takes most of a day and
+  downloads the chain once), and when it is up to date Lock it reads the
+  chain from it instead of a server. Off switches back; Remove node deletes
+  its data. Nothing accepts connections from outside this Mac.
 - The line under the balance says how long your Zcash has been in the lock,
   in one unit only and never as a date: "Locked since today", "Locked for 3
   days", "for 2 weeks", "for 4 months", "for 1 year". A date ("1 week on Nov

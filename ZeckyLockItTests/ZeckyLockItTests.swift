@@ -709,4 +709,89 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(later?.start, 50)
         XCTAssertEqual(later?.share ?? 0, 0.5, accuracy: 0.0001)
     }
+
+    // MARK: Go Max
+
+    func testGoMaxNodeSettings() {
+        let zakura = GoMaxConfig.zakura(dataDir: "/tmp/Go Max/zakura", retention: 10_000)
+        XCTAssertTrue(zakura.contains("checkpoint_sync = false"))
+        XCTAssertTrue(zakura.contains("storage_mode = { pruned = { tx_retention = 10000 } }"))
+        XCTAssertTrue(zakura.contains(#"p2p_stack = "legacy""#))
+        XCTAssertTrue(zakura.contains(#"listen_addr = "127.0.0.1:8233""#))
+        XCTAssertTrue(zakura.contains(#"listen_addr = "127.0.0.1:8232""#))
+        XCTAssertTrue(zakura.contains(#"cache_dir = "/tmp/Go Max/zakura""#))
+        XCTAssertTrue(zakura.contains(#"identity_dir = "/tmp/Go Max/zakura/identity""#))
+        // Nothing listens beyond this Mac.
+        XCTAssertFalse(zakura.contains("0.0.0.0"))
+        XCTAssertFalse(zakura.contains("[::]"))
+        let zaino = GoMaxConfig.zaino(dataDir: "/tmp/zaino")
+        XCTAssertTrue(zaino.contains(#"listen_address = "127.0.0.1:8137""#))
+        XCTAssertTrue(zaino.contains(#"validator_jsonrpc_listen_address = "127.0.0.1:8232""#))
+        XCTAssertTrue(zaino.contains("ephemeral_finalised_state = true"))
+        XCTAssertFalse(zaino.contains("0.0.0.0"))
+    }
+
+    func testGoMaxTomlStrings() {
+        XCTAssertEqual(GoMaxConfig.tomlString(#"a "b" \c"#), #""a \"b\" \\c""#)
+        XCTAssertEqual(GoMaxConfig.tomlString("x\ny"), #""x\u000Ay""#)
+    }
+
+    func testGoMaxRetentionDiskAndSizes() {
+        XCTAssertEqual(GoMaxConfig.retention(widened: false), 10_000)
+        XCTAssertEqual(GoMaxConfig.retention(widened: true), 100_000)
+        XCTAssertEqual(GoMaxConfig.missingBytes(free: GoMaxConfig.minFreeBytes), 0)
+        XCTAssertEqual(GoMaxConfig.missingBytes(free: 0), GoMaxConfig.minFreeBytes)
+        XCTAssertEqual(GoMaxConfig.formatBytes(17_100_000_000), "17 GB")
+        XCTAssertEqual(GoMaxConfig.formatBytes(1_500_000_000), "1.5 GB")
+        XCTAssertEqual(GoMaxConfig.formatBytes(980_000_000), "980 MB")
+    }
+
+    func testGoMaxReadsTheNodesAnswer() {
+        let answer: [String: Any] = ["blocks": 3_557_549, "estimatedheight": 3_557_550,
+                                     "verificationprogress": 0.99999, "size_on_disk": 15_200_000_000, "pruned": true]
+        let info = GoMaxChainInfo(rpcResult: answer)
+        XCTAssertEqual(info?.blocks, 3_557_549)
+        XCTAssertEqual(info?.sizeOnDisk, 15_200_000_000)
+        XCTAssertEqual(info?.atTip, true)
+        let notANumber: [String: Any] = ["blocks": true]
+        XCTAssertNil(GoMaxChainInfo(rpcResult: notANumber))
+        XCTAssertNil(GoMaxChainInfo(rpcResult: nil))
+    }
+
+    func testGoMaxPhases() {
+        let syncing = GoMaxChainInfo(blocks: 2_000_000, estimatedHeight: 3_557_000, verificationProgress: 0.6)
+        let tip = GoMaxChainInfo(blocks: 3_557_000, estimatedHeight: 3_557_001, verificationProgress: 1)
+        let slightlyBehind = GoMaxChainInfo(blocks: 3_556_990, estimatedHeight: 3_557_000, verificationProgress: 0.9999)
+        let afterSleep = GoMaxChainInfo(blocks: 3_556_800, estimatedHeight: 3_557_000, verificationProgress: 0.9999)
+        XCTAssertEqual(GoMaxPhase.next(after: .starting, running: true, info: nil, wasEverReady: false), .starting)
+        XCTAssertEqual(GoMaxPhase.next(after: .starting, running: true, info: syncing, wasEverReady: false), .syncing)
+        XCTAssertEqual(GoMaxPhase.next(after: .syncing, running: true, info: tip, wasEverReady: false), .ready)
+        XCTAssertEqual(GoMaxPhase.next(after: .ready, running: true, info: slightlyBehind, wasEverReady: true), .ready)
+        XCTAssertEqual(GoMaxPhase.next(after: .ready, running: true, info: afterSleep, wasEverReady: true), .catchingUp)
+        XCTAssertEqual(GoMaxPhase.next(after: .ready, running: false, info: tip, wasEverReady: true), .problem)
+        XCTAssertEqual(GoMaxPhase.next(after: .stopped, running: true, info: tip, wasEverReady: true), .stopped)
+        XCTAssertEqual(GoMaxPhase.next(after: .updating, running: true, info: nil, wasEverReady: true), .updating)
+    }
+
+    func testGoMaxWords() {
+        XCTAssertEqual(GoMaxWords.behind(10), "a few minutes behind")
+        XCTAssertEqual(GoMaxWords.behind(100), "about 40 minutes behind")
+        XCTAssertEqual(GoMaxWords.behind(288), "about 2 hours behind")
+        XCTAssertEqual(GoMaxWords.behind(10_000), "about 3 days behind")
+        XCTAssertEqual(GoMaxWords.status(.ready, nil), "Up to date · every block since Canopy verified on this Mac")
+        XCTAssertEqual(GoMaxWords.status(.off, nil), "Off")
+        let syncing = GoMaxChainInfo(blocks: 2_000_000, estimatedHeight: 3_557_000, verificationProgress: 0.605)
+        XCTAssertTrue(GoMaxWords.status(.syncing, syncing).hasPrefix("Checking history · 60% · verified up to "))
+        XCTAssertEqual(GoMaxWords.storage(sizeOnDisk: 15_200_000_000, retention: 100_000), "Using 15 GB · keeps about 4 weeks of recent blocks")
+        XCTAssertEqual(GoMaxWords.storage(sizeOnDisk: 15_200_000_000, retention: 10_000), "Using 15 GB · keeps a few days of recent blocks")
+        XCTAssertEqual(GoMaxWords.short(.syncing, syncing), "Checking history · 60%")
+    }
+
+    func testGoMaxReadsHTTPAnswers() {
+        let plain = Data("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}".utf8)
+        XCTAssertEqual(LocalRPC.body(of: plain), Data("{}".utf8))
+        let chunked = Data("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\n{\"a\"\r\n3\r\n:1}\r\n0\r\n\r\n".utf8)
+        XCTAssertEqual(LocalRPC.body(of: chunked), Data("{\"a\":1}".utf8))
+        XCTAssertNil(LocalRPC.body(of: Data("HTTP/1.1 500 Internal Server Error\r\n\r\n".utf8)))
+    }
 }

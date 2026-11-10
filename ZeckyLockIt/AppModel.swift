@@ -433,6 +433,8 @@ final class AppModel: ObservableObject {
     func erase() async throws {
         closeLock()
         WalletVault.endSession()
+        // Go Max off, its node data and settings gone.
+        await GoMaxNode.shared.eraseAll()
         try await engine.erase()
         WalletFiles.removeChainTip()
         try WalletVault.eraseAll()
@@ -489,6 +491,8 @@ final class AppModel: ObservableObject {
         var seed: [UInt8] = []
         if let wallet { seed = (try? Mnemonic.seed(from: wallet.phrase)) ?? [] }
         defer { Wipe.bytes(&seed) }
+        // Go Max, if it was on: the node starts again beside the wallet.
+        GoMaxNode.shared.load(engine: engine)
         if await engine.start(birthday: birthday, seed: seed.isEmpty ? nil : seed) {
             screen = .home
         } else {

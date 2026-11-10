@@ -61,6 +61,9 @@
 		A100000000000000000000B0 /* SaplingParams/sapling-spend.params in Resources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000AF /* SaplingParams/sapling-spend.params */; };
 		A100000000000000000000B2 /* SaplingParams/sapling-output.params in Resources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B1 /* SaplingParams/sapling-output.params */; };
 		A100000000000000000000F1 /* ArrivalToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000F0 /* ArrivalToast.swift */; };
+		A10000000000000000000101 /* GoMax.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000100 /* GoMax.swift */; };
+		A10000000000000000000103 /* GoMaxNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000102 /* GoMaxNode.swift */; };
+		A10000000000000000000105 /* GoMaxPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000104 /* GoMaxPage.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -130,6 +133,9 @@
 		A100000000000000000000AF /* SaplingParams/sapling-spend.params */ = {isa = PBXFileReference; lastKnownFileType = file; path = "SaplingParams/sapling-spend.params"; sourceTree = "<group>"; };
 		A100000000000000000000B1 /* SaplingParams/sapling-output.params */ = {isa = PBXFileReference; lastKnownFileType = file; path = "SaplingParams/sapling-output.params"; sourceTree = "<group>"; };
 		A100000000000000000000F0 /* ArrivalToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArrivalToast.swift; sourceTree = "<group>"; };
+		A10000000000000000000100 /* GoMax.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoMax.swift; sourceTree = "<group>"; };
+		A10000000000000000000102 /* GoMaxNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoMaxNode.swift; sourceTree = "<group>"; };
+		A10000000000000000000104 /* GoMaxPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoMaxPage.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -215,6 +221,9 @@
 				A10000000000000000000040 /* RestoreView.swift */,
 				A10000000000000000000042 /* HomeView.swift */,
 				A100000000000000000000F0 /* ArrivalToast.swift */,
+				A10000000000000000000100 /* GoMax.swift */,
+				A10000000000000000000102 /* GoMaxNode.swift */,
+				A10000000000000000000104 /* GoMaxPage.swift */,
 				A1000000000000000000001C /* Mnemonic.swift */,
 				A1000000000000000000001E /* Entropy.swift */,
 				A10000000000000000000020 /* Birthday.swift */,
@@ -249,6 +258,7 @@
 				A1000000000000000000000E /* Frameworks */,
 				A1000000000000000000000F /* Resources */,
 				A10000000000000000000019 /* Fix libzcashlc layout for macOS */,
+				A10000000000000000000106 /* Go Max programs */,
 				A100000000000000000000F2 /* Neutral build paths */,
 			);
 			buildRules = (
@@ -403,6 +413,25 @@
 			shellPath = /bin/sh;
 			shellScript = "# Swift puts source file paths in the app (for messages from the engine\n# and its packages). They start with this Mac's home folder, which holds\n# the user name. Replace that folder with a neutral one of the same\n# length, so nothing else in the binary moves. Xcode signs the app after\n# this step. Only for an archive: a Debug build loads its code from a\n# file next to the app by path, so it is left as it is.\nset -e\n[ \"$ACTION\" = \"install\" ] || exit 0\nB=\"${TARGET_BUILD_DIR}/${EXECUTABLE_PATH}\"\n[ -f \"$B\" ] || exit 0\ncase \"$HOME\" in /Users/?*) ;; *) exit 0 ;; esac\n/usr/bin/perl -0777 -pi -e 'BEGIN { $h = $ENV{HOME}; $n = \"/Users/\" . (\"_\" x (length($h) - 7)); } s/\\Q$h\\E/$n/g' \"$B\"\nchmod +x \"$B\"\nif /usr/bin/grep -q -a -F \"$HOME/\" \"$B\"; then echo \"error: the home folder is still in $B\"; exit 1; fi\n";
 		};
+		A10000000000000000000106 /* Go Max programs */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Go Max programs";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$PROJECT_DIR/scripts/gomax-embed.sh\"\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -447,6 +476,9 @@
 				A10000000000000000000041 /* RestoreView.swift in Sources */,
 				A10000000000000000000043 /* HomeView.swift in Sources */,
 				A100000000000000000000F1 /* ArrivalToast.swift in Sources */,
+				A10000000000000000000101 /* GoMax.swift in Sources */,
+				A10000000000000000000103 /* GoMaxNode.swift in Sources */,
+				A10000000000000000000105 /* GoMaxPage.swift in Sources */,
 				A1000000000000000000001D /* Mnemonic.swift in Sources */,
 				A1000000000000000000001F /* Entropy.swift in Sources */,
 				A10000000000000000000021 /* Birthday.swift in Sources */,
