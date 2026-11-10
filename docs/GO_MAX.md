@@ -78,6 +78,40 @@ The settings Go Max writes match the ones that state was made with.
 - How long the node takes to open a 15 GB state after an unclean stop
   (Lock it waits up to 3 minutes).
 
+## Remote access: decisions (10 Nov 2026, owner)
+
+1. No Tailscale and no extra app for users. Go Max stays one click.
+2. Order of work: Zaino next to the pruned node first (done on this
+   branch), Tor after that.
+3. Tor is the way in from away. Rejected: port forwarding (shows the home
+   address, router setup), a Zecky relay server (users would depend on
+   Zecky), embedded WireGuard (needs an account or a coordination server).
+4. Every Go Max install makes its own onion address. Tor is bundled (Arti
+   preferred). The onion key is made on the first Go Max press, kept in
+   Lock it's own folder across restarts, and points at the local Zaino
+   port. No account, no settings.
+5. On the Mac itself no Tor is needed: Lock it talks to Zaino on the same
+   machine. Only the node's peer-to-peer traffic shows the home address to
+   peers: the known, disclosed exception.
+6. The pairing QR holds both the home-network address and the onion
+   address. Lock it iPhone tries home Wi-Fi, then Tor, then public
+   servers, and never switches without saying so.
+7. QR pairing first: Lock it already scans QR codes for its server. Other
+   wallets get the plain addresses to enter by hand, where they support
+   onion addresses.
+8. For Lock it iPhone: scan once at home, keep your own node from anywhere.
+
+Open points for the build (proposed, not decided):
+
+- Point 6 means Zaino also listens on the Mac's home-network address. The
+  page and How Zecky works then must stop saying "nothing accepts
+  connections from outside" and say who can connect instead.
+- Arti's onion services are still marked experimental upstream. Measured
+  working by hand on 9 Nov (GetLatestBlock in 3.4 s).
+- An onion address alone lets anyone who learns it use the node. Tor's
+  client authorization (Arti: restricted discovery) would limit it to
+  paired phones; the key would travel in the same QR.
+
 ## Not in this branch yet
 
 - Pairing a phone: home-network address, certificate, QR, Tor onion service.
