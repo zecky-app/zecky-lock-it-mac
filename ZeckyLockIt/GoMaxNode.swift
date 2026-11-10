@@ -102,6 +102,11 @@ final class GoMaxNode: ObservableObject {
     /// Go Max is on is respected.
     private var switchedToNode = false
     private var zainoRestarts = 0
+    /// Looks in a row with the node at the tip and Zaino listening. Lock it
+    /// is switched over after three (half a minute): right after a start
+    /// Zaino is still a few blocks behind the node, and the wallet's
+    /// requests for the newest blocks fail until it has caught up.
+    private var steadyLooks = 0
     /// Answers the node missed in a row while running. A node busy checking
     /// blocks can be slow to answer; only a minute of silence is a problem.
     private var missedAnswers = 0
@@ -126,6 +131,10 @@ final class GoMaxNode: ObservableObject {
         if enabled && Self.isAvailable {
             wasEverReady = widened
             Task { await start() }
+        } else if Self.previousServer != nil {
+            // Go Max is off, but Lock it was left on the node it had been
+            // switched to (a quit while switching off): back to the server.
+            Task { await restoreServer() }
         }
     }
 
@@ -156,8 +165,11 @@ final class GoMaxNode: ObservableObject {
     func switchOff() async {
         enabled = false
         stopPolling()
-        await stopPrograms()
+        // First back to the server, then the programs: stopping the node can
+        // take a minute, and a quit in that minute must not leave Lock it
+        // pointing at a node that is gone.
         await restoreServer()
+        await stopPrograms()
         problem = nil
         phase = hasData ? .stopped : .off
     }
@@ -413,7 +425,11 @@ final class GoMaxNode: ObservableObject {
             if !widened { await widen(); return }
             // Only once Zaino accepts connections: it needs a while after a
             // start, and Lock it would say it can't reach the node meanwhile.
-            if !switchedToNode, await LocalRPC.portOpen(GoMaxConfig.zainoPort) { await switchToNode() }
+            if !switchedToNode {
+                let listening = await LocalRPC.portOpen(GoMaxConfig.zainoPort)
+                steadyLooks = (fresh?.atTip == true && listening) ? steadyLooks + 1 : 0
+                if steadyLooks >= 3 { await switchToNode() }
+            }
         }
     }
 
@@ -457,11 +473,13 @@ final class GoMaxNode: ObservableObject {
     /// Back to the server from before Go Max, if Lock it is on the node.
     private func restoreServer() async {
         switchedToNode = false
-        guard onNode else { return }
+        steadyLooks = 0
+        guard onNode else { Self.previousServer = nil; return }
         let parts = (Self.previousServer ?? Server.defaultHost).split(separator: ":")
         let host = parts.first.map(String.init) ?? Server.defaultHost
         let port = parts.count == 2 ? Int(parts[1]) ?? 443 : 443
         Server.set(host: host, port: port)
+        Self.previousServer = nil
         SecurityKeys.restartRemovalIfRunning()
         try? await engine?.switchServer()
         if phase == .problem, let problem { self.problem = problem + " Lock it is back on \(host)." }

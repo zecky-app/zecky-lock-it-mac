@@ -38,7 +38,7 @@ Two rules from those runs, built into the code:
 | `scripts/gomax-embed.sh` | Build step: checks the pins, puts both programs in `Contents/MacOS`, signs them. Without them the app builds as before and the page says the build has no node inside. |
 
 Everything the node stores is in Lock it's container:
-`~/Library/Containers/app.zecky.lockit.mac/Data/Library/Application Support/GoMax/`
+`~/Library/Containers/app.zecky.lockit/Data/Library/Application Support/GoMax/`
 (`zakura/`, `zaino/`, `logs/`, the two `.toml` files), left out of Time Machine.
 
 ## Ports, all on this Mac only
@@ -66,7 +66,7 @@ like the prototype), Go Max says so and does not start.
 
 To skip the 13-hour first sync, the prototype's state can be copied into the
 container before step 4 (both stopped):
-`ditto ~/rockit-proto/state-full ~/Library/Containers/app.zecky.lockit.mac/Data/Library/Application\ Support/GoMax/zakura`
+`ditto ~/rockit-proto/state-full ~/Library/Containers/app.zecky.lockit/Data/Library/Application\ Support/GoMax/zakura`
 The settings Go Max writes match the ones that state was made with.
 
 ## Open questions only a build can answer
