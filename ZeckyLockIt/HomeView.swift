@@ -8,6 +8,7 @@ struct HomeView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var engine: WalletEngine
     @ObservedObject var prices: PriceFeed
+    @ObservedObject private var goMax = GoMaxNode.shared
 
     @State private var tilt: CGSize = .zero
     @State private var area: CGSize = .zero
@@ -248,7 +249,7 @@ struct HomeView: View {
                             .help(failedDetail)
                         } else {
                             Button { model.sheet = .sync } label: {
-                                Text(statusText).font(Theme.text(12)).foregroundStyle(Theme.muted).contentShape(Rectangle())
+                                Text(statusText).font(Theme.text(12)).foregroundStyle(nodeQuiet ? Theme.gold : Theme.muted).contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .help("Sync details")
@@ -483,7 +484,13 @@ struct HomeView: View {
 
     private var statusText: String { baseStatus + (Server.nodeLabel.map { " · \($0)" } ?? "") }
 
+    /// Lock it reads from the node on this Mac, and that node has had no new
+    /// block for five minutes: the wallet is level with the node, the node
+    /// is not level with the network. Same words and color as the Go Max coin.
+    private var nodeQuiet: Bool { Server.nodeKind(Server.host) == .thisMac && goMax.quietMinutes != nil }
+
     private var baseStatus: String {
+        if nodeQuiet { return "No new blocks · check connection" }
         if engine.droppedSince != nil { return "Connection dropped · trying again…" }
         if engine.isCurrent { return "Up to date" }
         switch engine.status {
@@ -495,6 +502,7 @@ struct HomeView: View {
     }
 
     private var dotColor: Color {
+        if nodeQuiet { return Theme.gold }
         if engine.isCurrent { return Theme.green }
         switch engine.status {
         case .upToDate: return Theme.green
