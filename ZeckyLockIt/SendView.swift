@@ -103,6 +103,11 @@ struct SendView: View {
                 Text("Not delivered yet. Lock it keeps trying for \(engine.retryText), while it is open and this Mac is awake. After that the payment expires and nothing leaves the lock. It cannot be cancelled, so do not pay again.")
                     .font(Theme.text(14)).foregroundStyle(Theme.gold).multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+                if let answer = engine.ownNodeAnswer {
+                    Text("Your own node did not take it (\(answer)).")
+                        .font(Theme.text(12)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             case .waitingForTor:
                 Text("Tor did not reach a server, so this payment has most likely not left this Mac. Lock it keeps trying over Tor for \(engine.retryText), while it is open and this Mac is awake. After that the payment expires and nothing leaves the lock. It cannot be cancelled and is never sent another way by itself, so do not pay again.")
                     .font(Theme.text(14)).foregroundStyle(Theme.gold).multilineTextAlignment(.center)

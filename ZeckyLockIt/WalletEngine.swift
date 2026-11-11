@@ -783,6 +783,9 @@ final class WalletEngine: ObservableObject {
     /// The payment that is waiting for Tor, kept so the owner can send it
     /// through the own node instead. Only in memory.
     private var waitingForTor: [CreatedTransaction] = []
+    /// What the own node answered the last time a payment was handed to it,
+    /// in the engine's words. Shown small when it was not accepted.
+    @Published private(set) var ownNodeAnswer: String?
 
     /// Hands made transactions to the network: over Tor to public servers,
     /// or, with Tor sending off, to the server Lock it reads from.
@@ -793,6 +796,7 @@ final class WalletEngine: ObservableObject {
             transactions: transactions, to: Server.broadcastEndpoints(overTor: overTor), timing: TorSending.timing(overTor: overTor))
         let outcome = try Self.outcome(of: reports.map(\.outcome), overTor: overTor)
         waitingForTor = outcome == .waitingForTor ? transactions : []
+        ownNodeAnswer = nil
         // Remembered across restarts, so Activity and the Send screen can say
         // "not sent yet" for as long as that is true.
         for transaction in transactions {
@@ -850,6 +854,7 @@ final class WalletEngine: ObservableObject {
     func sendThroughOwnNode() async throws -> SendOutcome {
         guard let synchronizer, canSendThroughOwnNode else { return .waitingForTor }
         let reports = await synchronizer.broadcaster.submit(transactions: waitingForTor, to: [Server.endpoint])
+        ownNodeAnswer = reports.map { String(describing: $0.outcome) }.joined(separator: ", ")
         let outcome = try Self.outcome(of: reports.map(\.outcome), overTor: false)
         if outcome == .sent { for transaction in waitingForTor { Undelivered.remove(transaction.txId) } }
         waitingForTor = []
