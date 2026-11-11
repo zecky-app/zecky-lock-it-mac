@@ -813,7 +813,7 @@ final class WalletEngine: ObservableObject {
     /// before it expires. Nil when unknown.
     @Published private(set) var retryMinutes: Int?
     /// "about 16 minutes", or "until it expires" when the time is unknown.
-    var retryText: String { retryMinutes.map { "about \($0) minute\($0 == 1 ? "" : "s")" } ?? "until it expires" }
+    var retryText: String { retryMinutes.map { "about \($0) minute\($0 == 1 ? "" : "s")" } ?? "a while" }
 
     /// A payment that was never delivered and has expired: its amount, shown
     /// once on the home screen until Activity is opened. Remembered.
