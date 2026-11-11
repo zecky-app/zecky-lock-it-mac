@@ -763,8 +763,11 @@ struct ActivitySheet: View {
         var id: Self { self }
     }
     @State private var filter: Filter = .all
+    /// The payment whose details are open, by its ID.
+    @State private var chosen: Data?
 
     private var events: [LockLog.Entry] { let _ = model.timeLockChanged; return LockLog.entries }
+    private var chosenItem: WalletEngine.ActivityItem? { chosen.flatMap { id in engine.activity.first { $0.id == id } } }
 
     private var entries: [ActivityEntry] {
         let payments = engine.activity.map { ActivityEntry.payment($0) }
@@ -792,7 +795,9 @@ struct ActivitySheet: View {
         SheetScaffold(title: "Activity",
                       subtitle: "Everything you received and sent. Changes to the lock are under The lock.",
                       height: 640, onClose: onClose) {
-            if engine.activity.isEmpty && events.isEmpty {
+            if let item = chosenItem {
+                PaymentDetail(item: item, engine: engine, unit: model.unit, hidden: model.amountsHidden) { chosen = nil }
+            } else if engine.activity.isEmpty && events.isEmpty {
                 VStack(spacing: 14) {
                     Spacer()
                     PadlockView(open: false, size: 90)
@@ -818,7 +823,7 @@ struct ActivitySheet: View {
                         .frame(maxWidth: .infinity).padding(.top, 30)
                     Spacer()
                 } else {
-                    ActivityList(entries: entries, unit: model.unit, hidden: model.amountsHidden)
+                    ActivityList(entries: entries, unit: model.unit, hidden: model.amountsHidden) { chosen = $0.id }
                 }
             }
         }
@@ -871,11 +876,128 @@ enum ActivityEntry: Identifiable {
     var isReleased: Bool { if case .payment(let i) = self { return i.kind == .sent }; return false }
 }
 
+/// One payment, opened from Activity: everything this Mac knows about it,
+/// read from the wallet's own data. No link to a website: looking a payment
+/// up on a block explorer tells that site which payment is yours. The ID can
+/// be selected and copied, and where it goes is the owner's choice.
+struct PaymentDetail: View {
+    let item: WalletEngine.ActivityItem
+    @ObservedObject var engine: WalletEngine
+    var unit: Amount.Unit = .zec
+    var hidden = false
+    let onBack: () -> Void
+
+    @State private var note: String?
+    @State private var working = false
+    @State private var ownNodeNote: String?
+
+    private static let dateFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US")
+        f.dateFormat = "MMM d, yyyy · h:mm a"
+        return f
+    }()
+
+    private var received: Bool { item.kind == .received }
+
+    private var status: String {
+        switch item.state {
+        case .waiting: return item.undelivered ? "Not sent yet · Lock it keeps trying" : "Sent · waiting for a block"
+        case .expired: return "Expired · never left the lock"
+        case .confirmed:
+            guard let mined = item.minedHeight, engine.networkHeight >= mined else { return "In a block" }
+            let count = engine.networkHeight - mined + 1
+            return "In a block · \(count) confirmation\(count == 1 ? "" : "s")"
+        }
+    }
+
+    private func amount(_ zatoshi: Int64) -> String { hidden ? "Amount hidden" : Amount.text(zatoshi, unit) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Button(action: onBack) {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))
+                    Text("Activity").font(Theme.text(13, weight: .medium))
+                }
+                .foregroundStyle(Theme.gold).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            VStack(spacing: 0) {
+                line(received ? "Received" : (item.undelivered ? "Payment" : "Sent"),
+                     hidden ? amount(item.amount) : (received ? "+" : "−") + amount(item.amount), first: true)
+                if let fee = item.fee { line("Of which network fee", amount(fee)) }
+                line("Status", status, tint: item.state == .waiting ? Theme.gold : Theme.text)
+                if let date = item.date { line("When", Self.dateFormat.string(from: date)) }
+                if let mined = item.minedHeight { line("Block", mined.formatted(.number.locale(Locale(identifier: "en_US")))) }
+                if let note { line("Private note", note) }
+            }
+            .card(padding: 4)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("TRANSACTION ID").font(Theme.text(11, weight: .semibold)).tracking(1.4).foregroundStyle(Theme.muted)
+                Text(item.txid)
+                    .font(.system(size: 12, design: .monospaced))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Select it to copy. Looking it up on a website tells that site this payment is yours.")
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .card()
+
+            if item.undelivered {
+                Text("Lock it keeps trying for \(engine.retryText), while it is open and this Mac is awake. After that the payment expires and nothing leaves the lock. It cannot be cancelled, so do not pay again.")
+                    .font(Theme.text(13)).foregroundStyle(Theme.gold)
+                    .fixedSize(horizontal: false, vertical: true)
+                if engine.canSendThroughOwnNode {
+                    SecondaryButton(title: working ? "Sending…" : "Send through my own node") {
+                        guard !working else { return }
+                        working = true
+                        Task {
+                            defer { working = false }
+                            do {
+                                let outcome = try await engine.sendThroughOwnNode()
+                                ownNodeNote = outcome == .sent ? nil : "Your own node did not take it (\(engine.ownNodeAnswer ?? "no answer"))."
+                            } catch { ownNodeNote = String(describing: error) }
+                        }
+                    }
+                    .frame(width: 260)
+                    Text(ownNodeNote ?? "Other Zcash nodes then see it coming from your internet address.")
+                        .font(Theme.text(12)).foregroundStyle(ownNodeNote == nil ? Theme.muted : Theme.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .task(id: item.id) { note = await engine.note(for: item.id) }
+    }
+
+    private func line(_ label: String, _ value: String, tint: Color = Theme.text, first: Bool = false) -> some View {
+        VStack(spacing: 0) {
+            if !first { Rectangle().fill(Theme.line).frame(height: 1) }
+            HStack(alignment: .top, spacing: 16) {
+                Text(label).font(Theme.text(13)).foregroundStyle(Theme.muted)
+                Spacer(minLength: 12)
+                Text(value).font(Theme.text(13, weight: .medium)).foregroundStyle(tint)
+                    .multilineTextAlignment(.trailing)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+        }
+    }
+}
+
 /// Newest first, grouped by month. Quiet: no addresses, just what and when.
 struct ActivityList: View {
     let entries: [ActivityEntry]
     var unit: Amount.Unit = .zec
     var hidden = false
+    /// Clicking a payment opens its details.
+    var onSelect: ((WalletEngine.ActivityItem) -> Void)? = nil
 
     private static let dateFormat: DateFormatter = {
         let f = DateFormatter()
@@ -910,7 +1032,14 @@ struct ActivityList: View {
                             ForEach(Array(group.items.enumerated()), id: \.element.id) { index, entry in
                                 if index > 0 { Rectangle().fill(Theme.line).frame(height: 1).padding(.leading, 52) }
                                 switch entry {
-                                case .payment(let item): row(item)
+                                case .payment(let item):
+                                    if let onSelect {
+                                        Button { onSelect(item) } label: { row(item).contentShape(Rectangle()) }
+                                            .buttonStyle(.plain)
+                                            .help("Details")
+                                    } else {
+                                        row(item)
+                                    }
                                 case .event(let event): eventRow(event)
                                 }
                             }

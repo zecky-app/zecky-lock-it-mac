@@ -322,6 +322,11 @@ final class WalletEngine: ObservableObject {
         var minedHeight: Int? = nil
         /// Made, but no server has taken it yet (Lock it keeps trying).
         var undelivered = false
+        /// The network fee, for a payment this wallet made. A sent amount
+        /// already includes it.
+        var fee: Int64? = nil
+        /// The transaction ID as block explorers write it.
+        var txid: String { id.toHexStringTxId() }
     }
 
     /// The network's latest block, from the engine's state.
@@ -862,6 +867,13 @@ final class WalletEngine: ObservableObject {
         return outcome
     }
 
+    /// The private note that travelled with a payment, read from this Mac's
+    /// own wallet data. nil when there is none.
+    func note(for id: Data) async -> String? {
+        guard let synchronizer, let memos = try? await synchronizer.getMemos(for: id) else { return nil }
+        return memos.compactMap { $0.toString()?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
+    }
+
     /// Settings › Network: payments over Tor, or through the server Lock it reads from.
     func setSendsOverTor(_ on: Bool) async {
         TorSending.isOn = on
@@ -925,7 +937,8 @@ final class WalletEngine: ObservableObject {
             return ActivityItem(id: tx.rawID, kind: kind, amount: Int64(tx.value.amount.magnitude),
                                 date: tx.blockTime.map { Date(timeIntervalSince1970: $0) }, state: state,
                                 minedHeight: tx.minedHeight.map { Int($0) },
-                                undelivered: state == .waiting && Undelivered.ids.contains(tx.rawID))
+                                undelivered: state == .waiting && Undelivered.ids.contains(tx.rawID),
+                                fee: kind == .sent ? tx.fee.map { Int64($0.amount) } : nil)
         }
         .sorted { ($0.date ?? .distantFuture) > ($1.date ?? .distantFuture) }
         // A payment that was never taken by a server and has now expired:
