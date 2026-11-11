@@ -1293,11 +1293,18 @@ struct TourCard: View {
                 Text(steps[step].text).font(Theme.text(14)).foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    if step == steps.count - 1 {
+                    // On the keys step, and on the Go Max step its own link.
+                    if step == Self.base.count - 1 {
                         Button("Choose my keys now") {
                             model.finishTour()
                             model.settingsPage = .keys
                             model.sheet = .settings
+                        }
+                        .buttonStyle(.plain).font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.gold)
+                    } else if step >= Self.base.count {
+                        Button("Open Go Max") {
+                            model.finishTour()
+                            model.openGoMax()
                         }
                         .buttonStyle(.plain).font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.gold)
                     }

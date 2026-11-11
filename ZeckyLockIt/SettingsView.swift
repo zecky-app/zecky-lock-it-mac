@@ -1235,7 +1235,8 @@ struct HowItWorks: View {
     ]
 
     var onTour: (() -> Void)? = nil
-    @State private var open: Set<String> = ["The lock"]
+    /// All closed at first: a calm list, and you open the one you want.
+    @State private var open: Set<String> = []
     @State private var detail: Set<String> = []
 
     var body: some View {
