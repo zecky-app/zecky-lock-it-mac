@@ -478,6 +478,13 @@ final class WalletEngine: ObservableObject {
 
     private var current: AccountUUID? { focus ?? account }
 
+    /// The viewing key of the wallet on screen (also a sealed one): enough to
+    /// see everything in it, never to spend. From the wallet's own data.
+    func viewingKey() async -> String? {
+        guard let synchronizer, let id = current, let all = try? await synchronizer.listAccounts() else { return nil }
+        return all.first { $0.id == id }?.ufvk?.stringEncoded
+    }
+
     /// The wallet Receive and Send work on, as named on the key ring.
     var currentTag: WalletTag? { current.map(tag) }
 

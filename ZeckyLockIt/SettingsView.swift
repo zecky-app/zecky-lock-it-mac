@@ -14,6 +14,9 @@ struct SettingsView: View {
     private enum CodeStep { case phrase, setUp, change, remove, erase, guarded }
     @State private var codeStep: CodeStep?
     @State private var pendingPhrase: StoredWallet?
+    /// The viewing key while it is on screen, and for which wallet.
+    @State private var viewKey: String?
+    @State private var viewKeyNote: String?
     @State private var codeNote: String?
     @State private var timeLockHours = TimeLock.hours
     @State private var confirmTimeLock: Int?
@@ -114,7 +117,7 @@ struct SettingsView: View {
             group("Security") {
                 row(.keys, "Keys to the lock", "key.fill", keysSummary)
                 row(.timeLock, "Time lock", "clock", TimeLock.isOn ? TimeLock.label(TimeLock.hours) : "Off")
-                row(.phrase, "Recovery phrase", "doc.text.magnifyingglass", WalletVault.kind == .secureEnclave ? "Sealed in the Secure Enclave" : "In the Keychain")
+                row(.phrase, "Recovery phrase and viewing key", "doc.text.magnifyingglass", WalletVault.kind == .secureEnclave ? "Sealed in the Secure Enclave" : "In the Keychain")
                 row(.addressBook, "Address book", "person.crop.circle", addressSummary)
             }
             group("This Mac") {
@@ -516,6 +519,53 @@ struct SettingsView: View {
                 }
             }
 
+            // As on Lock it iPhone (Settings › Security › Viewing key).
+            card("Viewing key", icon: "eye") {
+                Text("A viewing key gives read-only access to \(model.engine.currentTag.map { "the wallet \($0.name)" } ?? "this wallet"). Whoever has it can see your balance and every payment in and out, past and future, but cannot spend anything.")
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("It cannot be taken back once shared. Give it only to someone or something that should see everything, such as your own watch-only device or an accountant.")
+                    .font(Theme.text(12)).foregroundStyle(Theme.gold)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let viewKey {
+                    Text(viewKey)
+                        .font(.system(size: 12, design: .monospaced))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
+                        .hiddenFromCapture()
+                    HStack {
+                        Text("Select it to copy. Hidden from screenshots while it shows.")
+                            .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                        Spacer()
+                        SecondaryButton(title: "Hide") { self.viewKey = nil }.frame(width: 120)
+                    }
+                } else {
+                    HStack {
+                        if let viewKeyNote {
+                            Text(viewKeyNote).font(Theme.text(12)).foregroundStyle(Theme.red)
+                        }
+                        Spacer()
+                        SecondaryButton(title: "Show viewing key") {
+                            viewKeyNote = nil
+                            Task {
+                                await guarded("show your viewing key") {
+                                    Task {
+                                        viewKey = await model.engine.viewingKey()
+                                        if viewKey == nil { viewKeyNote = "This wallet's viewing key could not be read." }
+                                    }
+                                }
+                            }
+                        }
+                        .frame(width: 200)
+                    }
+                }
+            }
+            .onDisappear { viewKey = nil; viewKeyNote = nil }
+
     }
 
     @ViewBuilder private var addressBookPage: some View {
@@ -733,7 +783,7 @@ struct SettingsView: View {
         switch page {
         case .keys?: return "One, two or three keys: you choose."
         case .timeLock?: return "A wait of days before the lock opens."
-        case .phrase?: return "Your 24 words, sealed on this Mac."
+        case .phrase?: return "Your 24 words and the viewing key."
         case .addressBook?: return "Addresses you send to often, picked by name."
         case .display?: return "How Lock it looks on this Mac."
         case .network?: return "Where Lock it gets the Zcash chain from."
@@ -1059,6 +1109,7 @@ struct HowItWorks: View {
         Chapter(title: "Your 24 words", icon: "doc.text.magnifyingglass", summary: "They are your Zcash. Keep them on paper.", essentials: [
             "Your 24 words and birthday block restore the wallet in Lock it or any Zcash wallet. Whoever has them has your Zcash.",
             "They are sealed by this Mac's Secure Enclave and shown only when you click to show them, for at most 2 minutes, so a screenshot does not catch them by accident.",
+            "A viewing key shows everything in a wallet but can't spend. Showing it asks first, and sharing it can't be undone.",
         ], more: [
             "They are made on this Mac from the system's secure random generator (256 bits), checked, and mixed with a second source. After you write them down, Lock it asks for three of them back.",
             "Every wallet on the key ring has its own 24 words and restores on its own in any Zcash wallet. One lock opens them all: the first wallet's words are sealed by the Secure Enclave, and the other wallets' words are encrypted with a key that comes from them.",
