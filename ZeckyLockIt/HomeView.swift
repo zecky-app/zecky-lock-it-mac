@@ -1264,12 +1264,16 @@ struct IronwoodSheet: View {
 }
 
 /// A few quiet steps, as on Lock it iPhone. Skip is always there. Go Max
-/// is the last one, only in a build that has the node inside.
+/// comes third, only in a build that has the node inside. The keys stay
+/// last: their link leaves the tour, so nothing may come after it.
 struct TourCard: View {
     @ObservedObject var model: AppModel
     @State private var step = 0
 
-    private var steps: [(title: String, text: String)] { GoMaxNode.isAvailable ? Self.base + [Self.goMax] : Self.base }
+    private var steps: [(title: String, text: String)] {
+        guard GoMaxNode.isAvailable, let keys = Self.base.last else { return Self.base }
+        return Array(Self.base.dropLast()) + [Self.goMax, keys]
+    }
 
     private static let goMax = (title: "Go Max, if you want",
                                 text: "The gold coin at the bottom right starts your own Zcash node inside Lock it, so Lock it reads the chain from this Mac instead of a server. Optional: it takes about 15 GB to start and most of a day the first time. Lock it works the same without it.")
@@ -1293,18 +1297,11 @@ struct TourCard: View {
                 Text(steps[step].text).font(Theme.text(14)).foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    // On the keys step, and on the Go Max step its own link.
-                    if step == Self.base.count - 1 {
+                    if step == steps.count - 1 {
                         Button("Choose my keys now") {
                             model.finishTour()
                             model.settingsPage = .keys
                             model.sheet = .settings
-                        }
-                        .buttonStyle(.plain).font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.gold)
-                    } else if step >= Self.base.count {
-                        Button("Open Go Max") {
-                            model.finishTour()
-                            model.openGoMax()
                         }
                         .buttonStyle(.plain).font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.gold)
                     }
