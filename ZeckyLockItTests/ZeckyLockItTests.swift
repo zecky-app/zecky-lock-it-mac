@@ -804,4 +804,33 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(LocalRPC.body(of: chunked), Data("{\"a\":1}".utf8))
         XCTAssertNil(LocalRPC.body(of: Data("HTTP/1.1 500 Internal Server Error\r\n\r\n".utf8)))
     }
+
+    // MARK: Sending over Tor
+
+    func testSendOutcomes() throws {
+        let server = LightWalletEndpoint(address: "zec.rocks", port: 443, secure: true)
+        // Accepted is sent, with or without Tor.
+        XCTAssertEqual(try WalletEngine.outcome(of: [.accepted(by: server)], overTor: true), .sent)
+        // Tor could not connect: waiting, never "sent".
+        XCTAssertEqual(try WalletEngine.outcome(of: [.unreachable], overTor: true), .waitingForTor)
+        XCTAssertEqual(try WalletEngine.outcome(of: [.unreachable], overTor: false), .saved)
+        // A timeout may have gone out: saved, the engine keeps trying.
+        XCTAssertEqual(try WalletEngine.outcome(of: [.timedOut], overTor: true), .saved)
+        XCTAssertEqual(try WalletEngine.outcome(of: [.accepted(by: server), .notAttempted], overTor: true), .saved)
+        // A refusal is an error, nothing was sent.
+        XCTAssertThrowsError(try WalletEngine.outcome(of: [.rejected(code: -25, message: "no")], overTor: true))
+    }
+
+    func testTorNeverGetsThePrivateNode() {
+        // Over Tor, whatever server is chosen: public servers only, two of them, with TLS.
+        let endpoints = Server.broadcastEndpoints(overTor: true)
+        XCTAssertEqual(endpoints.count, 2)
+        for endpoint in endpoints {
+            XCTAssertFalse(Server.isHomeNode(endpoint.host), endpoint.host)
+            XCTAssertFalse(endpoint.isOnPrivateNetwork, endpoint.host)
+            XCTAssertTrue(endpoint.secure)
+        }
+        // Without Tor: the server Lock it reads from, and only that.
+        XCTAssertEqual(Server.broadcastEndpoints(overTor: false).map(\.host), [Server.host])
+    }
 }

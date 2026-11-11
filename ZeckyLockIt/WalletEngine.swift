@@ -60,6 +60,19 @@ enum Server {
 
     static var isRockIt: Bool { isHomeNode(host) }
 
+    /// Where a payment is handed to the network. Over Tor: two public
+    /// servers at once, each on its own circuit (the public server you
+    /// chose, if any, and the built-in ones); your own node is not among
+    /// them, since Tor cannot reach it and it would announce the payment
+    /// from your internet address. Without Tor: the server Lock it reads from.
+    static func broadcastEndpoints(overTor: Bool) -> [LightWalletEndpoint] {
+        guard overTor else { return [endpoint] }
+        var servers: [(host: String, port: Int)] = []
+        if !isHomeNode(host) { servers.append((host, port)) }
+        for preset in presets where !servers.contains(where: { $0.host == preset.host }) { servers.append((preset.host, 443)) }
+        return servers.prefix(2).map { LightWalletEndpoint(address: $0.host, port: $0.port, secure: true) }
+    }
+
     /// One of the built-in public servers, reached over TLS.
     static var isBuiltIn: Bool { port == 443 && presets.contains { $0.host == host } }
 
@@ -111,6 +124,22 @@ enum Server {
         UserDefaults.standard.removeObject(forKey: "server.port")
         loaded = true
         cache = nil
+    }
+}
+
+/// Sending over Tor: on unless switched off in Settings › Network. Reading
+/// is not affected; with Go Max it stays on this Mac.
+enum TorSending {
+    private static let key = "send.overTor"
+    static var isOn: Bool {
+        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+    static func reset() { UserDefaults.standard.removeObject(forKey: key) }
+
+    /// Tor needs time to connect, the first time most of all.
+    static func timing(overTor: Bool) -> SubmissionTiming {
+        overTor ? SubmissionTiming(responseTimeout: 90, postAcceptanceGraceDelay: 5) : .default
     }
 }
 
@@ -308,6 +337,9 @@ final class WalletEngine: ObservableObject {
                 let base = try WalletFiles.base("Wallet")
                 synchronizer = SDKSynchronizer(initializer: WalletFiles.initializer(base: base, alias: .custom("zecky-main")))
                 self.synchronizer = synchronizer
+                // Before anything starts, so the engine's own retries of a
+                // waiting payment take the same road.
+                await synchronizer.submitOverTor(enabled: TorSending.isOn)
                 synchronizer.stateStream
                     .receive(on: DispatchQueue.main)
                     .sink { [weak self] state in self?.apply(state) }
@@ -502,6 +534,10 @@ final class WalletEngine: ObservableObject {
     }
 
     enum SendOutcome {
+        /// Made, but Tor could not reach a server. The engine keeps trying
+        /// over Tor until the payment is mined or expires; it never goes
+        /// out another way unless the owner says so.
+        case waitingForTor
         /// Delivered to the server.
         case sent
         /// Created and stored, but not delivered yet. The engine resends it
@@ -689,17 +725,63 @@ final class WalletEngine: ObservableObject {
         try NetworkUpgrade.checkReleases(networkHeight: networkHeight)
         let key = try DerivationTool(networkType: .mainnet)
             .deriveUnifiedSpendingKey(seed: seed, accountIndex: Zip32AccountIndex(0))
-        var outcome: SendOutcome = .sent
-        for try await result in try await synchronizer.createProposedTransactions(proposal: plan.proposal, spendingKey: key) {
-            switch result {
-            case .success: break
-            case .grpcFailure: outcome = .saved
-            case .submitFailure(_, let code, let description): throw SendError.refused("\(code): \(description)")
-            case .notAttempted: outcome = .saved
-            }
-        }
+        // Made first, handed over second: where it goes is Lock it's choice,
+        // not the engine's (Tor, or the server Lock it reads from).
+        let created = try await synchronizer.broadcaster.createProposedTransactions(proposal: plan.proposal, spendingKey: key)
+        let outcome = try await deliver(created)
         await refreshActivity()
         return outcome
+    }
+
+    /// The payment that is waiting for Tor, kept so the owner can send it
+    /// through the own node instead. Only in memory.
+    private var waitingForTor: [CreatedTransaction] = []
+
+    /// Hands made transactions to the network: over Tor to public servers,
+    /// or, with Tor sending off, to the server Lock it reads from.
+    private func deliver(_ transactions: [CreatedTransaction]) async throws -> SendOutcome {
+        guard let synchronizer else { throw EngineError.notReady }
+        let overTor = TorSending.isOn
+        let reports = await synchronizer.broadcaster.submit(
+            transactions: transactions, to: Server.broadcastEndpoints(overTor: overTor), timing: TorSending.timing(overTor: overTor))
+        let outcome = try Self.outcome(of: reports.map(\.outcome), overTor: overTor)
+        waitingForTor = outcome == .waitingForTor ? transactions : []
+        return outcome
+    }
+
+    /// What the owner is told, from what the servers answered.
+    nonisolated static func outcome(of outcomes: [TransactionSubmissionOutcome], overTor: Bool) throws -> SendOutcome {
+        var result: SendOutcome = .sent
+        for outcome in outcomes {
+            switch outcome {
+            case .accepted: break
+            case .rejected(let code, let message): throw SendError.refused("\(code): \(message)")
+            case .unreachable: result = overTor ? .waitingForTor : .saved
+            case .timedOut, .notAttempted, .cancelled: if result == .sent { result = .saved }
+            }
+        }
+        return result
+    }
+
+    /// Whether the payment waiting for Tor can go through your own node.
+    var canSendThroughOwnNode: Bool { !waitingForTor.isEmpty && Server.isRockIt }
+
+    /// The owner's choice after Tor failed: the waiting payment goes to the
+    /// own node, which announces it from this internet address. The engine's
+    /// retries follow from then on.
+    func sendThroughOwnNode() async throws -> SendOutcome {
+        guard let synchronizer, canSendThroughOwnNode else { return .waitingForTor }
+        let reports = await synchronizer.broadcaster.submit(transactions: waitingForTor, to: [Server.endpoint])
+        let outcome = try Self.outcome(of: reports.map(\.outcome), overTor: false)
+        waitingForTor = []
+        await refreshActivity()
+        return outcome
+    }
+
+    /// Settings › Network: payments over Tor, or through the server Lock it reads from.
+    func setSendsOverTor(_ on: Bool) async {
+        TorSending.isOn = on
+        await synchronizer?.submitOverTor(enabled: on)
     }
 
     /// True while a payment we made is created but not yet mined or expired.

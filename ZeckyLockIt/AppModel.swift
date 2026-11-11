@@ -449,6 +449,7 @@ final class AppModel: ObservableObject {
         SecurityKeys.erase()
         AddressBook.clear()
         Server.reset()
+        TorSending.reset()
         Amount.resetChoices()
         UserDefaults.standard.removeObject(forKey: "tour.seen")
         UserDefaults.standard.removeObject(forKey: WalletEngine.syncedOnceKey)

@@ -13,3 +13,4 @@ GoMax/bin/
 
 # Build output of xcodebuild runs
 build.log
+test.log

@@ -135,20 +135,22 @@ final class SealItFlow: ObservableObject {
 
             try NetworkUpgrade.checkReleases(networkHeight: (try? await synchronizer.latestHeight()) ?? 0)
             step = .broadcasting
-            let results = try await synchronizer.createTransactionFromPCZT(
+            // Made first, handed over second, as on the Send screen: over
+            // Tor to public servers, or to the server Lock it reads from.
+            let created = try await synchronizer.broadcaster.createTransactionFromPCZT(
                 pcztWithProofs: proven,
                 pcztWithSigs: signed
             )
+            let overTor = TorSending.isOn
+            let reports = await synchronizer.broadcaster.submit(
+                transactions: created, to: Server.broadcastEndpoints(overTor: overTor), timing: TorSending.timing(overTor: overTor))
             var lastTxId: Data?
-            for try await result in results {
-                switch result {
-                case .success(let txId):
-                    lastTxId = txId
-                case .grpcFailure(let txId, _), .notAttempted(let txId):
-                    // Created and stored; the engine resends it until mined or expired.
-                    lastTxId = txId
-                case .submitFailure(_, let code, let description):
-                    throw FlowError.submit("\(description) (\(code))")
+            for report in reports {
+                // Not delivered yet: stored; the engine resends it the same
+                // way until it is mined or expires.
+                lastTxId = report.txId
+                if case .rejected(let code, let message) = report.outcome {
+                    throw FlowError.submit("\(message) (\(code))")
                 }
             }
             self.provingTask = nil

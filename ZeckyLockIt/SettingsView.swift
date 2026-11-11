@@ -30,6 +30,7 @@ struct SettingsView: View {
     @State private var serverChoice = Server.presets.firstIndex { $0.host == Server.host } ?? -1
     @State private var customServer = Server.presets.contains { $0.host == Server.host } ? (Server.ownServer ?? "") : "\(Server.host):\(Server.port)"
     @State private var serverNote: String?
+    @State private var sendOverTor = TorSending.isOn
 
     var body: some View {
         SheetScaffold(title: sheetTitle,
@@ -574,7 +575,25 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            sendingCard
 
+    }
+
+    private var sendingCard: some View {
+        card("Sending", icon: "paperplane") {
+            Toggle(isOn: Binding(get: { sendOverTor }, set: { on in
+                sendOverTor = on
+                Task { await model.engine.setSendsOverTor(on) }
+            })) {
+                Text("Send payments over Tor").font(Theme.text(13))
+            }
+            .toggleStyle(.checkbox)
+            Text(sendOverTor
+                 ? "Your payments leave over Tor, each on its own connection, to a public server that cannot see this Mac's internet address. If Tor cannot connect, the payment waits; it is never sent another way by itself. Reading the chain is not affected."
+                 : "Your payments go to the server above, which sees this Mac's internet address. With your own node, other Zcash nodes see the payment coming from your internet address.")
+                .font(Theme.text(12)).foregroundStyle(sendOverTor ? Theme.muted : Theme.gold)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     @State private var showAcknowledgements = false
@@ -602,7 +621,7 @@ struct SettingsView: View {
                 let n = { (v: Int) in v > 0 ? v.formatted(.number.grouping(.automatic).locale(Locale(identifier: "en_US"))) : "…" }
                 VStack(spacing: 6) {
                     aboutLine("Version", version)
-                    aboutLine("Zcash engine", "Zecky engine v4.0.0-zecky.5")
+                    aboutLine("Zcash engine", "Zecky engine v4.0.0-zecky.5 + Tor sending")
                     aboutLine("Current block", n(engine.networkHeight))
                     aboutLine("Wallet birthday", n(engine.birthdayHeight))
                     aboutLine("Server", Server.nodeLabel.map { "\($0) (\(Server.host))" } ?? Server.host)
@@ -612,7 +631,7 @@ struct SettingsView: View {
                     .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
                 if showTechnical {
                     VStack(spacing: 6) {
-                        aboutLine("Engine tag", "v4.0.0-zecky.5 · commit 52850f6")
+                        aboutLine("Engine", "v4.0.0-zecky.5 + Tor sending · commit 90e877d")
                         aboutLine("Engine fingerprint (Mac)", "ec88e073…3079fa")
                         aboutLine("NU7 check", WalletSelfTest.engineBranch(at: NetworkUpgrade.nu7Height) == 0x7719_0AD9 ? "Signs for NU7 (0x77190AD9)" : "Does not know NU7")
                         aboutLine("Swift SDK", "ZcashLightClientKit 4.0.0")
@@ -1077,7 +1096,8 @@ struct HowItWorks: View {
             "Your own node (Rock it) on a home or Tailscale address is reached without that layer: at home the traffic stays in your network, and Tailscale encrypts it on the way. A home address cannot prove it is your node; away from home use Rock it's Tailscale address.",
             "Value is off unless you choose a currency. Then CoinGecko is asked for the price every 5 minutes and sees only this Mac's internet address.",
             "With Go Max up to date, Lock it uses no server at all: it reads the chain from its own node on this Mac.",
-            "Lock it for Mac has no Tor yet.",
+            "Payments you send leave over Tor, each on its own connection, to a public Zcash server: it sees a payment arriving from Tor, not this Mac's internet address. If Tor cannot connect, the payment waits and you are told; it never goes out another way by itself. You can switch this off in Settings › Network.",
+            "Everything else (reading the chain from a server, the price) does not use Tor yet.",
         ]),
         Chapter(title: "On this Mac", icon: "laptopcomputer", summary: "Where your data lives.", essentials: [
             "Your history (amounts and dates, never the words) is kept in Lock it's own protected folder and left out of Time Machine. Keep FileVault on so the whole disk is encrypted as well.",

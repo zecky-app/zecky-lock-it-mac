@@ -39,6 +39,17 @@ cp zecky-engine/BuildSupport/LocalPackages-Package.swift zecky-engine/LocalPacka
 `LocalPackages/` is ignored by git. Once the release file is public, remove
 `LocalPackages/` and let Swift Package Manager download and check it.
 
+## Branch go-max: Tor for sending (11 Nov 2026, in testing)
+
+This branch builds against the engine's `tor-submit` branch: commit
+`90e877d`, which is `v4.0.0-zecky.5` plus one Swift-only commit that adds
+`SDKSynchronizer.submitOverTor(enabled:)`. The Rust core, the library and
+the header are the zecky.5 ones, with the same fingerprints.
+`scripts/check-engine.sh` pins that commit here. Before building this
+branch: `git -C ~/Documents/ZeckyEngine/zecky-engine checkout tor-submit`;
+before building `main`: `... checkout main`. Once reviewed, the commit is
+to be tagged `v4.0.0-zecky.6` and pinned by tag.
+
 ## Checks
 
 - Every build starts with `scripts/check-engine.sh`. It stops the build

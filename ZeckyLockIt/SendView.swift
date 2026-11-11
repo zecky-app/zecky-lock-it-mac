@@ -16,6 +16,8 @@ struct SendView: View {
     /// Set while the receipt is shown.
     @State private var plan: WalletEngine.SendPlan?
     @State private var problem: String?
+    @State private var ownNodeWorking = false
+    @State private var ownNodeNote: String?
     @State private var closedAgain = false
     @State private var lockNote: String?
     @State private var used = false
@@ -68,15 +70,19 @@ struct SendView: View {
         case .sending: return "Sending"
         case .done(.sent): return "Sent"
         case .done(.saved): return "Payment saved"
+        case .done(.waitingForTor): return "Not delivered yet"
         }
     }
 
     private var subtitle: String {
         switch stage {
         case .compose: return plan == nil ? "Taken out of the lock. Everything else stays locked." : "Nothing has left the lock yet."
-        case .sending: return "Signing on this Mac and handing it to the network."
+        case .sending: return TorSending.isOn
+            ? "Signing on this Mac and sending it over Tor. This can take a minute."
+            : "Signing on this Mac and handing it to the network."
         case .done(.sent): return "The lock closes again."
         case .done(.saved): return "Made, but not delivered yet."
+        case .done(.waitingForTor): return "Tor could not connect."
         }
     }
 
@@ -96,6 +102,23 @@ struct SendView: View {
             case .saved:
                 Text("The payment was made but could not be delivered yet. Lock it keeps trying until it is in a block or expires (about 50 minutes). Do not send it again.")
                     .font(Theme.text(14)).foregroundStyle(Theme.gold).multilineTextAlignment(.center)
+            case .waitingForTor:
+                Text("The payment was made, but Tor could not reach a server, so it has not left this Mac. Lock it keeps trying over Tor until it is in a block or expires (about 50 minutes). It is never sent another way by itself. Do not send it again.")
+                    .font(Theme.text(14)).foregroundStyle(Theme.gold).multilineTextAlignment(.center)
+                if engine.canSendThroughOwnNode {
+                    SecondaryButton(title: ownNodeWorking ? "Sending…" : "Send through my own node") {
+                        guard !ownNodeWorking else { return }
+                        ownNodeWorking = true
+                        Task {
+                            defer { ownNodeWorking = false }
+                            do { stage = .done(try await engine.sendThroughOwnNode()) }
+                            catch { ownNodeNote = String(describing: error) }
+                        }
+                    }
+                    .frame(width: 260)
+                    Text(ownNodeNote ?? "Other Zcash nodes then see it coming from your internet address.")
+                        .font(Theme.text(12)).foregroundStyle(ownNodeNote == nil ? Theme.muted : Theme.red).multilineTextAlignment(.center)
+                }
             }
             Spacer()
             PrimaryButton(title: "Done", action: onClose).frame(width: 180)
