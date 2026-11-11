@@ -27,7 +27,10 @@ fi
 
 for f in zakurad zainod; do
   /bin/cp "$SRC/$f" "$DEST/$f"
+  # Its own identifier under Lock it's, so App Store Connect can tell the
+  # two programs apart.
   /usr/bin/codesign --force --options runtime --timestamp=none \
+    --identifier "${PRODUCT_BUNDLE_IDENTIFIER:-app.zecky.lockit}.$f" \
     --entitlements "$ROOT/GoMax/Helpers.entitlements" \
     --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" "$DEST/$f"
 done
