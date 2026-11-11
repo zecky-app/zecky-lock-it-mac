@@ -1263,12 +1263,18 @@ struct IronwoodSheet: View {
     }
 }
 
-/// Three quiet steps, as on Lock it iPhone. Skip is always there.
+/// A few quiet steps, as on Lock it iPhone. Skip is always there. Go Max
+/// is the last one, only in a build that has the node inside.
 struct TourCard: View {
     @ObservedObject var model: AppModel
     @State private var step = 0
 
-    private let steps: [(title: String, text: String)] = [
+    private var steps: [(title: String, text: String)] { GoMaxNode.isAvailable ? Self.base + [Self.goMax] : Self.base }
+
+    private static let goMax = (title: "Go Max, if you want",
+                                text: "The gold coin at the bottom right starts your own Zcash node inside Lock it, so Lock it reads the chain from this Mac instead of a server. Optional: it takes about 15 GB to start and most of a day the first time. Lock it works the same without it.")
+
+    private static let base: [(title: String, text: String)] = [
         ("Receive", "Click Receive for your address. Zcash sent to it goes straight into the lock."),
         ("Click the lock to send", "The lock opens with a deliberate click. Send takes out only what you choose; the rest stays locked. It closes again by itself."),
         ("Choose your keys", "Decide what is asked before the lock opens: Touch ID, a Zecky code, a short pause, a security key. Settings › Security › Keys to the lock."),
