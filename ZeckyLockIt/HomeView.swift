@@ -908,7 +908,7 @@ struct PaymentDetail: View {
             // Right after opening, the network's height is not known yet.
             guard let mined = item.minedHeight, engine.networkHeight >= mined else { return "In a block" }
             let count = engine.networkHeight - mined + 1
-            return "In a block · \(count) confirmation\(count == 1 ? "" : "s")"
+            return "In a block · \(Amount.zats(Int64(count))) confirmation\(count == 1 ? "" : "s")"
         }
     }
 
@@ -929,7 +929,8 @@ struct PaymentDetail: View {
 
             VStack(spacing: 0) {
                 line(received ? "Received" : (item.undelivered ? "Payment" : "Sent"),
-                     hidden ? amount(paid) : (received ? "+" : "−") + amount(paid), first: true)
+                     hidden ? amount(paid) : (received ? "+" : "−") + amount(paid),
+                     tint: received ? Theme.green : Theme.text, first: true, strong: true)
                 if let fee = item.fee {
                     line("Network fee", amount(fee))
                     line("Out of the lock in total", amount(item.amount))
@@ -981,13 +982,16 @@ struct PaymentDetail: View {
         .task(id: item.id) { note = await engine.note(for: item.id) }
     }
 
-    private func line(_ label: String, _ value: String, tint: Color = Theme.text, first: Bool = false) -> some View {
+    /// `strong`: the first line, which says what kind of payment this is.
+    private func line(_ label: String, _ value: String, tint: Color = Theme.text, first: Bool = false,
+                      strong: Bool = false) -> some View {
         VStack(spacing: 0) {
             if !first { Rectangle().fill(Theme.line).frame(height: 1) }
             HStack(alignment: .top, spacing: 16) {
-                Text(label).font(Theme.text(13)).foregroundStyle(Theme.muted)
+                Text(label).font(Theme.text(strong ? 15 : 13, weight: strong ? .semibold : .regular))
+                    .foregroundStyle(strong ? Theme.text : Theme.muted)
                 Spacer(minLength: 12)
-                Text(value).font(Theme.text(13, weight: .medium)).foregroundStyle(tint)
+                Text(value).font(Theme.text(strong ? 15 : 13, weight: strong ? .semibold : .medium)).foregroundStyle(tint)
                     .multilineTextAlignment(.trailing)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
