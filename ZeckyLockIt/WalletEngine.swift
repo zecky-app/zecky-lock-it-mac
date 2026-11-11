@@ -756,8 +756,11 @@ final class WalletEngine: ObservableObject {
             switch outcome {
             case .accepted: break
             case .rejected(let code, let message): throw SendError.refused("\(code): \(message)")
-            case .unreachable: result = overTor ? .waitingForTor : .saved
-            case .timedOut, .notAttempted, .cancelled: if result == .sent { result = .saved }
+            // Over Tor, no answer in time counts as not connected: a blocked
+            // network makes Tor hang, not fail. (It may still have gone out;
+            // sending the same payment again another way is harmless.)
+            case .unreachable, .timedOut: result = overTor ? .waitingForTor : .saved
+            case .notAttempted, .cancelled: if result == .sent { result = .saved }
             }
         }
         return result

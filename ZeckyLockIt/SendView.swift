@@ -82,7 +82,7 @@ struct SendView: View {
             : "Signing on this Mac and handing it to the network."
         case .done(.sent): return "The lock closes again."
         case .done(.saved): return "Made, but not delivered yet."
-        case .done(.waitingForTor): return "Tor could not connect."
+        case .done(.waitingForTor): return "Tor did not get it to a server."
         }
     }
 
@@ -103,7 +103,7 @@ struct SendView: View {
                 Text("The payment was made but could not be delivered yet. Lock it keeps trying until it is in a block or expires (about 50 minutes). Do not send it again.")
                     .font(Theme.text(14)).foregroundStyle(Theme.gold).multilineTextAlignment(.center)
             case .waitingForTor:
-                Text("The payment was made, but Tor could not reach a server, so it has not left this Mac. Lock it keeps trying over Tor until it is in a block or expires (about 50 minutes). It is never sent another way by itself. Do not send it again.")
+                Text("The payment was made, but Tor did not connect to a server in time, so it has most likely not left this Mac. Lock it keeps trying over Tor until it is in a block or expires (about 50 minutes). It is never sent another way by itself. Do not make the payment again.")
                     .font(Theme.text(14)).foregroundStyle(Theme.gold).multilineTextAlignment(.center)
                 if engine.canSendThroughOwnNode {
                     SecondaryButton(title: ownNodeWorking ? "Sending…" : "Send through my own node") {

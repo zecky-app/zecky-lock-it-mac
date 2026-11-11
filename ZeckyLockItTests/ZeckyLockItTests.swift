@@ -814,8 +814,9 @@ final class ZeckyLockItTests: XCTestCase {
         // Tor could not connect: waiting, never "sent".
         XCTAssertEqual(try WalletEngine.outcome(of: [.unreachable], overTor: true), .waitingForTor)
         XCTAssertEqual(try WalletEngine.outcome(of: [.unreachable], overTor: false), .saved)
-        // A timeout may have gone out: saved, the engine keeps trying.
-        XCTAssertEqual(try WalletEngine.outcome(of: [.timedOut], overTor: true), .saved)
+        // No answer in time: over Tor that is "Tor did not connect" too.
+        XCTAssertEqual(try WalletEngine.outcome(of: [.timedOut], overTor: true), .waitingForTor)
+        XCTAssertEqual(try WalletEngine.outcome(of: [.timedOut], overTor: false), .saved)
         XCTAssertEqual(try WalletEngine.outcome(of: [.accepted(by: server), .notAttempted], overTor: true), .saved)
         // A refusal is an error, nothing was sent.
         XCTAssertThrowsError(try WalletEngine.outcome(of: [.rejected(code: -25, message: "no")], overTor: true))
