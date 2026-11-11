@@ -807,6 +807,15 @@ final class ZeckyLockItTests: XCTestCase {
 
     // MARK: Sending over Tor
 
+    func testExactAmounts() {
+        XCTAssertEqual(Amount.exact(10_000, .zec), "0.0001 ZEC")
+        XCTAssertEqual(Amount.exact(100_000, .zec), "0.001 ZEC")
+        XCTAssertEqual(Amount.exact(110_000, .zec), "0.0011 ZEC")
+        XCTAssertEqual(Amount.exact(123_450_000_000, .zec), "1,234.500 ZEC")
+        XCTAssertEqual(Amount.exact(1, .zec), "0.00000001 ZEC")
+        XCTAssertEqual(Amount.exact(10_000, .zats), "10,000 zats")
+    }
+
     func testSendOutcomes() throws {
         let server = LightWalletEndpoint(address: "zec.rocks", port: 443, secure: true)
         // Accepted is sent, with or without Tor.

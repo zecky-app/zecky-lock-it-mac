@@ -905,13 +905,16 @@ struct PaymentDetail: View {
         case .waiting: return item.undelivered ? "Not sent yet · Lock it keeps trying" : "Sent · waiting for a block"
         case .expired: return "Expired · never left the lock"
         case .confirmed:
+            // Right after opening, the network's height is not known yet.
             guard let mined = item.minedHeight, engine.networkHeight >= mined else { return "In a block" }
             let count = engine.networkHeight - mined + 1
             return "In a block · \(count) confirmation\(count == 1 ? "" : "s")"
         }
     }
 
-    private func amount(_ zatoshi: Int64) -> String { hidden ? "Amount hidden" : Amount.text(zatoshi, unit) }
+    private func amount(_ zatoshi: Int64) -> String { hidden ? "Amount hidden" : Amount.exact(zatoshi, unit) }
+    /// What the other side got: a sent amount includes the network fee.
+    private var paid: Int64 { max(0, item.amount - (item.fee ?? 0)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -926,8 +929,11 @@ struct PaymentDetail: View {
 
             VStack(spacing: 0) {
                 line(received ? "Received" : (item.undelivered ? "Payment" : "Sent"),
-                     hidden ? amount(item.amount) : (received ? "+" : "−") + amount(item.amount), first: true)
-                if let fee = item.fee { line("Of which network fee", amount(fee)) }
+                     hidden ? amount(paid) : (received ? "+" : "−") + amount(paid), first: true)
+                if let fee = item.fee {
+                    line("Network fee", amount(fee))
+                    line("Out of the lock in total", amount(item.amount))
+                }
                 line("Status", status, tint: item.state == .waiting ? Theme.gold : Theme.text)
                 if let date = item.date { line("When", Self.dateFormat.string(from: date)) }
                 if let mined = item.minedHeight { line("Block", mined.formatted(.number.locale(Locale(identifier: "en_US")))) }

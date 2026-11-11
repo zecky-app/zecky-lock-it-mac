@@ -44,6 +44,17 @@ enum Amount {
         number(zatoshi, unit) + " " + unit.rawValue
     }
 
+    /// Every digit, for a payment's details: "0.0001 ZEC", "1,234.5 ZEC",
+    /// never "<0.001". At least three decimals, as everywhere else.
+    static func exact(_ zatoshi: Int64, _ unit: Unit) -> String {
+        guard unit == .zec else { return text(zatoshi, unit) }
+        let abs = zatoshi.magnitude
+        var fraction = String(abs % 100_000_000)
+        fraction = String(repeating: "0", count: 8 - fraction.count) + fraction
+        while fraction.count > 3 && fraction.hasSuffix("0") { fraction.removeLast() }
+        return (zatoshi < 0 ? "-" : "") + group(String(abs / 100_000_000)) + "." + fraction + " ZEC"
+    }
+
     /// "1,234.567", or "<0.001" for a tiny non-zero amount.
     static func zec(_ zatoshi: Int64) -> String {
         let sign = zatoshi < 0 ? "-" : ""
