@@ -1052,7 +1052,7 @@ struct HowItWorks: View {
             "Nothing leaves without a receipt first: who receives what, the network fee and what stays locked. A payment cannot be reversed once sent.",
         ], more: [
             "Zcash you receive can be used after 10 confirmations, your own change after 3. A block comes about every 25 seconds since the NU7 upgrade.",
-            "A payment that could not be delivered is tried again for about 50 minutes; if the network still has not accepted it, it is cancelled and nothing leaves the lock. Do not send it again meanwhile.",
+            "A payment that could not be delivered is tried again for about 50 minutes (120 blocks), while Lock it is open and this Mac is awake; if the network still has not accepted it, it is cancelled and nothing leaves the lock. Do not send it again meanwhile.",
             "Include the network fee in the amount, and the receiver gets the amount minus the fee. Max sends everything that can be used, minus exactly the fee.",
             "Sending to a transparent address is public: its amount and destination. A private note only goes to a shielded address.",
         ]),

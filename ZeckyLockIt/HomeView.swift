@@ -955,7 +955,7 @@ struct ActivityList: View {
             }
             .frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 2) {
-                Text(locked ? "Received" : "Sent").font(Theme.text(14, weight: .medium))
+                Text(locked ? "Received" : (item.undelivered ? "Payment" : "Sent")).font(Theme.text(14, weight: .medium))
                 Text(subtitle(item)).font(Theme.text(12)).foregroundStyle(item.state == .waiting ? Theme.gold : Theme.muted)
             }
             Spacer()
