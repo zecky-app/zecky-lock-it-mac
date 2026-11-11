@@ -834,4 +834,14 @@ final class ZeckyLockItTests: XCTestCase {
         // Without Tor: the server Lock it reads from, and only that.
         XCTAssertEqual(Server.broadcastEndpoints(overTor: false).map(\.host), [Server.host])
     }
+
+    func testUndeliveredPaymentsAreRemembered() {
+        // A dummy id, removed again: the real list is left as it was.
+        let id = Data((0..<32).map { UInt8($0) })
+        XCTAssertFalse(Undelivered.ids.contains(id))
+        Undelivered.insert(id)
+        XCTAssertTrue(Undelivered.ids.contains(id))
+        Undelivered.remove(id)
+        XCTAssertFalse(Undelivered.ids.contains(id))
+    }
 }

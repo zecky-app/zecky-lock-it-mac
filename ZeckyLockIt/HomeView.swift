@@ -190,9 +190,9 @@ struct HomeView: View {
                         // "Receiving +x ›" or "Sending −x ›" while a payment waits
                         // for its block; the details are in Activity. Its place
                         // is always kept, so nothing moves when it comes and goes.
-                        Button { model.sheet = .activity } label: {
+                        Button { engine.cancelledPayment = nil; model.sheet = .activity } label: {
                             Text(paymentLine.map { "\($0) ›" } ?? " ")
-                                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                                .font(Theme.text(12)).foregroundStyle(paymentLineNeedsAttention ? Theme.gold : Theme.muted)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -378,14 +378,24 @@ struct HomeView: View {
 
     /// "Receiving +0.001 ZEC" or "Sending −0.5 ZEC" while a payment waits for
     /// its block (as on the iPhone); nil when there is none.
+    /// A payment that has not been sent yet, or one that was cancelled unsent.
+    private var paymentLineNeedsAttention: Bool {
+        engine.cancelledPayment != nil || engine.activity.contains { $0.undelivered }
+    }
+
     private var paymentLine: String? {
         // Activity follows the wallet on the key ring, so this works for a
         // sealed wallet too.
         if let waiting = engine.activity.first(where: { $0.state == .waiting }) {
-            let what = waiting.kind == .received ? "Receiving" : "Sending"
+            let what = waiting.kind == .received ? "Receiving" : (waiting.undelivered ? "Not sent yet" : "Sending")
             if model.amountsHidden { return what }
             let sign = waiting.kind == .received ? "+" : "−"
             return "\(what) \(sign)\(Amount.text(waiting.amount, model.unit))"
+        }
+        // Nothing waiting, but a payment expired without ever being sent.
+        if let cancelled = engine.cancelledPayment {
+            return model.amountsHidden ? "A payment was not sent and is cancelled"
+                : "Not sent: your payment of \(Amount.text(cancelled, model.unit)) is cancelled. Nothing left the lock"
         }
         return nil
     }
@@ -960,7 +970,7 @@ struct ActivityList: View {
 
     private func subtitle(_ item: WalletEngine.ActivityItem) -> String {
         switch item.state {
-        case .waiting: return "Waiting for a block"
+        case .waiting: return item.undelivered ? "Not sent yet · Lock it keeps trying" : "Waiting for a block"
         case .expired: return "Expired · never left the lock"
         case .confirmed: return item.date.map { Self.dateFormat.string(from: $0) } ?? "Confirmed"
         }

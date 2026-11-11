@@ -450,6 +450,8 @@ final class AppModel: ObservableObject {
         AddressBook.clear()
         Server.reset()
         TorSending.reset()
+        Undelivered.reset()
+        engine.cancelledPayment = nil
         Amount.resetChoices()
         UserDefaults.standard.removeObject(forKey: "tour.seen")
         UserDefaults.standard.removeObject(forKey: WalletEngine.syncedOnceKey)

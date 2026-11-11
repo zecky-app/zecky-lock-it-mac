@@ -100,10 +100,10 @@ struct SendView: View {
                     .font(Theme.text(14)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                 if let sentTo { SaveContactRow(address: sentTo) }
             case .saved:
-                Text("The payment was made but could not be delivered yet. Lock it keeps trying until it is in a block or expires (about 50 minutes). Do not send it again.")
+                Text("The payment was made but could not be delivered yet. Lock it keeps trying until it is in a block or expires (\(engine.retryText)), while Lock it is open and this Mac is awake. Do not send it again.")
                     .font(Theme.text(14)).foregroundStyle(Theme.gold).multilineTextAlignment(.center)
             case .waitingForTor:
-                Text("The payment was made, but Tor did not connect to a server in time, so it has most likely not left this Mac. Lock it keeps trying over Tor until it is in a block or expires (about 50 minutes). It is never sent another way by itself. Do not make the payment again.")
+                Text("The payment was made, but Tor did not connect to a server in time, so it has most likely not left this Mac. Lock it keeps trying over Tor until it is in a block or expires (\(engine.retryText)), while Lock it is open and this Mac is awake. It is never sent another way by itself. Do not make the payment again.")
                     .font(Theme.text(14)).foregroundStyle(Theme.gold).multilineTextAlignment(.center)
                 if engine.canSendThroughOwnNode {
                     SecondaryButton(title: ownNodeWorking ? "Sending…" : "Send through my own node") {
@@ -346,7 +346,9 @@ struct SendComposer: View {
             }
             .card(padding: 16)
 
-            if waiting {
+            if engine.hasUndelivered {
+                note("A payment has not been sent yet. Lock it keeps trying; a new payment is possible once that one is sent or has expired.", Theme.gold)
+            } else if waiting {
                 note("A payment is still on its way. Wait for it to arrive before sending again.", Theme.gold)
             }
             if notUpToDate {
@@ -358,7 +360,7 @@ struct SendComposer: View {
             HStack {
                 Spacer()
                 PrimaryButton(title: working ? "Checking…" : "Check",
-                              enabled: !working && engine.status == .upToDate && !to.isEmpty && (max || !amountText.isEmpty)) {
+                              enabled: !working && engine.status == .upToDate && !engine.hasUndelivered && !to.isEmpty && (max || !amountText.isEmpty)) {
                     Task { await makePlan() }
                 }
                 .frame(width: 180)

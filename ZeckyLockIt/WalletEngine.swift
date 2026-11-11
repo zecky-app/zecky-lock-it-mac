@@ -143,6 +143,51 @@ enum TorSending {
     }
 }
 
+/// Payments made on this Mac that no server has taken yet, by transaction
+/// id, and the amount of one that expired that way. Kept in the settings
+/// file: ids of the wallet's own payments, which its database holds anyway.
+enum Undelivered {
+    private static let idsKey = "send.undelivered"
+    private static let cancelledKey = "send.cancelled"
+
+    static var ids: Set<Data> {
+        Set((UserDefaults.standard.stringArray(forKey: idsKey) ?? []).compactMap { Data(hexText: $0) })
+    }
+    private static func save(_ ids: Set<Data>) {
+        UserDefaults.standard.set(ids.map { $0.map { String(format: "%02x", $0) }.joined() }.sorted(), forKey: idsKey)
+    }
+    static func insert(_ id: Data) { var all = ids; all.insert(id); save(all) }
+    static func remove(_ id: Data) { var all = ids; all.remove(id); save(all) }
+
+    static var cancelled: Int64? {
+        get { (UserDefaults.standard.object(forKey: cancelledKey) as? NSNumber)?.int64Value }
+        set {
+            if let newValue { UserDefaults.standard.set(NSNumber(value: newValue), forKey: cancelledKey) }
+            else { UserDefaults.standard.removeObject(forKey: cancelledKey) }
+        }
+    }
+    static func reset() {
+        UserDefaults.standard.removeObject(forKey: idsKey)
+        UserDefaults.standard.removeObject(forKey: cancelledKey)
+    }
+}
+
+private extension Data {
+    /// From lowercase hex; nil if it is not hex.
+    init?(hexText: String) {
+        guard hexText.count % 2 == 0 else { return nil }
+        var bytes: [UInt8] = []
+        var index = hexText.startIndex
+        while index < hexText.endIndex {
+            let next = hexText.index(index, offsetBy: 2)
+            guard let byte = UInt8(hexText[index..<next], radix: 16) else { return nil }
+            bytes.append(byte)
+            index = next
+        }
+        self.init(bytes)
+    }
+}
+
 /// Where the engine keeps its files: the app's own sandbox container,
 /// excluded from Time Machine like the iPhone excludes iCloud backups.
 enum WalletFiles {
@@ -275,6 +320,8 @@ final class WalletEngine: ObservableObject {
         let date: Date?
         let state: State
         var minedHeight: Int? = nil
+        /// Made, but no server has taken it yet (Lock it keeps trying).
+        var undelivered = false
     }
 
     /// The network's latest block, from the engine's state.
@@ -746,8 +793,36 @@ final class WalletEngine: ObservableObject {
             transactions: transactions, to: Server.broadcastEndpoints(overTor: overTor), timing: TorSending.timing(overTor: overTor))
         let outcome = try Self.outcome(of: reports.map(\.outcome), overTor: overTor)
         waitingForTor = outcome == .waitingForTor ? transactions : []
+        // Remembered across restarts, so Activity and the Send screen can say
+        // "not sent yet" for as long as that is true.
+        for transaction in transactions {
+            if outcome == .sent { Undelivered.remove(transaction.txId) } else { Undelivered.insert(transaction.txId) }
+        }
+        // How long the engine can keep trying: until the payment's own
+        // expiry block, at 25 seconds a block since NU7.
+        if outcome != .sent, networkHeight > 0,
+           let expiry = transactions.compactMap({ $0.expiryHeight }).min(), expiry > networkHeight {
+            retryMinutes = max(1, Int((Double(expiry - networkHeight) * 25 / 60).rounded()))
+        } else {
+            retryMinutes = nil
+        }
         return outcome
     }
+
+    /// For a payment not delivered yet: about how many minutes are left
+    /// before it expires. Nil when unknown.
+    @Published private(set) var retryMinutes: Int?
+    /// "about 16 minutes", or "until it expires" when the time is unknown.
+    var retryText: String { retryMinutes.map { "about \($0) minute\($0 == 1 ? "" : "s")" } ?? "until it expires" }
+
+    /// A payment that was never delivered and has expired: its amount, shown
+    /// once on the home screen until Activity is opened. Remembered.
+    @Published var cancelledPayment: Int64? = Undelivered.cancelled {
+        didSet { Undelivered.cancelled = cancelledPayment }
+    }
+
+    /// Whether the wallet on the key ring has a payment no server has taken yet.
+    var hasUndelivered: Bool { activity.contains { $0.undelivered } }
 
     /// What the owner is told, from what the servers answered.
     nonisolated static func outcome(of outcomes: [TransactionSubmissionOutcome], overTor: Bool) throws -> SendOutcome {
@@ -776,6 +851,7 @@ final class WalletEngine: ObservableObject {
         guard let synchronizer, canSendThroughOwnNode else { return .waitingForTor }
         let reports = await synchronizer.broadcaster.submit(transactions: waitingForTor, to: [Server.endpoint])
         let outcome = try Self.outcome(of: reports.map(\.outcome), overTor: false)
+        if outcome == .sent { for transaction in waitingForTor { Undelivered.remove(transaction.txId) } }
         waitingForTor = []
         await refreshActivity()
         return outcome
@@ -843,9 +919,20 @@ final class WalletEngine: ObservableObject {
             else { state = .waiting }
             return ActivityItem(id: tx.rawID, kind: kind, amount: Int64(tx.value.amount.magnitude),
                                 date: tx.blockTime.map { Date(timeIntervalSince1970: $0) }, state: state,
-                                minedHeight: tx.minedHeight.map { Int($0) })
+                                minedHeight: tx.minedHeight.map { Int($0) },
+                                undelivered: state == .waiting && Undelivered.ids.contains(tx.rawID))
         }
         .sorted { ($0.date ?? .distantFuture) > ($1.date ?? .distantFuture) }
+        // A payment that was never taken by a server and has now expired:
+        // said once on the home screen. One that is mined is simply done.
+        for tx in txs where Undelivered.ids.contains(tx.rawID) {
+            if tx.minedHeight != nil {
+                Undelivered.remove(tx.rawID)
+            } else if tx.isExpiredUmined == true {
+                Undelivered.remove(tx.rawID)
+                cancelledPayment = Int64(tx.value.amount.magnitude)
+            }
+        }
 
         // How long it has been in the lock: from the wallet history alone, as
         // Lock it iPhone. Only payments in a block count. The engine's value

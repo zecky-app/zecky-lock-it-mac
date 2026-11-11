@@ -152,6 +152,7 @@ final class SealItFlow: ObservableObject {
                 if case .rejected(let code, let message) = report.outcome {
                     throw FlowError.submit("\(message) (\(code))")
                 }
+                if case .accepted = report.outcome { Undelivered.remove(report.txId) } else { Undelivered.insert(report.txId) }
             }
             self.provingTask = nil
             step = .sent(txId: lastTxId.map(Self.displayTxId) ?? "")

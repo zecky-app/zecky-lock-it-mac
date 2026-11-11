@@ -113,6 +113,14 @@ final class GoMaxNode: ObservableObject {
     private var awake: NSObjectProtocol?
     private var loaded = false
 
+    /// Up to date by the node's own count, but no new block for five
+    /// minutes (blocks come every 25 seconds): this Mac has most likely lost
+    /// its connection. The node cannot tell by itself.
+    @Published private(set) var quietMinutes: Int?
+    private var lastBlocks = 0
+    private var lastBlockChange = Date()
+    private var lastLook = Date()
+
     private init() {
         phase = hasData ? .stopped : .off
         retention = GoMaxConfig.retention(widened: widened)
@@ -164,6 +172,7 @@ final class GoMaxNode: ObservableObject {
     /// Off: both programs stop, the data stays, Lock it goes back to its server.
     func switchOff() async {
         enabled = false
+        quietMinutes = nil
         stopPolling()
         // First back to the server, then the programs: stopping the node can
         // take a minute, and a quit in that minute must not leave Lock it
@@ -398,6 +407,13 @@ final class GoMaxNode: ObservableObject {
         let next = GoMaxPhase.next(after: phase, running: nodeRunning, info: fresh, wasEverReady: wasEverReady)
         if let fresh { info = fresh }
         phase = next
+        // After a pause in the looks (the Mac slept), the count starts again.
+        let now = Date()
+        if now.timeIntervalSince(lastLook) > 60 { lastBlockChange = now }
+        lastLook = now
+        if let fresh, fresh.blocks != lastBlocks { lastBlocks = fresh.blocks; lastBlockChange = now }
+        let quiet = Int(now.timeIntervalSince(lastBlockChange) / 60)
+        quietMinutes = next == .ready && quiet >= 5 ? quiet : nil
         if next == .problem {
             problem = nodeRunning ? "The node stopped answering." : "The node stopped. Its log is in the node's folder."
             stopPolling()

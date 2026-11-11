@@ -23,9 +23,15 @@ struct GoMaxPage: View {
                     GoMaxSwitch(on: node.enabled, busy: working) { switchTo(!node.enabled) }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
-                    Text(GoMaxWords.status(node.phase, node.info))
-                        .font(Theme.text(13)).foregroundStyle(node.phase == .ready ? Theme.green : Theme.text)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if let quiet = node.quietMinutes {
+                        Text("No new blocks for \(quiet) minutes · check this Mac's internet connection")
+                            .font(Theme.text(13)).foregroundStyle(Theme.gold)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text(GoMaxWords.status(node.phase, node.info))
+                            .font(Theme.text(13)).foregroundStyle(node.phase == .ready ? Theme.green : Theme.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if let info = node.info, node.phase != .off {
                         Text(GoMaxWords.storage(sizeOnDisk: info.sizeOnDisk, retention: node.retention))
                             .font(Theme.text(12)).foregroundStyle(Theme.muted)
@@ -193,6 +199,7 @@ struct GoMaxButton: View {
     }
 
     private var badge: Color? {
+        if node.quietMinutes != nil { return Theme.gold }
         switch node.phase {
         case .ready: return Theme.green
         case .problem: return Theme.red
@@ -201,6 +208,7 @@ struct GoMaxButton: View {
     }
 
     private var subtitle: String {
+        if node.quietMinutes != nil { return "No new blocks · check connection" }
         switch node.phase {
         case .off: return "Run your own node"
         case .stopped: return "Off · data kept"
@@ -211,6 +219,7 @@ struct GoMaxButton: View {
     }
 
     private var subtitleColor: Color {
+        if node.quietMinutes != nil { return Theme.gold }
         switch node.phase {
         case .ready: return Theme.green
         case .problem: return Theme.red
