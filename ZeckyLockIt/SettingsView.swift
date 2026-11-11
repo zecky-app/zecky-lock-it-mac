@@ -510,12 +510,20 @@ struct SettingsView: View {
 
     @ViewBuilder private var phrasePage: some View {
             card("Recovery phrase", icon: "doc.text.magnifyingglass") {
-                HStack(alignment: .center, spacing: 14) {
-                    Text(sealNote + " Why: the 24 words are the wallet. Sealed in the chip, they cannot be read from a copy of this Mac's files.")
+                if model.isSealedSelected {
+                    // A Seal it wallet has no words on this Mac: showing the
+                    // main wallet's words here would be the wrong wallet's.
+                    Text("\(walletWords) is a Seal it wallet. Its 24 words are on the phone that holds it, never on this Mac, so there is nothing to show here.")
                         .font(Theme.text(12)).foregroundStyle(Theme.muted)
                         .fixedSize(horizontal: false, vertical: true)
-                    Spacer()
-                    SecondaryButton(title: "Show recovery phrase") { Task { await showPhrase() } }.frame(width: 200)
+                } else {
+                    HStack(alignment: .center, spacing: 14) {
+                        Text("The 24 words of \(walletWords). " + sealNote + " Why: the 24 words are the wallet. Sealed in the chip, they cannot be read from a copy of this Mac's files.")
+                            .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        SecondaryButton(title: "Show recovery phrase") { Task { await showPhrase() } }.frame(width: 200)
+                    }
                 }
             }
 
@@ -802,7 +810,7 @@ struct SettingsView: View {
                        submit: { code in
                            do {
                                let wallet = try await WalletVault.unseal(reason: "show your recovery phrase", code: code)
-                               pendingPhrase = wallet
+                               pendingPhrase = try wordsOfSelected(main: wallet)
                                return nil
                            } catch WalletVault.Failure.cancelled {
                                return "Not confirmed."
@@ -868,8 +876,22 @@ struct SettingsView: View {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
     }
 
+    /// "the wallet Savings", as named on the key ring.
+    private var walletWords: String { model.engine.currentTag.map { "the wallet \($0.name)" } ?? "this wallet" }
+
+    /// The words of the wallet on screen. An extra wallet on this Mac has
+    /// its own, opened with the main ones; a Seal it wallet has none here.
+    private func wordsOfSelected(main: StoredWallet) throws -> StoredWallet {
+        guard !model.isSealedSelected else { throw WalletVault.Failure.cancelled }
+        if let id = model.selectedWallet, KeyRingVault.contains(id) {
+            return try KeyRingVault.open(id: id, mainPhrase: main.phrase)
+        }
+        return main
+    }
+
     private func showPhrase() async {
         problem = nil
+        guard !model.isSealedSelected else { return }
         // With "Ask a key for the recovery phrase" on, a security key is
         // touched first. Unreadable key data counts as on.
         if SecurityKeys.phraseNeedsKey {
@@ -878,7 +900,7 @@ struct SettingsView: View {
             catch { problem = String(describing: error); return }
         }
         if WalletVault.needsSecret { codeStep = .phrase; return }
-        do { revealed = try await WalletVault.unseal(reason: "show your recovery phrase") }
+        do { revealed = try wordsOfSelected(main: try await WalletVault.unseal(reason: "show your recovery phrase")) }
         catch WalletVault.Failure.cancelled { }
         catch { problem = String(describing: error) }
     }
