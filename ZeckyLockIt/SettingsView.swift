@@ -40,7 +40,7 @@ struct SettingsView: View {
                       subtitle: sheetSubtitle,
                       closeLabel: showingPhrase ? "Hide" : (codeStep != nil || page != nil ? "Back" : "Done"),
                       height: 740,
-                      onClose: { if showingPhrase { revealed = nil } else if codeStep != nil { codeStep = nil } else if keyPage != nil { keyPage = nil } else if page != nil { withAnimation(.easeOut(duration: 0.2)) { page = nil } } else { onClose() } }) {
+                      onClose: { if showingPhrase { revealed = nil } else if codeStep != nil { codeStep = nil } else if keyPage != nil { keyPage = nil } else if let open = page { withAnimation(.easeOut(duration: 0.2)) { page = open.parent } } else { onClose() } }) {
             if let revealed {
                 PhraseView(wallet: revealed)
             } else if let codeStep {
@@ -79,7 +79,16 @@ struct SettingsView: View {
     // MARK: Pages
 
     /// Settings is a calm list; each topic opens its own page.
-    enum Page: Hashable { case keys, timeLock, phrase, addressBook, display, network, goMax, how, about }
+    enum Page: Hashable {
+        case security, keys, timeLock, phrase, viewKey, addressBook, display, network, goMax, how, about
+        /// Where Back leads: the Security pages go back to Security.
+        var parent: Page? {
+            switch self {
+            case .keys, .timeLock, .phrase, .viewKey: return .security
+            default: return nil
+            }
+        }
+    }
     @State private var page: Page?
 
     private var settings: some View {
@@ -87,6 +96,8 @@ struct SettingsView: View {
             Group {
             switch page {
             case nil: overview
+            case .security?: pageBody { securityPage }
+            case .viewKey?: pageBody { viewKeyPage }
             case .keys?: pageBody { keysPage }
             case .timeLock?: pageBody { timeLockPage }
             case .phrase?: pageBody { phrasePage }
@@ -114,21 +125,45 @@ struct SettingsView: View {
         return VStack(alignment: .leading, spacing: 18) {
             // The current block and how fast blocks come, as on the iPhone.
             NetworkCard(engine: model.engine)
-            group("Security") {
-                row(.keys, "Keys to the lock", "key.fill", keysSummary)
-                row(.timeLock, "Time lock", "clock", TimeLock.isOn ? TimeLock.label(TimeLock.hours) : "Off")
-                row(.phrase, "Recovery phrase and viewing key", "doc.text.magnifyingglass", WalletVault.kind == .secureEnclave ? "Sealed in the Secure Enclave" : "In the Keychain")
-                row(.addressBook, "Address book", "person.crop.circle", addressSummary)
-            }
-            group("This Mac") {
-                row(.display, "Display", "circle.lefthalf.filled", "\(model.themeMode.label) · Value \(prices.currency.short)")
+            // The same order as on Lock it iPhone: one list, About apart,
+            // How Zecky works as a quiet link. Security holds the keys, the
+            // time lock, the words, the viewing key and erasing.
+            list {
                 row(.network, "Network", "server.rack", Server.nodeLabel ?? Server.host)
                 row(.goMax, "Go Max", "point.3.connected.trianglepath.dotted", GoMaxWords.short(goMax.phase, goMax.info))
+                row(.display, "Display", "circle.lefthalf.filled", "\(model.themeMode.label) · Value \(prices.currency.short)")
+                row(.security, "Security", "lock.fill", securitySummary)
+                row(.addressBook, "Address book", "person.crop.circle", addressSummary)
             }
-            group("Lock it") {
-                row(.how, "How Zecky works", "book.closed", "The lock, the keys, your privacy")
-                row(.about, "About", "info.circle", "Version \(version) · your Zcash by pool")
+            list {
+                row(.about, "About", "info.circle", "Version \(version)")
             }
+            Button { withAnimation(.easeOut(duration: 0.2)) { page = .how } } label: {
+                Text("How Zecky works ›").font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.gold)
+                    .padding(.leading, 4).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// Settings › Security, as on the iPhone, with the Mac's time lock.
+    @ViewBuilder private var securityPage: some View {
+        let _ = model.timeLockChanged
+        list {
+            row(.keys, "Keys to the lock", "key.fill", keysSummary)
+            row(.timeLock, "Time lock", "clock", TimeLock.isOn ? TimeLock.label(TimeLock.hours) : "Off")
+            row(.phrase, "Recovery phrase", "doc.text.magnifyingglass", WalletVault.kind == .secureEnclave ? "Sealed in the Secure Enclave" : "In the Keychain")
+            row(.viewKey, "Viewing key", "eye", "View")
+        }
+        eraseCard
+    }
+
+    private var securitySummary: String {
+        (WalletVault.hasCode ? "Zecky code" : "Touch ID") + (SecurityKeys.hasKeys ? " + key" : "")
+    }
+
+    private var eraseCard: some View {
+        Group {
             // Erase, on its own, with a red edge.
             VStack(alignment: .leading, spacing: 10) {
                 Label("Erase everything", systemImage: "trash").font(Theme.text(13, weight: .semibold)).foregroundStyle(Theme.red)
@@ -149,7 +184,6 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.red.opacity(0.45), lineWidth: 1))
-
         }
     }
 
@@ -180,6 +214,13 @@ struct SettingsView: View {
         let n = Contacts.all.count
         let saved = n == 0 ? "None saved" : "\(n) saved"
         return Contacts.onlySaved ? saved + " · only these" : saved
+    }
+
+    /// A card of rows without a heading, as on the iPhone.
+    private func list<Content: View>(@ViewBuilder _ rows: () -> Content) -> some View {
+        VStack(spacing: 0) { rows() }
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
     }
 
     private func group<Content: View>(_ title: String, @ViewBuilder _ rows: () -> Content) -> some View {
@@ -527,6 +568,10 @@ struct SettingsView: View {
                 }
             }
 
+
+    }
+
+    @ViewBuilder private var viewKeyPage: some View {
             // As on Lock it iPhone (Settings › Security › Viewing key).
             card("Viewing key", icon: "eye") {
                 Text("A viewing key gives read-only access to \(model.engine.currentTag.map { "the wallet \($0.name)" } ?? "this wallet"). Whoever has it can see your balance and every payment in and out, past and future, but cannot spend anything.")
@@ -573,7 +618,6 @@ struct SettingsView: View {
                 }
             }
             .onDisappear { viewKey = nil; viewKeyNote = nil }
-
     }
 
     @ViewBuilder private var addressBookPage: some View {
@@ -770,6 +814,8 @@ struct SettingsView: View {
             }
         case .timeLock?: return "Time lock"
         case .phrase?: return "Recovery phrase"
+        case .security?: return "Security"
+        case .viewKey?: return "Viewing key"
         case .addressBook?: return "Address book"
         case .display?: return "Display"
         case .network?: return "Network"
@@ -791,7 +837,9 @@ struct SettingsView: View {
         switch page {
         case .keys?: return "One, two or three keys: you choose."
         case .timeLock?: return "A wait of days before the lock opens."
-        case .phrase?: return "Your 24 words and the viewing key."
+        case .phrase?: return "Your 24 words, sealed on this Mac."
+        case .security?: return "The keys, the time lock, your words."
+        case .viewKey?: return "Read-only access to a wallet."
         case .addressBook?: return "Addresses you send to often, picked by name."
         case .display?: return "How Lock it looks on this Mac."
         case .network?: return "Where Lock it gets the Zcash chain from."
@@ -1137,7 +1185,7 @@ struct HowItWorks: View {
             "Every wallet on the key ring has its own 24 words and restores on its own in any Zcash wallet. One lock opens them all: the first wallet's words are sealed by the Secure Enclave, and the other wallets' words are encrypted with a key that comes from them.",
             "Erase this wallet, in a wallet's menu on the key ring, removes only that wallet after you type its name. Erasing the wallet that holds the lock passes the lock to the next wallet with words, with the same code and keys; each step is checked before anything old is removed. Only the last wallet with words takes everything with it.",
             "Only Touch ID or your Mac password (and your Zecky code, if set) opens the seal. They are never synced, never in a backup, never written to a log and never sent anywhere. They are opened only to sign a payment or to show them to you, and let go straight after.",
-            "Moving Lock it to the Trash does not remove the wallets. To remove everything, use Settings › Erase everything first. The Zecky code, time lock, keys, address book and settings live on this Mac only and do not come back with a restore.",
+            "Moving Lock it to the Trash does not remove the wallets. To remove everything, use Settings › Security › Erase everything first. The Zecky code, time lock, keys, address book and settings live on this Mac only and do not come back with a restore.",
         ]),
         Chapter(title: "Keys to the lock", icon: "key.fill", summary: "Up to four checks before Zcash leaves. You choose.", essentials: [
             "1 Opening Zecky, 2 Opening the lock (with an optional six-digit Zecky code), 3 Really open the lock?, 4 Security key.",

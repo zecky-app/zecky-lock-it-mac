@@ -1271,7 +1271,7 @@ struct TourCard: View {
     private let steps: [(title: String, text: String)] = [
         ("Receive", "Click Receive for your address. Zcash sent to it goes straight into the lock."),
         ("Click the lock to send", "The lock opens with a deliberate click. Send takes out only what you choose; the rest stays locked. It closes again by itself."),
-        ("Choose your keys", "Decide what is asked before the lock opens: Touch ID, a Zecky code, a short pause, a security key. Settings › Keys to the lock."),
+        ("Choose your keys", "Decide what is asked before the lock opens: Touch ID, a Zecky code, a short pause, a security key. Settings › Security › Keys to the lock."),
     ]
 
     var body: some View {
