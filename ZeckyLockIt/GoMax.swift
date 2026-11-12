@@ -155,7 +155,18 @@ enum GoMaxConfig {
 /// and at the stop it asks: a public server, or wait. Never by itself.
 enum GoMaxSupport {
     /// `MAINNET_EOS_HEIGHT` of Zakura v1.8.5 and v1.8.6: about Dec 5, 2026.
-    static let stopHeight = 3_643_309
+    static let releaseStopHeight = 3_643_309
+    /// The height Lock it goes by. In a debug build only, it can be moved to
+    /// see the notice and the stop before the real date:
+    ///   open "Zecky Lock it.app" --args -goMax.testStopHeight 3566000
+    /// (not remembered; the node itself still stops at the real height).
+    static var stopHeight: Int {
+        #if DEBUG
+        let test = UserDefaults.standard.integer(forKey: "goMax.testStopHeight")
+        if test > 0 { return test }
+        #endif
+        return releaseStopHeight
+    }
     /// Seconds per block since NU7.
     static let blockSeconds = 25.0
     /// The notice starts two weeks of blocks before the stop.
