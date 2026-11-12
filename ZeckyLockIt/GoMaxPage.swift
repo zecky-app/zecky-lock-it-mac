@@ -24,7 +24,7 @@ struct GoMaxPage: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                     if node.disconnected {
-                        Text("Not connected to other Zcash nodes · check this Mac's internet connection. Some networks (office, hotel, guest Wi-Fi) block Zcash nodes.")
+                        Text("Not connected to other Zcash nodes · check this Mac's internet connection. Some networks (office, hotel, guest Wi-Fi) block Zcash nodes. A second Zcash node on the same internet connection, such as Rock it, may also be taking the peers.")
                             .font(Theme.text(13)).foregroundStyle(Theme.gold)
                             .fixedSize(horizontal: false, vertical: true)
                     } else if let quiet = node.quietMinutes {

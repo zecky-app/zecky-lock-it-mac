@@ -42,7 +42,9 @@ Before a wider release:
   after opening; mostly 0 peers). Within three minutes of stopping Rock it
   on the Umbrel (same internet address, 23 peers) it had 7 peers, then 12
   to 16, and kept them after Rock it was started again and after a restart
-  of its own. Cause unproven: the two nodes competing for peers that take
+  of its own. Later the same morning: ten minutes after a restart the Mac
+  had 1 peer while the Umbrel had 36. Cause not proven, but the pattern
+  holds: the two nodes competing for peers that take
   one connection per address is the suspicion. If it comes back: note the
   peers on both, stop Rock it first, and keep the node's log. A possible
   fix is the Mac's node peering with the Umbrel on the home network.
