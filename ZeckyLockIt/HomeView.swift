@@ -498,7 +498,7 @@ struct HomeView: View {
     /// Lock it reads from the node on this Mac, and that node has had no new
     /// block for five minutes: the wallet is level with the node, the node
     /// is not level with the network. Same words and color as the Go Max coin.
-    private var nodeQuiet: Bool { Server.nodeKind(Server.host) == .thisMac && goMax.quietMinutes != nil }
+    private var nodeQuiet: Bool { Server.nodeKind(Server.host) == .thisMac && (goMax.quietMinutes != nil || goMax.disconnected) }
 
     /// Lock it still reads from the node on this Mac, and that node version
     /// has reached its last block: not "can't reach", but what to do.

@@ -1217,7 +1217,7 @@ struct HowItWorks: View {
         ]),
         Chapter(title: "Go Max", icon: "point.3.connected.trianglepath.dotted", summary: "Your own Zcash node, inside Lock it.", essentials: [
             "Go Max runs a Zcash node in Lock it on this Mac. It checks every block since the Canopy upgrade itself and keeps only recent blocks in full. When it is up to date, Lock it reads the chain from it instead of a server.",
-            "It takes about 20 GB of disk. The first check takes most of a day and downloads the whole chain once, about 250 GB, deleting older blocks as it goes. It is off until you switch it on: the Go Max button on the home screen opens it.",
+            "It takes 15 GB of disk to start and about 22 GB after a month. The first check takes most of a day and downloads the whole chain once, about 250 GB, deleting older blocks as it goes. It is off until you switch it on: the Go Max button on the home screen opens it.",
         ], more: [
             "Until the node is up to date, Lock it keeps using your server. Switching Go Max off, or a problem with the node, switches back, and the Go Max page says so.",
             "The node connects to other Zcash nodes on the internet, like every node: they see this Mac's internet address, never your wallets, addresses or balance. Lock it talks to the node on this Mac only, and the node accepts no connections from outside.",

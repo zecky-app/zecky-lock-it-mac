@@ -13,7 +13,7 @@ Nothing here is confirmed until the Xcode build log and the app show it.
 | Node | Zakura 1.8.5 (Zebra fork), pruned, `checkpoint_sync = false` |
 | Light-wallet server | Zaino `feat/nu7` at `aaf8122` + the two Rock it patches, ephemeral |
 | First sync from genesis | 13 h 29 min |
-| Disk at the tip | 15.2 GB with a 10,000-block window; about 20 GB with 100,000 |
+| Disk at the tip | 15.2 GB with a 10,000-block window (measured); about 22 GB after a month with 100,000 (calculated 11 Nov: 200 recent blocks averaged 73 KB, so a full window adds 7.3 GB) |
 | Memory | 1.7–2.7 GB while syncing |
 | Wallet test | Lock it synced through it; a new wallet received funds |
 

@@ -23,7 +23,11 @@ struct GoMaxPage: View {
                     GoMaxSwitch(on: node.enabled, busy: working) { switchTo(!node.enabled) }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
-                    if let quiet = node.quietMinutes {
+                    if node.disconnected {
+                        Text("Not connected to other Zcash nodes · check this Mac's internet connection. Some networks (office, hotel, guest Wi-Fi) block Zcash nodes.")
+                            .font(Theme.text(13)).foregroundStyle(Theme.gold)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if let quiet = node.quietMinutes {
                         Text("No new blocks for \(quiet) minutes · check this Mac's internet connection")
                             .font(Theme.text(13)).foregroundStyle(Theme.gold)
                             .fixedSize(horizontal: false, vertical: true)
@@ -42,7 +46,7 @@ struct GoMaxPage: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if !node.enabled && !node.hasData {
-                        Text("About 20 GB of disk. The first check takes most of a day (13.5 hours on a MacBook Air) and downloads the whole chain once, about 250 GB, deleting older blocks as it goes. Keep Lock it open; the check pauses while the Mac sleeps and carries on after.")
+                        Text("15 GB of disk to start, about 22 GB after a month. The first check takes most of a day (about 14 hours on a MacBook Air) and downloads the whole chain once, about 250 GB, deleting older blocks as it goes. Keep Lock it open; the check pauses while the Mac sleeps and carries on after.")
                             .font(Theme.text(12)).foregroundStyle(Theme.muted)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -82,7 +86,7 @@ struct GoMaxPage: View {
             Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) { run { await node.remove() } }
         } message: {
-            Text("Go Max stops and its data (about 20 GB) is deleted from this Mac. Lock it goes back to its server. Your wallets are not touched. Switching Go Max on again starts the check from the beginning.")
+            Text("Go Max stops and its data (15 to 22 GB) is deleted from this Mac. Lock it goes back to its server. Your wallets are not touched. Switching Go Max on again starts the check from the beginning.")
         }
     }
 
@@ -240,7 +244,7 @@ struct GoMaxButton: View {
     }
 
     private var badge: Color? {
-        if node.quietMinutes != nil || node.phase == .expired { return Theme.gold }
+        if node.disconnected || node.quietMinutes != nil || node.phase == .expired { return Theme.gold }
         switch node.phase {
         case .ready: return Theme.green
         case .problem: return Theme.red
@@ -249,6 +253,7 @@ struct GoMaxButton: View {
     }
 
     private var subtitle: String {
+        if node.disconnected { return "Not connected · check connection" }
         if node.quietMinutes != nil { return "No new blocks · check connection" }
         if let updateBefore { return updateBefore }
         switch node.phase {
@@ -262,7 +267,7 @@ struct GoMaxButton: View {
     }
 
     private var subtitleColor: Color {
-        if node.quietMinutes != nil || updateBefore != nil || node.phase == .expired { return Theme.gold }
+        if node.disconnected || node.quietMinutes != nil || updateBefore != nil || node.phase == .expired { return Theme.gold }
         switch node.phase {
         case .ready: return Theme.green
         case .problem: return Theme.red

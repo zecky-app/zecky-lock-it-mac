@@ -9,8 +9,11 @@ import Foundation
 /// Go Max page shows. GoMaxNode.swift runs the programs.
 ///
 /// Measured on a MacBook Air (Apple Silicon), 8–9 Nov 2026:
-/// - pruned, every proof since Canopy verified: 13.5 hours from genesis,
-///   15 GB with the smallest window, about 20 GB with a month of blocks;
+/// - pruned, every proof since Canopy verified: 13.5 hours from genesis
+///   run by hand, about 14 hours inside Lock it (11 Nov);
+/// - 15 GB at the tip with the smallest window (measured). A month of
+///   blocks adds about 7 GB (200 recent blocks sampled on 11 Nov: 73 KB
+///   each, times 100,000), so about 22 GB after a month (calculated);
 /// - with Zakura's checkpoint fast path the node drops the transparent
 ///   address indexes, and the Zcash wallet engine then cannot use it, so
 ///   Go Max always syncs with checkpoint_sync = false.
@@ -30,10 +33,10 @@ enum GoMaxConfig {
     /// runs with the minimum, and the window is widened once the node is at
     /// the tip, where blocks are small.
     static let retentionSyncing = 10_000
-    /// About a month at 25-second blocks: roughly 5 GB of today's blocks.
+    /// About a month at 25-second blocks: about 7 GB of today's blocks.
     static let retentionAtTip = 100_000
 
-    /// Free disk asked for before starting: the node's ~20 GB, the peak of
+    /// Free disk asked for before starting: the node's ~22 GB, the peak of
     /// about 22 GB seen during a sync with the minimum window, and room for
     /// the database to tidy itself.
     static let minFreeBytes: Int64 = 35 * 1024 * 1024 * 1024

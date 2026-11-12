@@ -29,7 +29,17 @@ Before a wider release:
 - Cookie (password) on the node's control port.
 - Keep the Mac awake only on power.
 - Warnings for a low disk and a metered connection.
-- Texts that still say "about 20 GB": 15 GB to start, about 22 GB after a month.
+- Texts that said "about 20 GB": changed 12 Nov to 15 GB to start, about
+  22 GB after a month.
+- A leftover node after a hard stop (seen 12 Nov: orphaned zakurad kept
+  port 8232): built 12 Nov. At a start Lock it looks for its own two
+  programs with no parent left and stops them cleanly. To see working:
+  force-quit Lock it with Go Max on, open it again.
+- Open, 12 Nov: on the owner's home Wi-Fi the node could not keep peers all
+  morning (connections closed or reset right after opening; 0 peers), after
+  29 node starts in two days of testing. Cause unproven. Check whether Rock
+  it on the Umbrel (same internet address) is affected, and ask the Zakura
+  team whether peers ban an address that reconnects this often.
 - Rewrite the commit that contains build.log before any push of `go-max`.
 - Record the exact build commands for `zakurad` and `zainod`.
 
@@ -45,8 +55,9 @@ Sending over Tor, left to test or finish:
 
 Asked for on 11 Nov, not built:
 
-- Faster "No connection" on the Go Max coin, from the node's peer count
-  (needs one measurement of how fast Zakura drops peers).
+- "Not connected to other Zcash nodes" on the coin, the Go Max page and
+  the status line after a minute without any peer: built 12 Nov, not yet
+  seen working.
 - Remember the last known block between sessions, so confirmations show
   right after opening.
 

@@ -117,6 +117,11 @@ final class GoMaxNode: ObservableObject {
     /// minutes (blocks come every 25 seconds): this Mac has most likely lost
     /// its connection. The node cannot tell by itself.
     @Published private(set) var quietMinutes: Int?
+    /// The node has had no connection to any other Zcash node for a minute
+    /// (six looks in a row): it cannot fetch blocks, whatever it still has
+    /// to catch up. Offline, or a network that blocks Zcash nodes.
+    @Published private(set) var disconnected = false
+    private var looksWithoutPeers = 0
     private var lastBlocks = 0
     private var lastBlockChange = Date()
     private var lastLook = Date()
@@ -237,7 +242,7 @@ final class GoMaxNode: ObservableObject {
         let missing = GoMaxConfig.missingBytes(free: free)
         guard missing > 0 else { return nil }
         let gb = Int((Double(missing) / 1e9).rounded(.up))
-        return "Not enough free space: about \(gb) GB more is needed. The node takes about 20 GB and needs room while it works."
+        return "Not enough free space: about \(gb) GB more is needed. The node takes 15 GB to start, about 22 GB after a month, and needs room while it works."
     }
 
     func switchOn() async {
@@ -268,7 +273,7 @@ final class GoMaxNode: ObservableObject {
     /// Removes the node and its data. Lock it is a light wallet again.
     func remove() async {
         await switchOff()
-        // 15–20 GB: deleted away from the screen's thread.
+        // 15–22 GB: deleted away from the screen's thread.
         if let root = paths?.root { await Task.detached { _ = try? FileManager.default.removeItem(at: root) }.value }
         widened = false
         Self.previousServer = nil
@@ -309,10 +314,20 @@ final class GoMaxNode: ObservableObject {
             try prepare(p)
             await stopLeftover(pidFile: p.zakuraPid)
             await stopLeftover(pidFile: p.zainoPid)
+            // The saved numbers can be missing or stale (seen 12 Nov after a
+            // restart from Xcode): look for Lock it's own programs as well.
+            let others = await stopOrphans()
             let rpcTaken = await LocalRPC.portOpen(GoMaxConfig.rpcPort)
             let zainoTaken = await LocalRPC.portOpen(GoMaxConfig.zainoPort)
             if rpcTaken || zainoTaken {
-                throw Failure("Another program already uses Go Max's ports on this Mac (\(rpcTaken ? GoMaxConfig.rpcPort : GoMaxConfig.zainoPort)), most likely a Zcash node started by hand. Stop it, then switch Go Max on again.")
+                let port = rpcTaken ? GoMaxConfig.rpcPort : GoMaxConfig.zainoPort
+                if others == .otherLockIt {
+                    throw Failure("Another Lock it that is open on this Mac is already running Go Max (port \(port)). Quit that one, then switch Go Max on again.")
+                }
+                if others == .stillClosing {
+                    throw Failure("Go Max's node from the last time is still closing (port \(port)). Wait a minute, then switch Go Max on again.")
+                }
+                throw Failure("Another program already uses Go Max's ports on this Mac (\(port)), most likely a Zcash node started by hand. Stop it, then switch Go Max on again.")
             }
             let r = GoMaxConfig.retention(widened: widened)
             retention = r
@@ -391,8 +406,77 @@ final class GoMaxNode: ObservableObject {
         guard let text = try? String(contentsOf: pidFile, encoding: .utf8),
               let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
               pid > 1, pid != getpid(), kill(pid, 0) == 0 else { return }
-        kill(pid, SIGINT)
-        for _ in 0..<120 where kill(pid, 0) == 0 { try? await Task.sleep(nanoseconds: 500_000_000) }
+        // The number may have been given to another program since: only one
+        // of Lock it's own two is asked to stop. Unknown (the system does
+        // not say): asked as before; the sandbox lets Lock it signal only
+        // its own programs anyway.
+        if let path = Self.programPath(pid), !Self.ownHelperPaths.contains(path) { return }
+        _ = await Self.stopCleanly([pid])
+    }
+
+    /// What `stopOrphans` found.
+    private enum Leftover { case none, stopped, stillClosing, otherLockIt }
+
+    /// The two programs inside this Lock it, as full paths.
+    private static var ownHelperPaths: Set<String> {
+        Set(["zakurad", "zainod"].compactMap { helper($0)?.resolvingSymlinksInPath().path })
+    }
+
+    /// The program file a running process was started from; nil when the
+    /// system does not say (it only does for Lock it's own).
+    private static func programPath(_ pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
+    }
+
+    /// The process that started `pid`; nil when the system does not say.
+    private static func parent(of pid: pid_t) -> pid_t? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.stride)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return pid_t(info.pbi_ppid)
+    }
+
+    /// Asks processes to stop as Ctrl-C does, so the node closes its
+    /// database; after a minute more firmly, then by force. True when all
+    /// are gone.
+    private static func stopCleanly(_ pids: [pid_t]) async -> Bool {
+        func alive() -> [pid_t] { pids.filter { kill($0, 0) == 0 } }
+        for (signal, halfSeconds) in [(SIGINT, 120), (SIGTERM, 20), (SIGKILL, 10)] {
+            let left = alive()
+            if left.isEmpty { return true }
+            for pid in left { kill(pid, signal) }
+            for _ in 0..<halfSeconds where !alive().isEmpty { try? await Task.sleep(nanoseconds: 500_000_000) }
+        }
+        return alive().isEmpty
+    }
+
+    /// Lock it's own node programs that outlived the Lock it that started
+    /// them (it was force-quit, or stopped from Xcode): the same program
+    /// files as this Lock it's, with no parent left. They are stopped
+    /// cleanly, so the new start finds its ports and its data free. A node
+    /// from another program file is not Lock it's and is never touched; one
+    /// whose Lock it is still open belongs to that Lock it.
+    private func stopOrphans() async -> Leftover {
+        let own = Self.ownHelperPaths
+        guard !own.isEmpty else { return .none }
+        let mine = Set([zakura, zaino].compactMap { $0 }.filter(\.isRunning).map(\.processIdentifier))
+        var pids = [pid_t](repeating: 0, count: 8192)
+        let count = Int(proc_listallpids(&pids, Int32(MemoryLayout<pid_t>.stride * pids.count)))
+        guard count > 0 else { return .none }
+        var orphans: [pid_t] = []
+        var otherLockIt = false
+        for pid in pids.prefix(min(count, pids.count)) where pid > 1 && pid != getpid() && !mine.contains(pid) {
+            guard let path = Self.programPath(pid), own.contains(path) else { continue }
+            let parent = Self.parent(of: pid)
+            if parent == nil || parent == 1 { orphans.append(pid) }
+            else if parent != getpid() { otherLockIt = true }
+        }
+        if orphans.isEmpty { return otherLockIt ? .otherLockIt : .none }
+        let gone = await Self.stopCleanly(orphans)
+        if otherLockIt { return .otherLockIt }
+        return gone ? .stopped : .stillClosing
     }
 
     /// Waits until the node answers, at most 3 minutes (a large state can
@@ -474,6 +558,13 @@ final class GoMaxNode: ObservableObject {
     private func stopPolling() {
         timer?.invalidate()
         timer = nil
+        looksWithoutPeers = 0
+        disconnected = false
+    }
+
+    /// How many other Zcash nodes the node is connected to; nil when it does not say.
+    private func peerCount() async -> Int? {
+        (await LocalRPC.call("getpeerinfo", port: GoMaxConfig.rpcPort) as? [Any])?.count
     }
 
     private func chainInfo() async -> GoMaxChainInfo? {
@@ -507,6 +598,12 @@ final class GoMaxNode: ObservableObject {
         if let fresh, fresh.blocks != lastBlocks { lastBlocks = fresh.blocks; lastBlockChange = now }
         let quiet = Int(now.timeIntervalSince(lastBlockChange) / 60)
         quietMinutes = next == .ready && quiet >= 5 ? quiet : nil
+        if fresh != nil, let peers = await peerCount() {
+            looksWithoutPeers = peers == 0 ? looksWithoutPeers + 1 : 0
+        } else {
+            looksWithoutPeers = 0
+        }
+        disconnected = looksWithoutPeers >= 6
         if next == .problem {
             problem = nodeRunning ? "The node stopped answering." : "The node stopped. Its log is in the node's folder."
             stopPolling()
