@@ -927,4 +927,21 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(String(describing: WalletEngine.plain(ZcashError.synchronizerNotPrepared)),
                        "Lock it is still connecting. Try again in a moment.")
     }
+
+    func testWalletsKeptOutOfSight() {
+        let ids = [KeyRingOrder.main, "aa", "bb", "cc"]
+        // Out of sight: off the row, back on it while the star shows them.
+        XCTAssertEqual(KeyRingHidden.inSight(ids, hidden: ["bb"], showing: false), [KeyRingOrder.main, "aa", "cc"])
+        XCTAssertEqual(KeyRingHidden.inSight(ids, hidden: ["bb"], showing: true), ids)
+        // The main wallet never goes out of sight, whatever was saved.
+        XCTAssertEqual(KeyRingHidden.with(KeyRingOrder.main, in: []), [])
+        XCTAssertEqual(KeyRingHidden.inSight(ids, hidden: [KeyRingOrder.main], showing: false), ids)
+        // Adding twice keeps one; taking away works.
+        XCTAssertEqual(KeyRingHidden.with("bb", in: ["bb"]), ["bb"])
+        XCTAssertEqual(KeyRingHidden.without("bb", in: ["aa", "bb"]), ["aa"])
+        // Move right among the wallets in sight steps over the one out of sight.
+        XCTAssertEqual(KeyRingOrder.moved("aa", by: 1, in: ids, among: [KeyRingOrder.main, "aa", "cc"]), [KeyRingOrder.main, "cc", "bb", "aa"])
+        // At the end of the row nothing moves.
+        XCTAssertEqual(KeyRingOrder.moved("cc", by: 1, in: ids, among: [KeyRingOrder.main, "aa", "cc"]), ids)
+    }
 }

@@ -458,6 +458,7 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.removeObject(forKey: WalletEngine.announcedKey)
         MilestoneMoment.reset()
         KeyRingOrder.erase()
+        KeyRingHidden.erase()
         prices.reset()
         themeMode = .dark
         unit = .zec

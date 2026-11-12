@@ -535,7 +535,7 @@ private struct KeyRing: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            let items = orderedItems
+            let items = shownItems
             ForEach(Array(items.enumerated()), id: \.element.key) { index, item in
                 switch item {
                 case .main:
@@ -559,6 +559,7 @@ private struct KeyRing: View {
                         Button("Show its words…") { model.startShowingWords(wallet.id) }
                         Divider()
                         moveButtons(item, index: index, count: items.count)
+                        hideButton(item)
                         Divider()
                         Button("Erase this wallet…") { model.startErasing(wallet.id) }
                     }
@@ -570,10 +571,22 @@ private struct KeyRing: View {
                         Button("Rename…") { newName = WalletNames.name(for: wallet, fallback: ""); renaming = wallet }
                         Divider()
                         moveButtons(item, index: index, count: items.count)
+                        hideButton(item)
                         Divider()
                         Button("Remove from Lock it…") { removing = wallet }
                     }
                 }
+            }
+            if hasHidden {
+                Button { toggleHidden() } label: {
+                    Image(systemName: showHidden ? "star.fill" : "star")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.gold)
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(showHidden ? "Put them out of sight again" : "Show the wallets kept out of sight")
             }
             Menu {
                 Button("Pair Seal it (offline phone)") {
@@ -597,7 +610,10 @@ private struct KeyRing: View {
             .help("Add a wallet to the key ring")
         }
         .disabled(model.lockOpen)
-        .onAppear { Task { await engine.refreshSealedWallets() } }
+        .onAppear {
+            leaveIfOutOfSight()
+            Task { await engine.refreshSealedWallets() }
+        }
         .confirmationDialog(removeTitle, isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
             Button("Remove", role: .destructive) {
                 guard let wallet = removing else { return }
@@ -606,6 +622,8 @@ private struct KeyRing: View {
                     try? await engine.removeWallet(wallet.id)
                     KeyRingVault.remove(id: wallet.id)
                     WalletNames.forget(wallet.id)
+                    hidden = KeyRingHidden.without(KeyRingVault.hex(wallet.id), in: hidden)
+                    KeyRingHidden.saved = hidden
                 }
             }
             Button("Keep it", role: .cancel) {}
@@ -649,10 +667,56 @@ private struct KeyRing: View {
         Button("Move right") { move(item, by: 1) }.disabled(index == count - 1)
     }
 
+    /// Left or right among the wallets in sight: a wallet out of sight in
+    /// between is stepped over.
     private func move(_ item: Item, by step: Int) {
         let current = orderedItems.map(\.key)
-        order = KeyRingOrder.moved(item.key, by: step, in: current)
+        order = KeyRingOrder.moved(item.key, by: step, in: current, among: shownItems.map(\.key))
         KeyRingOrder.saved = order
+    }
+
+    // MARK: Out of sight
+
+    /// Wallets kept out of sight (see KeyRingHidden), and whether the star
+    /// is showing them right now. Showing ends when Lock it locks.
+    @State private var hidden = KeyRingHidden.saved
+    @State private var showHidden = false
+
+    /// The wallets on the row: all of them while the star shows them,
+    /// otherwise without those kept out of sight.
+    private var shownItems: [Item] {
+        let all = orderedItems
+        let keys = KeyRingHidden.inSight(all.map(\.key), hidden: hidden, showing: showHidden)
+        return all.filter { keys.contains($0.key) }
+    }
+
+    /// The star is there only when a wallet that still exists is out of sight.
+    private var hasHidden: Bool { orderedItems.contains { hidden.contains($0.key) } }
+
+    @ViewBuilder private func hideButton(_ item: Item) -> some View {
+        if hidden.contains(item.key) {
+            Button("Keep in sight") { setHidden(item, false) }
+        } else {
+            Button("Keep out of sight") { setHidden(item, true) }
+        }
+    }
+
+    private func setHidden(_ item: Item, _ out: Bool) {
+        hidden = out ? KeyRingHidden.with(item.key, in: hidden) : KeyRingHidden.without(item.key, in: hidden)
+        KeyRingHidden.saved = hidden
+        leaveIfOutOfSight()
+    }
+
+    private func toggleHidden() {
+        withAnimation(.easeInOut(duration: 0.2)) { showHidden.toggle() }
+        leaveIfOutOfSight()
+    }
+
+    /// The wallet chosen went out of sight: back to the main wallet, so the
+    /// lock never shows a wallet that is not on the row.
+    private func leaveIfOutOfSight() {
+        guard !showHidden, let id = model.selectedWallet, hidden.contains(KeyRingVault.hex(id)) else { return }
+        choose(nil)
     }
     @State private var renaming: Account?
     @State private var newName = ""
@@ -1362,6 +1426,47 @@ enum KeyRingOrder {
         var result = order
         result.swapAt(i, i + step)
         return result
+    }
+
+    /// `id` moved one place left or right among the wallets in sight: it
+    /// changes places with its neighbor there, wherever that one stands in
+    /// the full order.
+    static func moved(_ id: String, by step: Int, in order: [String], among shown: [String]) -> [String] {
+        guard let i = shown.firstIndex(of: id), shown.indices.contains(i + step),
+              let a = order.firstIndex(of: id), let b = order.firstIndex(of: shown[i + step]) else { return order }
+        var result = order
+        result.swapAt(a, b)
+        return result
+    }
+
+    /// For Erase wallet.
+    static func erase() { UserDefaults.standard.removeObject(forKey: key) }
+}
+
+/// Wallets the owner keeps out of sight on the home screen: they stay on
+/// the key ring, sync and receive as before, and a small gold star brings
+/// them back on the row. Tidiness, not secrecy: the star is on the home
+/// screen for anyone at the unlocked Mac. Kept on this Mac only, as wallet
+/// ids. The main wallet cannot go out of sight.
+enum KeyRingHidden {
+    static let key = "app.zecky.lockit.mac.keyRingHidden"
+
+    static var saved: [String] {
+        get { UserDefaults.standard.stringArray(forKey: key) ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+
+    /// The wallets on the row.
+    static func inSight(_ ids: [String], hidden: [String], showing: Bool) -> [String] {
+        showing ? ids : ids.filter { $0 == KeyRingOrder.main || !hidden.contains($0) }
+    }
+
+    static func with(_ id: String, in hidden: [String]) -> [String] {
+        id == KeyRingOrder.main || hidden.contains(id) ? hidden : hidden + [id]
+    }
+
+    static func without(_ id: String, in hidden: [String]) -> [String] {
+        hidden.filter { $0 != id }
     }
 
     /// For Erase wallet.

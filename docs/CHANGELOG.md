@@ -4,6 +4,12 @@ Plain-words notes on what changed in Zecky Lock it for Mac, newest first.
 
 ## Unreleased
 
+- Wallets out of sight: right-click a wallet on the home screen and choose
+  "Keep out of sight". It leaves the row and keeps syncing and receiving. A
+  small gold star appears next to "+": click it to show those wallets again,
+  click it once more to put them away. The main wallet always stays. This is
+  tidiness, not secrecy: the star is there for anyone at the unlocked Mac,
+  and a payment to a wallet out of sight shows only when you look at it.
 - Sending over Tor (first build, in testing): payments leave over Tor, each
   on its own connection, to two public servers; with Go Max the wallet
   still reads from its own node. If Tor cannot connect the payment waits
