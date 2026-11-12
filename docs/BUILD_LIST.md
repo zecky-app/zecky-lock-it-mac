@@ -81,6 +81,22 @@ Later:
 - Intel Macs: not planned; count who asks.
 - Windows: only after Go Max has proven itself.
 
+## Two nodes at home (Rock it and Go Max behind one internet address)
+
+Seen 12 Nov: the Umbrel held 36 to 37 peers, the Mac 1 to 2. Build 4 says
+so honestly (peer count on the Go Max page, "not connected" naming a
+second node). Ways to solve it, none built, owner to choose:
+
+- Say it plainly: with Rock it at home, point Lock it Mac at Rock it
+  (Settings, Network) and keep Go Max for a Mac that has no Rock it nearby.
+  No code.
+- Home network link: the Mac's node also takes blocks from Rock it over
+  the home network. Rock it 0.3.17 does not publish its peer port (8233;
+  compose.yml says so on purpose), so this needs a Rock it release as well
+  as a setting in Lock it.
+- Rock it asks for fewer peers, leaving some for a second node. Also a
+  Rock it change; not looked into.
+
 ## Lock it iPhone
 
 Not touched from this repository. Written here so it is not lost:
