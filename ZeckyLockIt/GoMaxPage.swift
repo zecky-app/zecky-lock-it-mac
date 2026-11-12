@@ -32,6 +32,7 @@ struct GoMaxPage: View {
                             .font(Theme.text(13)).foregroundStyle(node.phase == .ready ? Theme.green : Theme.text)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    supportNotice
                     if let info = node.info, node.phase != .off {
                         Text(GoMaxWords.storage(sizeOnDisk: info.sizeOnDisk, retention: node.retention))
                             .font(Theme.text(12)).foregroundStyle(Theme.muted)
@@ -85,6 +86,39 @@ struct GoMaxPage: View {
         }
     }
 
+    /// The node version's last block: a calm line two weeks ahead, and at
+    /// the stop the choice between a public server and waiting.
+    @ViewBuilder private var supportNotice: some View {
+        if node.phase == .expired {
+            Text("This node version follows the Zcash chain up to block \(GoMaxSupport.stopHeightText), and the network is now past it. Go Max carries on after an update of Lock it; the node's data is kept. Your Zcash is not affected.")
+                .font(Theme.text(13)).foregroundStyle(Theme.gold)
+                .fixedSize(horizontal: false, vertical: true)
+            if node.readsFromNode {
+                Text(node.expiredChoice == "wait"
+                     ? "Waiting for the update. Until then Lock it does not see new blocks, so no new payments."
+                     : "Until then, choose: read the chain from a public server (\(node.fallbackServer)), which sees this Mac's internet address, or wait for the update. Nothing is switched without you.")
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    SecondaryButton(title: "Use \(node.fallbackServer)") { run { await node.useServerWhileExpired() } }
+                        .frame(width: 220)
+                    if node.expiredChoice == nil {
+                        SecondaryButton(title: "Wait for the update") { node.waitWhileExpired() }
+                            .frame(width: 200)
+                    }
+                }
+            } else {
+                Text("Until the update, Lock it reads the chain from \(Server.host).")
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else if case .soon(let date) = node.support, node.enabled || node.hasData {
+            Text("Go Max needs an update before \(GoMaxSupport.dateText(date)). This node version follows the chain up to block \(GoMaxSupport.stopHeightText); a newer Lock it brings the next one.")
+                .font(Theme.text(12)).foregroundStyle(Theme.gold)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private func switchTo(_ on: Bool) {
         run {
             if on { await node.switchOn() } else { await node.switchOff() }
@@ -105,6 +139,7 @@ struct GoMaxPage: View {
         "Every block since the Canopy upgrade (2020) is checked here, proofs and all. Older blocks are accepted on checkpoints built into the node, as every Zcash node does.",
         "The node keeps about a month of recent blocks in full, and what every node needs to check new ones. Its files live in Lock it's own folder, left out of Time Machine.",
         "It runs while Lock it is open. While it is checking or catching up, the Mac does not fall asleep on its own; up to date, it sleeps as usual.",
+        "Each version of the node follows the chain up to a fixed block, about six weeks after it comes out; this one up to block \(GoMaxSupport.stopHeightText). Lock it says so two weeks ahead. At that block the node stops and Lock it asks you: a public server, or wait for the update.",
     ]
 }
 
@@ -193,13 +228,19 @@ struct GoMaxButton: View {
     private var glyph: String {
         switch node.phase {
         case .ready: return "checkmark.seal.fill"
-        case .problem: return "exclamationmark"
+        case .problem, .expired: return "exclamationmark"
         default: return "point.3.connected.trianglepath.dotted"
         }
     }
 
+    /// The stop is near and the node is running: said on the coin too.
+    private var updateBefore: String? {
+        guard node.phase == .ready, case .soon(let date) = node.support else { return nil }
+        return "Update before \(GoMaxSupport.dateText(date))"
+    }
+
     private var badge: Color? {
-        if node.quietMinutes != nil { return Theme.gold }
+        if node.quietMinutes != nil || node.phase == .expired { return Theme.gold }
         switch node.phase {
         case .ready: return Theme.green
         case .problem: return Theme.red
@@ -209,17 +250,19 @@ struct GoMaxButton: View {
 
     private var subtitle: String {
         if node.quietMinutes != nil { return "No new blocks · check connection" }
+        if let updateBefore { return updateBefore }
         switch node.phase {
         case .off: return "Run your own node"
         case .stopped: return "Off · data kept"
         case .ready: return "Your own node"
         case .problem: return "Stopped · open to see why"
+        case .expired: return "Needs an update · open"
         default: return GoMaxWords.short(node.phase, node.info)
         }
     }
 
     private var subtitleColor: Color {
-        if node.quietMinutes != nil { return Theme.gold }
+        if node.quietMinutes != nil || updateBefore != nil || node.phase == .expired { return Theme.gold }
         switch node.phase {
         case .ready: return Theme.green
         case .problem: return Theme.red

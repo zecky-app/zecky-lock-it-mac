@@ -121,6 +121,86 @@ final class GoMaxNode: ObservableObject {
     private var lastBlockChange = Date()
     private var lastLook = Date()
 
+    // MARK: The node version's last block (GoMaxSupport)
+
+    private static let lastHeightKey = "goMax.lastHeight"
+    private static let lastHeightTimeKey = "goMax.lastHeightTime"
+    private static let expiredChoiceKey = "goMax.expiredChoice"
+
+    /// At the stop, with Lock it still reading from the node and no choice
+    /// made yet: the home screen opens the Go Max page once.
+    @Published private(set) var needsChoice = false
+
+    /// What the owner chose at the stop: "server" or "wait". nil before.
+    private(set) var expiredChoice: String? {
+        get { UserDefaults.standard.string(forKey: Self.expiredChoiceKey) }
+        set {
+            if let newValue { UserDefaults.standard.set(newValue, forKey: Self.expiredChoiceKey) }
+            else { UserDefaults.standard.removeObject(forKey: Self.expiredChoiceKey) }
+            objectWillChange.send()
+        }
+    }
+
+    /// The newest network height anyone reports right now: the node, or the
+    /// server Lock it reads from. 0 when nothing answers.
+    private var liveHeight: Int {
+        max(zakura?.isRunning == true ? max(info?.blocks ?? 0, info?.estimatedHeight ?? 0) : 0, engine?.networkHeight ?? 0)
+    }
+
+    /// Remembered across restarts (a public number, nothing about a wallet),
+    /// so the stop is recognised when the node can no longer say it itself.
+    private func rememberHeight() {
+        let live = liveHeight
+        guard live > UserDefaults.standard.integer(forKey: Self.lastHeightKey) else { return }
+        UserDefaults.standard.set(live, forKey: Self.lastHeightKey)
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastHeightTimeKey)
+    }
+
+    /// Whether this node version still follows the chain, is near its last
+    /// block, or past it.
+    var support: GoMaxSupport.State {
+        let now = Date()
+        let live = liveHeight
+        if live > 0 { return GoMaxSupport.state(reported: live, seenAt: nil, now: now) }
+        let seen = UserDefaults.standard.double(forKey: Self.lastHeightTimeKey)
+        return GoMaxSupport.state(reported: UserDefaults.standard.integer(forKey: Self.lastHeightKey),
+                                  seenAt: seen > 0 ? Date(timeIntervalSince1970: seen) : nil, now: now)
+    }
+
+    /// Whether Lock it reads the chain from the node on this Mac right now.
+    var readsFromNode: Bool { onNode }
+
+    /// The server Lock it would go back to.
+    var fallbackServer: String {
+        (Self.previousServer ?? Server.defaultHost).split(separator: ":").first.map(String.init) ?? Server.defaultHost
+    }
+
+    /// The stop is reached: the programs are stopped and Go Max waits for an
+    /// update of Lock it. Lock it's server is left as it is until the owner
+    /// chooses (or as chosen before): nothing is switched silently.
+    private func expire() async {
+        stopPolling()
+        await stopPrograms()
+        quietMinutes = nil
+        problem = nil
+        phase = .expired
+        if expiredChoice == "server" { await restoreServer() }
+        needsChoice = onNode && expiredChoice == nil
+    }
+
+    /// The owner's choice at the stop: read the chain from the server again.
+    func useServerWhileExpired() async {
+        expiredChoice = "server"
+        needsChoice = false
+        await restoreServer()
+    }
+
+    /// The owner's choice at the stop: stay on the own node and wait.
+    func waitWhileExpired() {
+        expiredChoice = "wait"
+        needsChoice = false
+    }
+
     private init() {
         phase = hasData ? .stopped : .off
         retention = GoMaxConfig.retention(widened: widened)
@@ -173,6 +253,8 @@ final class GoMaxNode: ObservableObject {
     func switchOff() async {
         enabled = false
         quietMinutes = nil
+        needsChoice = false
+        expiredChoice = nil
         stopPolling()
         // First back to the server, then the programs: stopping the node can
         // take a minute, and a quit in that minute must not leave Lock it
@@ -201,6 +283,8 @@ final class GoMaxNode: ObservableObject {
         await remove()
         UserDefaults.standard.removeObject(forKey: Self.enabledKey)
         UserDefaults.standard.removeObject(forKey: Self.widenedKey)
+        UserDefaults.standard.removeObject(forKey: Self.lastHeightKey)
+        UserDefaults.standard.removeObject(forKey: Self.lastHeightTimeKey)
     }
 
     // MARK: Starting and stopping
@@ -213,6 +297,10 @@ final class GoMaxNode: ObservableObject {
 
     private func start() async {
         guard let p = paths else { fail(Failure("Lock it's folder could not be opened.")); return }
+        // Past its last block the node refuses to run: say so, without starting it.
+        if support == .ended { await expire(); return }
+        expiredChoice = nil
+        needsChoice = false
         phase = .starting
         problem = nil
         zainoRestarts = 0
@@ -367,6 +455,7 @@ final class GoMaxNode: ObservableObject {
 
     private func fail(_ error: Error) {
         stopPolling()
+        if support == .ended { Task { await expire() }; return }
         problem = (error as? LocalizedError)?.errorDescription ?? "Something went wrong."
         phase = .problem
         Task { await restoreServer() }
@@ -393,7 +482,7 @@ final class GoMaxNode: ObservableObject {
 
     /// One look at the node: phase, Zaino restarts, widening, switching over.
     private func tick() async {
-        guard !busy, phase != .off, phase != .stopped, phase != .updating else { return }
+        guard !busy, phase != .off, phase != .stopped, phase != .updating, phase != .expired else { return }
         busy = true
         defer { busy = false }
         let nodeRunning = zakura?.isRunning == true
@@ -406,6 +495,10 @@ final class GoMaxNode: ObservableObject {
         }
         let next = GoMaxPhase.next(after: phase, running: nodeRunning, info: fresh, wasEverReady: wasEverReady)
         if let fresh { info = fresh }
+        rememberHeight()
+        // The network is past this node version's last block (the node has
+        // stopped by itself, or is about to): not a problem, the stop.
+        if support == .ended { await expire(); return }
         phase = next
         // After a pause in the looks (the Mac slept), the count starts again.
         let now = Date()

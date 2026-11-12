@@ -234,8 +234,15 @@ struct HomeView: View {
 
                 HStack {
                     HStack(spacing: 8) {
-                        Circle().fill(unreachable ? Theme.red : dotColor).frame(width: 8, height: 8)
-                        if unreachable {
+                        Circle().fill(nodeExpired ? Theme.gold : (unreachable ? Theme.red : dotColor)).frame(width: 8, height: 8)
+                        if nodeExpired {
+                            Button { model.openGoMax() } label: {
+                                Text("Your own node has stopped · Go Max needs an update")
+                                    .font(Theme.text(12)).foregroundStyle(Theme.gold).contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Open Go Max")
+                        } else if unreachable {
                             Button { model.openNetworkSettings() } label: {
                                 HStack(spacing: 4) {
                                     Text("Can't reach \(Server.nodeLabel ?? Server.host)")
@@ -310,6 +317,10 @@ struct HomeView: View {
         .animation(.easeInOut(duration: 0.2), value: model.askingCode)
         .animation(.easeInOut(duration: 0.2), value: model.timeLockShown)
         .onReceive(clock) { now = $0 }
+        // The node version's last block is reached and nothing is chosen
+        // yet: the Go Max page opens once, with the choice.
+        .onAppear { if goMax.needsChoice && model.sheet == nil { model.openGoMax() } }
+        .onChange(of: goMax.needsChoice) { needs in if needs && model.sheet == nil { model.openGoMax() } }
         .overlay { panel }
         .overlay { ArrivalToast(model: model, engine: engine) }
         .overlay { if model.tourShown { TourCard(model: model).transition(.opacity) } }
@@ -488,6 +499,10 @@ struct HomeView: View {
     /// block for five minutes: the wallet is level with the node, the node
     /// is not level with the network. Same words and color as the Go Max coin.
     private var nodeQuiet: Bool { Server.nodeKind(Server.host) == .thisMac && goMax.quietMinutes != nil }
+
+    /// Lock it still reads from the node on this Mac, and that node version
+    /// has reached its last block: not "can't reach", but what to do.
+    private var nodeExpired: Bool { goMax.phase == .expired && goMax.readsFromNode }
 
     private var baseStatus: String {
         if nodeQuiet { return "No new blocks · check connection" }

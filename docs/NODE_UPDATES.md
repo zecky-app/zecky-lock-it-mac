@@ -51,8 +51,9 @@ both change, Rock it first.
 
 1. Read the CHANGELOG between the shipped and the new version. Note anything
    about pruning, the state format, RPC, config names and the stop height.
-2. Read the new stop height from `end_of_support.rs` and write it at the top
-   of this file.
+2. Read the new stop height from `end_of_support.rs`, write it at the top
+   of this file, and set `GoMaxSupport.stopHeight` in `ZeckyLockIt/GoMax.swift`
+   to it. Lock it's notice and its stop message follow that number.
 3. Build both programs with the home folder remapped (the exact build
    commands are not written down yet: record them here at the first update).
 4. Rock it on the owner's Umbrel first, with the owner's OK. Let it run for
@@ -73,12 +74,16 @@ update is an app build that has to pass TestFlight, later App Store review.
 If a Zakura release is late, Go Max users can reach the stop height before
 the update reaches them.
 
-Not built yet (11 Nov 2026):
+Built on 12 Nov 2026 (`GoMaxSupport`), not yet seen at a real stop:
 
-- A notice some weeks before the stop: this node version works until about
-  <date>, update Lock it. Once, no nagging.
-- At the stop: back to the public servers, with a message. Never silently.
-- What Lock it Mac shows today when the node halts this way is untested.
+- Two weeks of blocks before the stop: "Go Max needs an update before
+  <date>" on the Go Max page and on the coin. No pop-up.
+- At the stop: the programs are stopped, the node's data is kept, and the
+  Go Max page opens once with the choice: the public server from before, or
+  wait for the update. Lock it's server is not changed until the owner
+  chooses. The choice is remembered until Go Max runs again.
+- After the update Go Max starts by itself (it stays switched on) and Lock
+  it goes back to the node once it is at the tip.
 
 ## Reminder
 

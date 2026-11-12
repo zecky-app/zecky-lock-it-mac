@@ -146,6 +146,54 @@ enum GoMaxConfig {
     }
 }
 
+/// How long the node inside this build follows the chain.
+///
+/// Every Zakura release stops at a fixed block, about 45 days after it comes
+/// out (its end-of-support height), and refuses to run past it. The height
+/// below belongs to the `zakurad` pinned in GoMax/bin.sha256 and is changed
+/// together with it (docs/NODE_UPDATES.md). Lock it says so two weeks ahead,
+/// and at the stop it asks: a public server, or wait. Never by itself.
+enum GoMaxSupport {
+    /// `MAINNET_EOS_HEIGHT` of Zakura v1.8.5 and v1.8.6: about Dec 5, 2026.
+    static let stopHeight = 3_643_309
+    /// Seconds per block since NU7.
+    static let blockSeconds = 25.0
+    /// The notice starts two weeks of blocks before the stop.
+    static let noticeBlocks = 14 * 3_456
+    /// Without a fresh height (Lock it was closed for days), the stop is only
+    /// taken as reached once the clock is a day of blocks past it: blocks do
+    /// not come exactly every 25 seconds.
+    static let graceBlocks = 3_456
+
+    enum State: Equatable {
+        case fine
+        /// The stop is near; about when.
+        case soon(Date)
+        /// The network is past the node's last block.
+        case ended
+    }
+
+    /// `reported` is the newest network height anything told Lock it (0: none
+    /// yet), `seenAt` when that was (nil: just now).
+    static func state(reported: Int, seenAt: Date?, now: Date, stopHeight: Int = stopHeight) -> State {
+        guard reported > 0 else { return .fine }
+        if reported > stopHeight { return .ended }
+        let elapsed = seenAt.map { max(0, now.timeIntervalSince($0)) } ?? 0
+        let projected = reported + Int(elapsed / blockSeconds)
+        if projected > stopHeight + graceBlocks { return .ended }
+        let remaining = max(0, stopHeight - projected)
+        guard remaining <= noticeBlocks else { return .fine }
+        return .soon(now.addingTimeInterval(Double(remaining) * blockSeconds))
+    }
+
+    /// "Dec 5", in this Mac's time zone.
+    static func dateText(_ date: Date) -> String {
+        date.formatted(Date.FormatStyle(locale: Locale(identifier: "en_US")).month(.abbreviated).day())
+    }
+
+    static var stopHeightText: String { stopHeight.formatted(.number.locale(Locale(identifier: "en_US"))) }
+}
+
 /// The part of Zakura's getblockchaininfo answer Go Max reads.
 struct GoMaxChainInfo: Equatable {
     /// Height of the last block the node has verified.
@@ -201,6 +249,9 @@ enum GoMaxPhase: Equatable {
     case stopped
     /// A program exited or stopped answering.
     case problem
+    /// The network is past the last block this node version follows. The
+    /// programs are stopped; Go Max carries on after an update of Lock it.
+    case expired
 
     /// Behind by more than this many blocks (25 minutes), a ready node is catching up.
     static let catchingUpBlocks = 60
@@ -209,7 +260,7 @@ enum GoMaxPhase: Equatable {
     /// `running` is false when either program is not running.
     static func next(after previous: GoMaxPhase, running: Bool, info: GoMaxChainInfo?, wasEverReady: Bool) -> GoMaxPhase {
         switch previous {
-        case .off, .stopped: return previous
+        case .off, .stopped, .expired: return previous
         case .updating: return running && info != nil ? fromInfo(info!, wasEverReady) : .updating
         default: break
         }
@@ -280,6 +331,7 @@ enum GoMaxWords {
         case .updating: return "Updating…"
         case .stopped: return "Stopped · the node's data is kept"
         case .problem: return "Stopped with a problem · switch off and on to try again"
+        case .expired: return "Stopped · this node version has reached its last block"
         }
     }
 
@@ -294,6 +346,7 @@ enum GoMaxWords {
         case .updating: return "Updating"
         case .stopped: return "Off · data kept"
         case .problem: return "Stopped"
+        case .expired: return "Needs an update"
         }
     }
 

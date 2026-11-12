@@ -21,8 +21,9 @@ TestFlight on 11 Nov 2026 and is waiting for Apple's review.
 
 Before a wider release:
 
-- Notice before Zakura's stop height (about 5 Dec 2026) and a message when
-  Lock it falls back to public servers. See NODE_UPDATES.md.
+- Notice before Zakura's stop height (about 5 Dec 2026) and the choice at
+  the stop: built 12 Nov, see NODE_UPDATES.md. To see working: the notice
+  (from about 21 Nov), and the stop itself.
 - Update to Zakura 1.8.6, Umbrel first.
 - Zaino watchdog: the coin can be green while Zaino does not answer.
 - Cookie (password) on the node's control port.

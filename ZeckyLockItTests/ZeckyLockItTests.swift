@@ -758,6 +758,28 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertNil(GoMaxChainInfo(rpcResult: nil))
     }
 
+    func testGoMaxStopHeight() {
+        let now = Date(timeIntervalSince1970: 1_794_000_000)
+        let stop = GoMaxSupport.stopHeight
+        XCTAssertEqual(GoMaxSupport.state(reported: 0, seenAt: nil, now: now), .fine)
+        XCTAssertEqual(GoMaxSupport.state(reported: stop - GoMaxSupport.noticeBlocks - 1, seenAt: nil, now: now), .fine)
+        // Two weeks of blocks ahead: the notice, with the date of the stop.
+        XCTAssertEqual(GoMaxSupport.state(reported: stop - 3_456, seenAt: nil, now: now),
+                       .soon(now.addingTimeInterval(86_400)))
+        XCTAssertEqual(GoMaxSupport.state(reported: stop, seenAt: nil, now: now), .soon(now))
+        XCTAssertEqual(GoMaxSupport.state(reported: stop + 1, seenAt: nil, now: now), .ended)
+        // An old height and the clock: near after the time that passed,
+        // ended only a day of blocks past the stop.
+        let twoDaysAgo = now.addingTimeInterval(-2 * 86_400)
+        XCTAssertEqual(GoMaxSupport.state(reported: stop - 3 * 3_456, seenAt: twoDaysAgo, now: now),
+                       .soon(now.addingTimeInterval(86_400)))
+        XCTAssertEqual(GoMaxSupport.state(reported: stop - 3_456, seenAt: twoDaysAgo, now: now), .soon(now))
+        XCTAssertEqual(GoMaxSupport.state(reported: stop - 3_456, seenAt: now.addingTimeInterval(-3 * 86_400), now: now), .ended)
+        // A stopped node stays stopped, whatever it is asked.
+        XCTAssertEqual(GoMaxPhase.next(after: .expired, running: false, info: nil, wasEverReady: true), .expired)
+        XCTAssertEqual(GoMaxWords.short(.expired, nil), "Needs an update")
+    }
+
     func testGoMaxPhases() {
         let syncing = GoMaxChainInfo(blocks: 2_000_000, estimatedHeight: 3_557_000, verificationProgress: 0.6)
         let tip = GoMaxChainInfo(blocks: 3_557_000, estimatedHeight: 3_557_001, verificationProgress: 1)

@@ -1222,6 +1222,7 @@ struct HowItWorks: View {
             "Until the node is up to date, Lock it keeps using your server. Switching Go Max off, or a problem with the node, switches back, and the Go Max page says so.",
             "The node connects to other Zcash nodes on the internet, like every node: they see this Mac's internet address, never your wallets, addresses or balance. Lock it talks to the node on this Mac only, and the node accepts no connections from outside.",
             "Blocks from before Canopy (2020) are accepted on checkpoints built into the node, as every Zcash node does; every block since is checked here, proofs and all.",
+            "Each version of the node follows the chain up to a fixed block, about six weeks after it comes out. Lock it says so two weeks ahead. At that block the node stops and Lock it asks you: a public server, or wait for the update. It never switches by itself there.",
             "It runs while Lock it is open. Its files live in Lock it's own folder, left out of Time Machine; Remove node deletes them. Erase everything removes them too.",
         ]),
         Chapter(title: "What others can see", icon: "server.rack", summary: "The server and the price.", essentials: [
