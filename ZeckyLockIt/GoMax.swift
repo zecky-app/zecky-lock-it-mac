@@ -243,6 +243,11 @@ struct GoMaxChainInfo: Equatable {
     /// Whether the node has reached the network's tip.
     var atTip: Bool { verificationProgress >= 0.9999 && blocks >= estimatedHeight - 2 }
     var blocksBehind: Int { max(0, estimatedHeight - blocks) }
+    /// Up to date for the words on screen. The network's height is the
+    /// node's estimate from the clock, and blocks do not come exactly every
+    /// 25 seconds, so a node at the real tip often reads 3 or 4 "behind"
+    /// (seen 12 Nov). Ten blocks, about four minutes, is called behind.
+    var shownUpToDate: Bool { verificationProgress >= 0.9999 && blocksBehind <= 10 }
 }
 
 /// What the node is doing.
@@ -344,7 +349,7 @@ enum GoMaxWords {
             // Ready covers a node up to 25 minutes behind (it was at the tip
             // and is catching up after a pause). Only at the newest block is
             // it called up to date.
-            if let info, !info.atTip { return "A little behind · \(info.blocksBehind) blocks to catch up" }
+            if let info, !info.shownUpToDate { return "A little behind · \(info.blocksBehind) blocks to catch up" }
             return "Up to date · every block since Canopy verified on this Mac"
         case .catchingUp: return info.map { "Catching up · \(behind($0.blocksBehind))" } ?? "Catching up…"
         case .updating: return "Updating…"
@@ -360,7 +365,7 @@ enum GoMaxWords {
         case .off: return "Off"
         case .starting: return "Starting"
         case .syncing: return info.map { "Checking history · \(Int(($0.verificationProgress * 100).rounded(.down)))%" } ?? "Checking history"
-        case .ready: return info.map { $0.atTip } == false ? "Catching up" : "Up to date"
+        case .ready: return info.map { $0.shownUpToDate } == false ? "Catching up" : "Up to date"
         case .catchingUp: return "Catching up"
         case .updating: return "Updating"
         case .stopped: return "Off · data kept"
