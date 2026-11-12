@@ -711,6 +711,18 @@ struct SettingsView: View {
         }
     }
 
+    private func aboutLink(_ title: String, _ url: URL) -> some View {
+        Link(destination: url) {
+            HStack {
+                Text(title).font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.gold)
+                Spacer()
+            }
+            .frame(height: 34)
+            .contentShape(Rectangle())
+        }
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+    }
+
     @ViewBuilder private var aboutPage: some View {
             card("About", icon: "info.circle") {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -739,14 +751,15 @@ struct SettingsView: View {
                         aboutLine("Swift SDK", "ZcashLightClientKit 4.0.0")
                     }
                 }
-                HStack(spacing: 8) {
-                    // The same privacy policy as Lock it iPhone (audit C-38).
-                    Link("Privacy policy", destination: URL(string: "https://zecky.app/privacy")!)
-                        .font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
-                    Text("·").foregroundStyle(Theme.muted)
-                    Button("Acknowledgements") { showAcknowledgements = true }
-                        .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                // The terms accepted at the first start, and the same privacy
+                // policy as Lock it iPhone (audit C-38).
+                VStack(spacing: 0) {
+                    aboutLink("Terms ›", Terms.termsURL)
+                    aboutLink("Privacy policy ›", Terms.privacyURL)
                 }
+                .padding(.top, 2)
+                Button("Acknowledgements") { showAcknowledgements = true }
+                    .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
             }
             .sheet(isPresented: $showAcknowledgements) { AcknowledgementsSheet { showAcknowledgements = false } }
 
@@ -1185,7 +1198,7 @@ struct HowItWorks: View {
             "Every wallet on the key ring has its own 24 words and restores on its own in any Zcash wallet. One lock opens them all: the first wallet's words are sealed by the Secure Enclave, and the other wallets' words are encrypted with a key that comes from them.",
             "Erase this wallet, in a wallet's menu on the key ring, removes only that wallet after you type its name. Erasing the wallet that holds the lock passes the lock to the next wallet with words, with the same code and keys; each step is checked before anything old is removed. Only the last wallet with words takes everything with it.",
             "Only Touch ID or your Mac password (and your Zecky code, if set) opens the seal. They are never synced, never in a backup, never written to a log and never sent anywhere. They are opened only to sign a payment or to show them to you, and let go straight after.",
-            "Moving Lock it to the Trash does not remove the wallets. To remove everything, use Settings › Security › Erase everything first. The Zecky code, time lock, keys, address book and settings live on this Mac only and do not come back with a restore.",
+            "Moving Lock it to the Trash does not remove the wallets. To remove everything, use Settings › Security › Erase everything first. The Zecky code, time lock, keys, address book and settings live on this Mac only and do not come back with a restore. So does which version of the terms you accepted, and when; it stays after Erase everything, and the terms are asked again only when they change.",
         ]),
         Chapter(title: "Keys to the lock", icon: "key.fill", summary: "Up to four checks before Zcash leaves. You choose.", essentials: [
             "1 Opening Zecky, 2 Opening the lock (with an optional six-digit Zecky code), 3 Really open the lock?, 4 Security key.",

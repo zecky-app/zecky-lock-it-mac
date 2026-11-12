@@ -9,12 +9,13 @@ TestFlight on 11 Nov 2026 and is waiting for Apple's review.
 
 ## Both apps
 
-- **Terms acceptance at the first start** (owner, 11 Nov). Neither app has
-  one. One screen before a wallet is made: a few plain sentences, a link to
-  the full terms, one tick box. The app remembers which version was accepted
+- **Terms acceptance at the first start** (owner, 11 Nov). One screen
+  before a wallet is made: a few plain sentences, a link to the full terms,
+  and an "I understand" button. The app remembers which version was accepted
   and when, on the device only, and asks again when the terms change.
-  Waits for: the terms text or a page to link to (owner; deserves a
-  lawyer's eye).
+  Lock it Mac: done (12 Nov, "Before you start", `Terms.version` 1, links to
+  zecky.app/terms.html and privacy.html, rows under Settings › About).
+  Lock it iPhone: still open.
 
 ## Lock it Mac
 

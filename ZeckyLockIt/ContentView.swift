@@ -4,11 +4,24 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject var model: AppModel
     @State private var covered = false
+    /// The terms are asked once before a wallet is made, and again (also
+    /// over Home) only when their version changes.
+    @State private var termsAccepted = Terms.accepted
+    private var asksTerms: Bool {
+        guard !termsAccepted else { return false }
+        switch model.screen {
+        case .welcome, .restore, .home: return true
+        default: return false
+        }
+    }
 
     var body: some View {
         ZStack {
             Theme.ink.ignoresSafeArea()
             Group {
+                if asksTerms {
+                    TermsView { termsAccepted = true }
+                } else {
                 switch model.screen {
                 case .loading: ProgressView()
                 case .welcome: WelcomeView(model: model)
@@ -23,6 +36,7 @@ struct ContentView: View {
                 case .noMacPassword(let hasWallet): NoMacPasswordView(model: model, hasWallet: hasWallet)
                 case .problem(let text):
                     Text(text).foregroundStyle(Theme.red).padding(40)
+                }
                 }
             }
             .foregroundStyle(Theme.text)
