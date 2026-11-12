@@ -26,6 +26,20 @@ Two rules from those runs, built into the code:
    tip.** The window counts blocks, and the 2022–23 spam blocks are large: a
    100,000-block window during the first sync reached 39 GB and climbing.
 
+3. **The wallet reads from the node only when the node has the oldest block
+   the wallet still has to check** (build 5, 12 Nov 2026). The node is pruned.
+   After adding or restoring a wallet the engine checks older blocks again;
+   asked for a block it has dropped, the node answers "block not found"
+   (measured: block 3,172,501 not found, 3,564,000 found) and the wallet stood
+   still without an error. Lock it now asks the node (`getblock`) for the
+   oldest block on the engine's list: if it is gone, Lock it goes back to its
+   server for that stretch, says so on the Go Max page, and returns to the
+   node when the list is done.
+4. **A server switch that fails must not stop the wallet.** The engine stops
+   syncing before it tries a new server and leaves it stopped when the server
+   does not answer within 5 seconds. Lock it starts it again, keeps the old
+   server in its settings (or keeps trying the one it went back to), and says so.
+
 ## The pieces
 
 | File | What it does |

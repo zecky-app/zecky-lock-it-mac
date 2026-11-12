@@ -105,3 +105,28 @@ Not touched from this repository. Written here so it is not lost:
 - Check which of today's Mac changes should come over: payment details in
   Activity, sending over Tor with no silent fallback.
 - Android: first step is a read-through of what in the app is iPhone-only.
+
+## Build 5 (12 Nov 2026): found while adding a Donations wallet
+
+Seen on build 4, the owner's own account, Go Max on:
+
+- "+" right after launch: "synchronizer not prepared". A second try worked and
+  left syncing paused until Lock it was opened again.
+- With the wallet on the node, the re-check of older blocks stood still without
+  an error. Proven: the node answers "block not found" for block 3,172,501.
+- Go Max off: the Sync page named eu.zec.rocks, the wallet did not move until
+  "Use this server" was pressed.
+
+In build 5 (written, **not yet built or run**):
+
+- [ ] After adding a wallet or pairing Seal it, syncing is always started again; the message is "Lock it is still connecting. Try again in a moment."
+- [ ] Rule 3 in GO_MAX.md: older blocks from the server, the page says so, back to the node afterwards.
+- [ ] Rule 4 in GO_MAX.md: a failed server switch does not stop the wallet; Settings › Network keeps the old server and says so.
+- [ ] The Go Max page says when the wallet has not heard a new block from the node for five minutes, and connects once more.
+
+Still open after build 5:
+
+- The same two faults sit in the engine itself (`importAccount` and `switchTo` leave syncing stopped on failure). Lock it now covers them from outside; fix them in zecky-engine too.
+- Adding a brand-new wallet makes the engine check older blocks for all wallets (seen: from block 3,172,501). Find out which wallet that start belongs to, and whether a new wallet can be added without it.
+- Two accounts on one Mac use the same ports: the second one's Go Max cannot start while the first runs.
+- Lock it hides its numbers from other programs in the background, so the Sync page cannot be read by a helper: fine, but note it for support.

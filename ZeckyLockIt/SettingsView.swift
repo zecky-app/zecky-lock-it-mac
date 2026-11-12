@@ -981,6 +981,7 @@ struct SettingsView: View {
                 port = p
             }
         }
+        let hostBefore = Server.host, portBefore = Server.port
         // Leaving your own server for a public one: keep it for later.
         if !Server.presets.contains(where: { $0.host == Server.host }) {
             Server.rememberOwn(Server.port == 443 ? Server.host : "\(Server.host):\(Server.port)")
@@ -994,7 +995,10 @@ struct SettingsView: View {
             try await model.engine.switchServer()
             serverNote = "Now using \(host)"
         } catch {
-            serverNote = "Could not connect: \(error)"
+            // The engine went on with the server it had, so the setting says
+            // the same: a server that does not answer is not kept.
+            Server.set(host: hostBefore, port: portBefore)
+            serverNote = "Could not connect to \(host). Lock it stays on \(hostBefore)."
         }
     }
 
@@ -1219,7 +1223,7 @@ struct HowItWorks: View {
             "Go Max runs a Zcash node in Lock it on this Mac. It checks every block since the Canopy upgrade itself and keeps only recent blocks in full. When it is up to date, Lock it reads the chain from it instead of a server.",
             "It takes 15 GB of disk to start and about 22 GB after a month. The first check takes most of a day and downloads the whole chain once, about 250 GB, deleting older blocks as it goes. It is off until you switch it on: the Go Max button on the home screen opens it.",
         ], more: [
-            "Until the node is up to date, Lock it keeps using your server. Switching Go Max off, or a problem with the node, switches back, and the Go Max page says so.",
+            "Until the node is up to date, Lock it keeps using your server. Switching Go Max off, or a problem with the node, switches back, and the Go Max page says so. The node keeps only recent blocks: when a wallet still has older blocks to check, after adding or restoring a wallet, Lock it reads those from your server and returns to the node afterwards.",
             "The node connects to other Zcash nodes on the internet, like every node: they see this Mac's internet address, never your wallets, addresses or balance. Lock it talks to the node on this Mac only, and the node accepts no connections from outside.",
             "Blocks from before Canopy (2020) are accepted on checkpoints built into the node, as every Zcash node does; every block since is checked here, proofs and all.",
             "Each version of the node follows the chain up to a fixed block, about six weeks after it comes out. Lock it says so two weeks ahead. At that block the node stops and Lock it asks you: a public server, or wait for the update. It never switches by itself there.",

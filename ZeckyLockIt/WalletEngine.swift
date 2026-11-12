@@ -528,11 +528,43 @@ final class WalletEngine: ObservableObject {
             }
         }
         guard made else { throw EngineError.notReady }
-        let id = try await synchronizer.importAccount(
-            ufvk: ufvk.stringEncoded, seedFingerprint: fingerprint, zip32AccountIndex: Zip32AccountIndex(0),
-            purpose: .spending, name: name, keySource: Self.macKeySource, birthday: BlockHeight(birthday))
+        let id: AccountUUID
+        do {
+            id = try await synchronizer.importAccount(
+                ufvk: ufvk.stringEncoded, seedFingerprint: fingerprint, zip32AccountIndex: Zip32AccountIndex(0),
+                purpose: .spending, name: name, keySource: Self.macKeySource, birthday: BlockHeight(birthday))
+        } catch {
+            await resumeSyncing()
+            throw Self.plain(error)
+        }
+        await resumeSyncing()
         await refreshSealedWallets()
         return id
+    }
+
+    /// The oldest block the engine still has to check, for any wallet on the
+    /// key ring; nil when nothing is left or the engine cannot say. Read only.
+    func oldestBlockToCheck() async -> Int? {
+        guard let synchronizer, let overview = try? await synchronizer.scanOverview() else { return nil }
+        return overview.toScan.map { Int($0.first) }.min()
+    }
+
+    /// Adding a wallet pauses the engine's syncing first. When the attempt
+    /// fails (the server did not say what the newest block is), the engine
+    /// leaves it paused, and a second, successful attempt does not start it
+    /// either: the wallet then stands still until Lock it is opened again
+    /// (seen 12 Nov 2026). So after every attempt, syncing is started here.
+    /// Starting it while it runs changes nothing.
+    func resumeSyncing() async {
+        guard let synchronizer else { return }
+        try? await synchronizer.start(retry: false)
+    }
+
+    /// The engine's "synchronizer not prepared" while adding a wallet means:
+    /// the server gave no newest block yet. In plain words.
+    nonisolated static func plain(_ error: Error) -> Error {
+        if let known = error as? ZcashError, case .synchronizerNotPrepared = known { return EngineError.notConnected }
+        return error
     }
 
     /// Removes a wallet from the key ring (never the main one).
@@ -549,7 +581,13 @@ final class WalletEngine: ObservableObject {
 
     enum EngineError: Error, CustomStringConvertible {
         case notReady
-        var description: String { "The wallet is still starting. Try again in a moment." }
+        case notConnected
+        var description: String {
+            switch self {
+            case .notReady: return "The wallet is still starting. Try again in a moment."
+            case .notConnected: return "Lock it is still connecting. Try again in a moment."
+            }
+        }
     }
 
     /// A new shielded-only address (Sapling + Orchard, no transparent part).
@@ -902,7 +940,15 @@ final class WalletEngine: ObservableObject {
     func switchServer() async throws {
         guard let synchronizer else { return }
         status = .connecting
-        try await synchronizer.switchTo(endpoint: Server.endpoint)
+        do {
+            try await synchronizer.switchTo(endpoint: Server.endpoint)
+        } catch {
+            // The engine stops syncing before it tries the new server and
+            // leaves it stopped when that server does not answer in time.
+            // Go on with the server it had; the caller says what happened.
+            try? await synchronizer.start(retry: false)
+            throw error
+        }
     }
 
     /// Removes the wallet database and everything the engine stored.

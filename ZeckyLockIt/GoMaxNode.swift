@@ -125,6 +125,17 @@ final class GoMaxNode: ObservableObject {
     @Published private(set) var disconnected = false
     /// How many other Zcash nodes the node is connected to, as it last said.
     @Published private(set) var peers: Int?
+    /// The wallet still has to check blocks from here, and the node no
+    /// longer has them (it keeps only recent blocks): Lock it reads from its
+    /// server until they are checked. Nil otherwise.
+    @Published private(set) var olderFrom: Int?
+    /// Lock it reads from the node, the node moves on, and the wallet has
+    /// not heard of a new block for five minutes.
+    @Published private(set) var walletQuiet = false
+    private var reconnectedWhileQuiet = false
+    /// Lock it went back to its server and the engine could not connect to
+    /// it yet; it is tried again for a minute.
+    @Published private(set) var unsettled = false
     private var looksWithoutPeers = 0
     private var lastBlocks = 0
     private var lastBlockChange = Date()
@@ -543,6 +554,34 @@ final class GoMaxNode: ObservableObject {
         looksWithoutPeers = 0
         disconnected = false
         peers = nil
+        olderFrom = nil
+        walletQuiet = false
+        reconnectedWhileQuiet = false
+    }
+
+    /// The oldest block the wallet still has to check, when the node no
+    /// longer has it. Nil when the node can serve the wallet, and when it
+    /// cannot be told (the wallet is not open, or the node does not answer).
+    private func missingOlderBlock(nodeBlocks: Int) async -> Int? {
+        guard let engine, let oldest = await engine.oldestBlockToCheck(), oldest <= nodeBlocks else { return nil }
+        return GoMaxReading.missing(oldestNeeded: oldest, nodeBlocks: nodeBlocks,
+                                    nodeHasIt: await LocalRPC.hasBlock(oldest, port: GoMaxConfig.rpcPort))
+    }
+
+    /// Lock it reads from the node: does the wallet still hear new blocks?
+    /// Connects once more when it has gone quiet, and says so on the page.
+    private func watchWallet(_ fresh: GoMaxChainInfo?) async {
+        guard let engine, let fresh else { return }
+        guard GoMaxReading.walletQuiet(nodeBlocks: fresh.blocks, walletNetwork: engine.networkHeight) else {
+            walletQuiet = false
+            reconnectedWhileQuiet = false
+            return
+        }
+        walletQuiet = true
+        if !reconnectedWhileQuiet {
+            reconnectedWhileQuiet = true
+            try? await engine.switchServer()
+        }
     }
 
     /// How many other Zcash nodes the node is connected to; nil when it does not say.
@@ -611,6 +650,23 @@ final class GoMaxNode: ObservableObject {
             return
         }
 
+        // The node keeps only recent blocks. A wallet with older blocks
+        // still to check reads those from its server: back there if Lock it
+        // is on the node, and not onto the node until they are checked.
+        // The page says so (olderFrom); nothing is switched silently.
+        // Not during the first check of history: the node does not have
+        // those blocks yet, and Lock it is not on the node then.
+        var missing: Int?
+        if let fresh, next == .ready || next == .catchingUp {
+            missing = await missingOlderBlock(nodeBlocks: fresh.blocks)
+            olderFrom = missing
+        }
+        if let missing, onNode, Self.previousServer != nil {
+            await restoreServer()
+            olderFrom = missing
+            return
+        }
+
         if next == .ready {
             wasEverReady = true
             if !widened { await widen(); return }
@@ -619,7 +675,9 @@ final class GoMaxNode: ObservableObject {
             if !switchedToNode {
                 let listening = await LocalRPC.portOpen(GoMaxConfig.zainoPort)
                 steadyLooks = (fresh?.atTip == true && listening) ? steadyLooks + 1 : 0
-                if steadyLooks >= 3 { await switchToNode() }
+                if steadyLooks >= 3, missing == nil { await switchToNode() }
+            } else if onNode {
+                await watchWallet(fresh)
             }
         }
     }
@@ -655,16 +713,29 @@ final class GoMaxNode: ObservableObject {
     private func switchToNode() async {
         switchedToNode = true
         guard !onNode else { return }
-        Self.previousServer = Server.port == 443 ? Server.host : "\(Server.host):\(Server.port)"
+        let host = Server.host, port = Server.port
+        Self.previousServer = port == 443 ? host : "\(host):\(port)"
         Server.set(host: GoMaxConfig.host, port: GoMaxConfig.zainoPort)
         SecurityKeys.restartRemovalIfRunning()
-        try? await engine?.switchServer()
+        do {
+            try await engine?.switchServer()
+        } catch {
+            // The node's light-wallet server did not pass the engine's check
+            // in time. Lock it stays on its server (the engine went on with
+            // it) and tries again at a later look.
+            Server.set(host: host, port: port)
+            Self.previousServer = nil
+            switchedToNode = false
+            steadyLooks = 0
+        }
     }
 
     /// Back to the server from before Go Max, if Lock it is on the node.
     private func restoreServer() async {
         switchedToNode = false
         steadyLooks = 0
+        walletQuiet = false
+        reconnectedWhileQuiet = false
         guard onNode else { Self.previousServer = nil; return }
         let parts = (Self.previousServer ?? Server.defaultHost).split(separator: ":")
         let host = parts.first.map(String.init) ?? Server.defaultHost
@@ -672,8 +743,32 @@ final class GoMaxNode: ObservableObject {
         Server.set(host: host, port: port)
         Self.previousServer = nil
         SecurityKeys.restartRemovalIfRunning()
-        try? await engine?.switchServer()
+        do {
+            try await engine?.switchServer()
+            unsettled = false
+        } catch {
+            // The server did not answer in time. Lock it's setting names it
+            // already, so the engine is pointed at it again until it takes.
+            unsettled = true
+            settleEngine(on: host)
+        }
         if phase == .problem, let problem { self.problem = problem + " Lock it is back on \(host)." }
+    }
+
+    /// Tries for a minute to point the engine at Lock it's server, as long
+    /// as that is still the server chosen.
+    private func settleEngine(on host: String) {
+        Task {
+            for _ in 0..<12 {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard self.unsettled, Server.host == host, let engine = self.engine else { return }
+                do {
+                    try await engine.switchServer()
+                    self.unsettled = false
+                    return
+                } catch { continue }
+            }
+        }
     }
 }
 
@@ -689,6 +784,31 @@ enum LocalRPC {
               let json = self.body(of: response),
               let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return nil }
         return object["result"]
+    }
+
+    /// Whether the node still has this block in full. A pruned node answers
+    /// "block not found" for a block it has dropped. Nil when it does not answer.
+    static func hasBlock(_ height: Int, port: Int) async -> Bool? {
+        let request: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "getblock", "params": [String(height), 1]]
+        guard let body = try? JSONSerialization.data(withJSONObject: request) else { return nil }
+        let head = "POST / HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+        guard let response = await exchange(Data(head.utf8) + body, port: port, timeout: 5) else { return nil }
+        return blockFound(in: response)
+    }
+
+    /// Reads the answer to `getblock`: true with a result, false with an
+    /// error from the node, nil when it is not an answer at all.
+    static func blockFound(in response: Data) -> Bool? {
+        // The node answers an unknown block with an HTTP error status and a
+        // JSON-RPC error in the body, so the body is read whatever the status.
+        guard let split = response.range(of: Data("\r\n\r\n".utf8)) else { return nil }
+        let head = String(decoding: response[..<split.lowerBound], as: UTF8.self).lowercased()
+        let raw = Data(response[split.upperBound...])
+        let json = head.contains("transfer-encoding: chunked") ? (dechunk(raw) ?? raw) : raw
+        guard let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return nil }
+        if let result = object["result"], !(result is NSNull) { return true }
+        if let error = object["error"], !(error is NSNull) { return false }
+        return nil
     }
 
     /// Whether something on this Mac accepts connections on the port.

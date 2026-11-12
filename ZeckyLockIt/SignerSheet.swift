@@ -217,6 +217,7 @@ private struct SealContent: View {
         do {
             let birthday = await flow.recentBirthday()
             let id = try await flow.importAccount(fromAccountsUR: message, birthday: birthday)
+            await engine.resumeSyncing()
             pairing = false
             pairNote = nil
             account = id
@@ -224,8 +225,11 @@ private struct SealContent: View {
             await engine.refreshSealedWallets()
             await load()
         } catch {
+            // The engine pauses syncing for this and leaves it paused when it fails.
+            await engine.resumeSyncing()
             pairing = false
-            pairNote = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            let plain = WalletEngine.plain(error)
+            pairNote = (plain as? LocalizedError)?.errorDescription ?? String(describing: plain)
         }
     }
 

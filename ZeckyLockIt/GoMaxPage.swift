@@ -36,10 +36,32 @@ struct GoMaxPage: View {
                             .font(Theme.text(13)).foregroundStyle(node.phase == .ready && node.info?.shownUpToDate != false ? Theme.green : Theme.text)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    if node.enabled, node.phase == .ready, !node.readsFromNode {
-                        Text("Lock it still reads the chain from \(Server.host). It moves to this node by itself once the node has stayed at the newest block for half a minute.")
-                            .font(Theme.text(12)).foregroundStyle(Theme.muted)
-                            .fixedSize(horizontal: false, vertical: true)
+                    // Where the wallet reads from, when that is not simply this node.
+                    Group {
+                        if node.enabled, !node.readsFromNode, let from = node.olderFrom {
+                            Text(GoMaxWords.olderBlocks(from: from, server: Server.host))
+                                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else if node.enabled, node.phase == .ready, !node.readsFromNode {
+                            Text("Lock it still reads the chain from \(Server.host). It moves to this node by itself once the node has stayed at the newest block for half a minute.")
+                                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if node.readsFromNode, let from = node.olderFrom {
+                            Text(GoMaxWords.olderBlocksOnNode(from: from))
+                                .font(Theme.text(12)).foregroundStyle(Theme.gold)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if node.unsettled, !node.readsFromNode {
+                            Text(GoMaxWords.unsettled(server: Server.host))
+                                .font(Theme.text(12)).foregroundStyle(Theme.gold)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if node.walletQuiet {
+                            Text(GoMaxWords.walletQuiet)
+                                .font(Theme.text(12)).foregroundStyle(Theme.gold)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     if let peers = node.peers, peers > 0, node.phase != .off {
                         Text(GoMaxWords.peers(peers))
@@ -147,7 +169,7 @@ struct GoMaxPage: View {
     }
 
     static let details = [
-        "Until the node is up to date, Lock it keeps using your server. Then it switches to the node by itself. Switching Go Max off, or a problem with the node, switches back, and this page says so.",
+        "Until the node is up to date, Lock it keeps using your server. Then it switches to the node by itself. Switching Go Max off, or a problem with the node, switches back, and this page says so. The node keeps only recent blocks: when a wallet still has older blocks to check, after adding or restoring a wallet, Lock it reads those from your server and returns to the node afterwards.",
         "The node connects to other Zcash nodes on the internet, like every node: they see this Mac's internet address, never your wallets, addresses or balance. Lock it talks to the node on this Mac only, and the node accepts no connections from outside.",
         "Every block since the Canopy upgrade (2020) is checked here, proofs and all. Older blocks are accepted on checkpoints built into the node, as every Zcash node does.",
         "The node keeps about a month of recent blocks in full, and what every node needs to check new ones. Its files live in Lock it's own folder, left out of Time Machine.",
@@ -265,6 +287,7 @@ struct GoMaxButton: View {
         if node.disconnected { return "Not connected · check connection" }
         if node.quietMinutes != nil { return "No new blocks · check connection" }
         if let updateBefore { return updateBefore }
+        if node.olderFrom != nil, !node.readsFromNode, node.phase == .ready { return "Older blocks · from server" }
         switch node.phase {
         case .off: return "Run your own node"
         case .stopped: return "Off · data kept"

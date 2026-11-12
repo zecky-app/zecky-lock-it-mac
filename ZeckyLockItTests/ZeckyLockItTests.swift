@@ -886,4 +886,45 @@ final class ZeckyLockItTests: XCTestCase {
         Undelivered.remove(id)
         XCTAssertFalse(Undelivered.ids.contains(id))
     }
+
+    func testWalletReadsOlderBlocksFromItsServer() {
+        // The node answered "block not found" for a block it has dropped: the wallet needs its server.
+        XCTAssertEqual(GoMaxReading.missing(oldestNeeded: 3_172_501, nodeBlocks: 3_565_431, nodeHasIt: false), 3_172_501)
+        // The node has the oldest block the wallet needs: it can serve the wallet.
+        XCTAssertNil(GoMaxReading.missing(oldestNeeded: 3_564_890, nodeBlocks: 3_565_431, nodeHasIt: true))
+        // Nothing left to check, or no answer from the node: nothing is concluded.
+        XCTAssertNil(GoMaxReading.missing(oldestNeeded: nil, nodeBlocks: 3_565_431, nodeHasIt: false))
+        XCTAssertNil(GoMaxReading.missing(oldestNeeded: 3_172_501, nodeBlocks: 3_565_431, nodeHasIt: nil))
+        // A block above the node's newest is not an older block: the node is a little behind.
+        XCTAssertNil(GoMaxReading.missing(oldestNeeded: 3_565_440, nodeBlocks: 3_565_431, nodeHasIt: false))
+    }
+
+    func testNodeAnswerAboutABlock() {
+        func answer(_ status: String, _ body: String) -> Data {
+            Data("HTTP/1.1 \(status)\r\nContent-Type: application/json\r\n\r\n\(body)".utf8)
+        }
+        // As the node answered on 12 Nov 2026.
+        let dropped = #"{"jsonrpc":"1.0","id":"1","result":null,"error":{"code":-1,"message":"block not found"}}"#
+        let kept = #"{"jsonrpc":"1.0","id":"1","result":{"hash":"00","height":3564000}}"#
+        XCTAssertEqual(LocalRPC.blockFound(in: answer("200 OK", dropped)), false)
+        XCTAssertEqual(LocalRPC.blockFound(in: answer("500 Internal Server Error", dropped)), false)
+        XCTAssertEqual(LocalRPC.blockFound(in: answer("200 OK", kept)), true)
+        XCTAssertNil(LocalRPC.blockFound(in: answer("200 OK", "not json")))
+        XCTAssertNil(LocalRPC.blockFound(in: Data()))
+    }
+
+    func testWalletQuietOnItsNode() {
+        // Five minutes of blocks the wallet has not heard of.
+        XCTAssertTrue(GoMaxReading.walletQuiet(nodeBlocks: 3_565_454, walletNetwork: 3_565_431))
+        XCTAssertFalse(GoMaxReading.walletQuiet(nodeBlocks: 3_565_435, walletNetwork: 3_565_431))
+        // Before the wallet knows any block, nothing is concluded.
+        XCTAssertFalse(GoMaxReading.walletQuiet(nodeBlocks: 3_565_454, walletNetwork: 0))
+    }
+
+    func testOlderBlocksWordsAndAddWalletWords() {
+        XCTAssertEqual(GoMaxWords.olderBlocks(from: 3_172_501, server: "eu.zec.rocks"),
+                       "Lock it reads older blocks (from block 3,172,501) from eu.zec.rocks: this node keeps only recent blocks. It returns to this node by itself once they are checked.")
+        XCTAssertEqual(String(describing: WalletEngine.plain(ZcashError.synchronizerNotPrepared)),
+                       "Lock it is still connecting. Try again in a moment.")
+    }
 }

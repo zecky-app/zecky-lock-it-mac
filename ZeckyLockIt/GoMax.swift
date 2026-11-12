@@ -208,6 +208,32 @@ enum GoMaxSupport {
     static var stopHeightText: String { stopHeight.formatted(.number.locale(Locale(identifier: "en_US"))) }
 }
 
+/// Where the wallet reads the chain while Go Max is on. The node is pruned:
+/// it keeps only recent blocks. A wallet that still has older blocks to
+/// check (after adding or restoring a wallet) asks the node for blocks it
+/// no longer has and then stands still without an error (seen 12 Nov 2026:
+/// the node answered "block not found" for a block from January, the wallet
+/// stopped at the moment it turned to that stretch). So the wallet reads
+/// from the node only when the node has the oldest block it still needs.
+enum GoMaxReading {
+    /// The block the wallet needs and the node no longer has; nil when the
+    /// node can serve the wallet, or when it cannot be told (no answer).
+    /// A block above the node's own newest block is not an older one: the
+    /// node is a little behind and will have it.
+    static func missing(oldestNeeded: Int?, nodeBlocks: Int, nodeHasIt: Bool?) -> Int? {
+        guard let oldestNeeded, oldestNeeded <= nodeBlocks, nodeHasIt == false else { return nil }
+        return oldestNeeded
+    }
+
+    /// This many blocks (five minutes) the node is ahead of what the wallet
+    /// last heard: the wallet's connection to the node has gone quiet.
+    static let quietBlocks = 12
+
+    static func walletQuiet(nodeBlocks: Int, walletNetwork: Int) -> Bool {
+        walletNetwork > 0 && nodeBlocks - walletNetwork >= quietBlocks
+    }
+}
+
 /// The part of Zakura's getblockchaininfo answer Go Max reads.
 struct GoMaxChainInfo: Equatable {
     /// Height of the last block the node has verified.
@@ -378,6 +404,27 @@ enum GoMaxWords {
     static func peers(_ count: Int) -> String {
         "Connected to \(count) other Zcash node\(count == 1 ? "" : "s")"
     }
+
+    /// Why Lock it reads from a server although the node is up to date.
+    static func olderBlocks(from block: Int, server: String) -> String {
+        let number = block.formatted(.number.grouping(.automatic).locale(Locale(identifier: "en_US")))
+        return "Lock it reads older blocks (from block \(number)) from \(server): this node keeps only recent blocks. It returns to this node by itself once they are checked."
+    }
+
+    /// The same, when Lock it was pointed at the node by hand and has no
+    /// server to go back to by itself.
+    static func olderBlocksOnNode(from block: Int) -> String {
+        let number = block.formatted(.number.grouping(.automatic).locale(Locale(identifier: "en_US")))
+        return "This node keeps only recent blocks and no longer has the older ones your wallet still has to check (from block \(number)). Pick a server in Settings › Network to check them."
+    }
+
+    /// Lock it's server did not answer when Lock it went back to it.
+    static func unsettled(server: String) -> String {
+        "Lock it could not connect to \(server) yet · trying again."
+    }
+
+    /// The node moves on and the wallet does not hear of it.
+    static let walletQuiet = "Lock it is not getting new blocks from this node. It has connected again; if this line stays, switch Go Max off and on."
 
     /// What the node uses on disk and how much recent history it keeps in full.
     static func storage(sizeOnDisk: Int64, retention: Int) -> String {
