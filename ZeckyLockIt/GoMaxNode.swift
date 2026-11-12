@@ -123,6 +123,8 @@ final class GoMaxNode: ObservableObject {
     /// (six looks in a row): it cannot fetch blocks, whatever it still has
     /// to catch up. Offline, or a network that blocks Zcash nodes.
     @Published private(set) var disconnected = false
+    /// How many other Zcash nodes the node is connected to, as it last said.
+    @Published private(set) var peers: Int?
     private var looksWithoutPeers = 0
     private var lastBlocks = 0
     private var lastBlockChange = Date()
@@ -540,6 +542,7 @@ final class GoMaxNode: ObservableObject {
         timer = nil
         looksWithoutPeers = 0
         disconnected = false
+        peers = nil
     }
 
     /// How many other Zcash nodes the node is connected to; nil when it does not say.
@@ -578,8 +581,10 @@ final class GoMaxNode: ObservableObject {
         if let fresh, fresh.blocks != lastBlocks { lastBlocks = fresh.blocks; lastBlockChange = now }
         let quiet = Int(now.timeIntervalSince(lastBlockChange) / 60)
         quietMinutes = next == .ready && quiet >= 5 ? quiet : nil
-        if fresh != nil, let peers = await peerCount() {
-            looksWithoutPeers = peers == 0 ? looksWithoutPeers + 1 : 0
+        let count = fresh != nil ? await peerCount() : nil
+        peers = count
+        if let count {
+            looksWithoutPeers = count == 0 ? looksWithoutPeers + 1 : 0
         } else {
             looksWithoutPeers = 0
         }

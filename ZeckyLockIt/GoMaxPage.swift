@@ -41,6 +41,10 @@ struct GoMaxPage: View {
                             .font(Theme.text(12)).foregroundStyle(Theme.muted)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    if let peers = node.peers, peers > 0, node.phase != .off {
+                        Text(GoMaxWords.peers(peers))
+                            .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    }
                     supportNotice
                     if let info = node.info, node.phase != .off {
                         Text(GoMaxWords.storage(sizeOnDisk: info.sizeOnDisk, retention: node.retention))

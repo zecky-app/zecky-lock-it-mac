@@ -369,6 +369,11 @@ enum GoMaxWords {
         }
     }
 
+    /// "Connected to 14 other Zcash nodes".
+    static func peers(_ count: Int) -> String {
+        "Connected to \(count) other Zcash node\(count == 1 ? "" : "s")"
+    }
+
     /// What the node uses on disk and how much recent history it keeps in full.
     static func storage(sizeOnDisk: Int64, retention: Int) -> String {
         let weeks = Int((Double(retention * blockSeconds) / (7 * 24 * 3600)).rounded())

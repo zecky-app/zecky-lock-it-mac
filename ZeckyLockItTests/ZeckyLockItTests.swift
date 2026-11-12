@@ -807,6 +807,8 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(GoMaxWords.short(.ready, lagging), "Catching up")
         let atTip = GoMaxChainInfo(blocks: 3_564_890, estimatedHeight: 3_564_891, verificationProgress: 0.99999)
         XCTAssertEqual(GoMaxWords.short(.ready, atTip), "Up to date")
+        XCTAssertEqual(GoMaxWords.peers(1), "Connected to 1 other Zcash node")
+        XCTAssertEqual(GoMaxWords.peers(14), "Connected to 14 other Zcash nodes")
         XCTAssertEqual(GoMaxWords.status(.off, nil), "Off")
         let syncing = GoMaxChainInfo(blocks: 2_000_000, estimatedHeight: 3_557_000, verificationProgress: 0.605)
         XCTAssertTrue(GoMaxWords.status(.syncing, syncing).hasPrefix("Checking history · 60% · verified up to "))
