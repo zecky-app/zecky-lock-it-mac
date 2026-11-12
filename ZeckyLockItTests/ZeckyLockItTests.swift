@@ -801,6 +801,12 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(GoMaxWords.behind(288), "about 2 hours behind")
         XCTAssertEqual(GoMaxWords.behind(10_000), "about 3 days behind")
         XCTAssertEqual(GoMaxWords.status(.ready, nil), "Up to date · every block since Canopy verified on this Mac")
+        // Ready but 45 blocks behind (12 Nov: called up to date while stuck without peers).
+        let lagging = GoMaxChainInfo(blocks: 3_564_845, estimatedHeight: 3_564_890, verificationProgress: 0.99999)
+        XCTAssertEqual(GoMaxWords.status(.ready, lagging), "A little behind · 45 blocks to catch up")
+        XCTAssertEqual(GoMaxWords.short(.ready, lagging), "Catching up")
+        let atTip = GoMaxChainInfo(blocks: 3_564_890, estimatedHeight: 3_564_891, verificationProgress: 0.99999)
+        XCTAssertEqual(GoMaxWords.short(.ready, atTip), "Up to date")
         XCTAssertEqual(GoMaxWords.status(.off, nil), "Off")
         let syncing = GoMaxChainInfo(blocks: 2_000_000, estimatedHeight: 3_557_000, verificationProgress: 0.605)
         XCTAssertTrue(GoMaxWords.status(.syncing, syncing).hasPrefix("Checking history · 60% · verified up to "))

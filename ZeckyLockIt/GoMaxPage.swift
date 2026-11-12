@@ -33,7 +33,12 @@ struct GoMaxPage: View {
                             .fixedSize(horizontal: false, vertical: true)
                     } else {
                         Text(GoMaxWords.status(node.phase, node.info))
-                            .font(Theme.text(13)).foregroundStyle(node.phase == .ready ? Theme.green : Theme.text)
+                            .font(Theme.text(13)).foregroundStyle(node.phase == .ready && node.info?.atTip != false ? Theme.green : Theme.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if node.enabled, node.phase == .ready, !node.readsFromNode {
+                        Text("Lock it still reads the chain from \(Server.host). It moves to this node by itself once the node has stayed at the newest block for half a minute.")
+                            .font(Theme.text(12)).foregroundStyle(Theme.muted)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     supportNotice
@@ -259,7 +264,7 @@ struct GoMaxButton: View {
         switch node.phase {
         case .off: return "Run your own node"
         case .stopped: return "Off · data kept"
-        case .ready: return "Your own node"
+        case .ready: return node.info?.atTip == false ? "Catching up" : "Your own node"
         case .problem: return "Stopped · open to see why"
         case .expired: return "Needs an update · open"
         default: return GoMaxWords.short(node.phase, node.info)

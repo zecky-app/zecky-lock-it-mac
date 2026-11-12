@@ -37,13 +37,15 @@ Before a wider release:
   of shell with a lifeline to Lock it, and is told to stop the moment Lock
   it is gone; a start waits up to 90 seconds for the ports. To see working:
   kill Lock it with Go Max on, check the node goes, open Lock it again.
-- Open, 12 Nov: on the owner's home Wi-Fi the node could not keep peers all
-  morning (connections closed or reset right after opening; 0 peers), after
-  29 node starts in two days of testing. Cause unproven. Check whether Rock
-  it on the Umbrel (same internet address) is affected, and ask the Zakura
-  team whether peers ban an address that reconnects this often.
-- Rewrite the commit that contains build.log before any push of `go-max`.
-- Record the exact build commands for `zakurad` and `zainod`.
+- Open, 12 Nov: on the owner's home Wi-Fi the Mac's node could not keep
+  peers from 06:43 until about 10:10 (connections closed or reset right
+  after opening; mostly 0 peers). Within three minutes of stopping Rock it
+  on the Umbrel (same internet address, 23 peers) it had 7 peers, then 12
+  to 16, and kept them after Rock it was started again and after a restart
+  of its own. Cause unproven: the two nodes competing for peers that take
+  one connection per address is the suspicion. If it comes back: note the
+  peers on both, stop Rock it first, and keep the node's log. A possible
+  fix is the Mac's node peering with the Umbrel on the home network.
 
 Sending over Tor, left to test or finish:
 

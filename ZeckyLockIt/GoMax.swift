@@ -340,7 +340,12 @@ enum GoMaxWords {
             guard let info else { return "Checking history…" }
             let pct = Int((info.verificationProgress * 100).rounded(.down))
             return "Checking history · \(pct)% · verified up to \(verifiedDate(info))"
-        case .ready: return "Up to date · every block since Canopy verified on this Mac"
+        case .ready:
+            // Ready covers a node up to 25 minutes behind (it was at the tip
+            // and is catching up after a pause). Only at the newest block is
+            // it called up to date.
+            if let info, !info.atTip { return "A little behind · \(info.blocksBehind) blocks to catch up" }
+            return "Up to date · every block since Canopy verified on this Mac"
         case .catchingUp: return info.map { "Catching up · \(behind($0.blocksBehind))" } ?? "Catching up…"
         case .updating: return "Updating…"
         case .stopped: return "Stopped · the node's data is kept"
@@ -355,7 +360,7 @@ enum GoMaxWords {
         case .off: return "Off"
         case .starting: return "Starting"
         case .syncing: return info.map { "Checking history · \(Int(($0.verificationProgress * 100).rounded(.down)))%" } ?? "Checking history"
-        case .ready: return "Up to date"
+        case .ready: return info.map { $0.atTip } == false ? "Catching up" : "Up to date"
         case .catchingUp: return "Catching up"
         case .updating: return "Updating"
         case .stopped: return "Off · data kept"
