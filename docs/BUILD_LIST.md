@@ -32,9 +32,11 @@ Before a wider release:
 - Texts that said "about 20 GB": changed 12 Nov to 15 GB to start, about
   22 GB after a month.
 - A leftover node after a hard stop (seen 12 Nov: orphaned zakurad kept
-  port 8232): built 12 Nov. At a start Lock it looks for its own two
-  programs with no parent left and stops them cleanly. To see working:
-  force-quit Lock it with Go Max on, open it again.
+  port 8232). A new run of Lock it cannot stop it: tried 12 Nov, the
+  sandbox keeps each run apart. So each program now runs under a few lines
+  of shell with a lifeline to Lock it, and is told to stop the moment Lock
+  it is gone; a start waits up to 90 seconds for the ports. To see working:
+  kill Lock it with Go Max on, check the node goes, open Lock it again.
 - Open, 12 Nov: on the owner's home Wi-Fi the node could not keep peers all
   morning (connections closed or reset right after opening; 0 peers), after
   29 node starts in two days of testing. Cause unproven. Check whether Rock

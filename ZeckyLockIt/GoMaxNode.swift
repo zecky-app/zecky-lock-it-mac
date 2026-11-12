@@ -94,6 +94,8 @@ final class GoMaxNode: ObservableObject {
 
     private var zakura: Process?
     private var zaino: Process?
+    /// The writing ends that tell each program Lock it is still there.
+    private var lifelines: [Process: Pipe] = [:]
     private var timer: Timer?
     private var busy = false
     private var wasEverReady = false
@@ -314,20 +316,17 @@ final class GoMaxNode: ObservableObject {
             try prepare(p)
             await stopLeftover(pidFile: p.zakuraPid)
             await stopLeftover(pidFile: p.zainoPid)
-            // The saved numbers can be missing or stale (seen 12 Nov after a
-            // restart from Xcode): look for Lock it's own programs as well.
-            let others = await stopOrphans()
-            let rpcTaken = await LocalRPC.portOpen(GoMaxConfig.rpcPort)
-            let zainoTaken = await LocalRPC.portOpen(GoMaxConfig.zainoPort)
-            if rpcTaken || zainoTaken {
-                let port = rpcTaken ? GoMaxConfig.rpcPort : GoMaxConfig.zainoPort
-                if others == .otherLockIt {
-                    throw Failure("Another Lock it that is open on this Mac is already running Go Max (port \(port)). Quit that one, then switch Go Max on again.")
-                }
-                if others == .stillClosing {
-                    throw Failure("Go Max's node from the last time is still closing (port \(port)). Wait a minute, then switch Go Max on again.")
-                }
-                throw Failure("Another program already uses Go Max's ports on this Mac (\(port)), most likely a Zcash node started by hand. Stop it, then switch Go Max on again.")
+            // A node from the Lock it before this one may still be closing: it
+            // is told to stop when its Lock it goes (see `keeper`), and closing
+            // its database can take a minute. This Lock it cannot see or stop
+            // it (the sandbox keeps each run of Lock it apart), so it waits.
+            var port = await takenPort()
+            for _ in 0..<45 where port != nil {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                port = await takenPort()
+            }
+            if let port {
+                throw Failure("A Zcash node is already running on this Mac and uses Go Max's port \(port). If you did not start one yourself, it is left over from an earlier Lock it: restart this Mac, then switch Go Max on again.")
             }
             let r = GoMaxConfig.retention(widened: widened)
             retention = r
@@ -373,15 +372,20 @@ final class GoMaxNode: ObservableObject {
     private func launch(_ name: String, _ arguments: [String], log: URL, pidFile: URL, environment: [String: String]) throws -> Process {
         guard let url = Self.helper(name) else { throw Failure("This build of Lock it has no node inside.") }
         let process = Process()
-        process.executableURL = url
-        process.arguments = arguments
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", Self.keeper, url.path] + arguments
+        // The lifeline: Lock it holds the writing end for as long as it
+        // lives. However Lock it goes, the end closes and the keeper tells
+        // the program to stop.
+        let lifeline = Pipe()
         process.environment = ProcessInfo.processInfo.environment.merging(environment) { $1 }
         let handle = try Self.logHandle(log)
         process.standardOutput = handle
         process.standardError = handle
-        process.standardInput = FileHandle.nullDevice
+        process.standardInput = lifeline
         process.qualityOfService = .utility
         try process.run()
+        lifelines[process] = lifeline
         try? String(process.processIdentifier).write(to: pidFile, atomically: true, encoding: .utf8)
         return process
     }
@@ -406,37 +410,38 @@ final class GoMaxNode: ObservableObject {
         guard let text = try? String(contentsOf: pidFile, encoding: .utf8),
               let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
               pid > 1, pid != getpid(), kill(pid, 0) == 0 else { return }
-        // The number may have been given to another program since: only one
-        // of Lock it's own two is asked to stop. Unknown (the system does
-        // not say): asked as before; the sandbox lets Lock it signal only
-        // its own programs anyway.
-        if let path = Self.programPath(pid), !Self.ownHelperPaths.contains(path) { return }
         _ = await Self.stopCleanly([pid])
     }
 
-    /// What `stopOrphans` found.
-    private enum Leftover { case none, stopped, stillClosing, otherLockIt }
-
-    /// The two programs inside this Lock it, as full paths.
-    private static var ownHelperPaths: Set<String> {
-        Set(["zakurad", "zainod"].compactMap { helper($0)?.resolvingSymlinksInPath().path })
+    /// The first of Go Max's two ports that something on this Mac answers on.
+    private func takenPort() async -> Int? {
+        if await LocalRPC.portOpen(GoMaxConfig.rpcPort) { return GoMaxConfig.rpcPort }
+        if await LocalRPC.portOpen(GoMaxConfig.zainoPort) { return GoMaxConfig.zainoPort }
+        return nil
     }
 
-    /// The program file a running process was started from; nil when the
-    /// system does not say (it only does for Lock it's own).
-    private static func programPath(_ pid: pid_t) -> String? {
-        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
-    }
-
-    /// The process that started `pid`; nil when the system does not say.
-    private static func parent(of pid: pid_t) -> pid_t? {
-        var info = proc_bsdinfo()
-        let size = Int32(MemoryLayout<proc_bsdinfo>.stride)
-        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
-        return pid_t(info.pbi_ppid)
-    }
+    /// Each program runs under a few lines of shell that keep watch for it.
+    /// The shell starts the program ($0 with its arguments) and waits. When
+    /// Lock it asks it to stop, or when Lock it is gone (force quit, a crash,
+    /// a stop from Xcode: the lifeline on its input closes), it tells the
+    /// program to stop the way Ctrl-C does, so the node closes its database
+    /// and frees its ports. Before this, a node could outlive its Lock it
+    /// and keep the ports (seen 12 Nov), and the next Lock it has no way to
+    /// stop it: the sandbox lets a run of Lock it signal only what it
+    /// started itself.
+    private static let keeper = """
+    exec 3<&0
+    "$0" "$@" </dev/null 3<&- &
+    c=$!
+    ( read -r _ <&3; kill -INT $c 2>/dev/null ) &
+    w=$!
+    exec 3<&-
+    trap 'kill -INT $c 2>/dev/null' INT
+    trap 'kill -TERM $c 2>/dev/null' TERM
+    while kill -0 $c 2>/dev/null; do wait $c; done
+    kill $w 2>/dev/null
+    exit 0
+    """
 
     /// Asks processes to stop as Ctrl-C does, so the node closes its
     /// database; after a minute more firmly, then by force. True when all
@@ -450,33 +455,6 @@ final class GoMaxNode: ObservableObject {
             for _ in 0..<halfSeconds where !alive().isEmpty { try? await Task.sleep(nanoseconds: 500_000_000) }
         }
         return alive().isEmpty
-    }
-
-    /// Lock it's own node programs that outlived the Lock it that started
-    /// them (it was force-quit, or stopped from Xcode): the same program
-    /// files as this Lock it's, with no parent left. They are stopped
-    /// cleanly, so the new start finds its ports and its data free. A node
-    /// from another program file is not Lock it's and is never touched; one
-    /// whose Lock it is still open belongs to that Lock it.
-    private func stopOrphans() async -> Leftover {
-        let own = Self.ownHelperPaths
-        guard !own.isEmpty else { return .none }
-        let mine = Set([zakura, zaino].compactMap { $0 }.filter(\.isRunning).map(\.processIdentifier))
-        var pids = [pid_t](repeating: 0, count: 8192)
-        let count = Int(proc_listallpids(&pids, Int32(MemoryLayout<pid_t>.stride * pids.count)))
-        guard count > 0 else { return .none }
-        var orphans: [pid_t] = []
-        var otherLockIt = false
-        for pid in pids.prefix(min(count, pids.count)) where pid > 1 && pid != getpid() && !mine.contains(pid) {
-            guard let path = Self.programPath(pid), own.contains(path) else { continue }
-            let parent = Self.parent(of: pid)
-            if parent == nil || parent == 1 { orphans.append(pid) }
-            else if parent != getpid() { otherLockIt = true }
-        }
-        if orphans.isEmpty { return otherLockIt ? .otherLockIt : .none }
-        let gone = await Self.stopCleanly(orphans)
-        if otherLockIt { return .otherLockIt }
-        return gone ? .stopped : .stillClosing
     }
 
     /// Waits until the node answers, at most 3 minutes (a large state can
@@ -500,6 +478,7 @@ final class GoMaxNode: ObservableObject {
             process.terminate()
             for _ in 0..<10 where process.isRunning { try? await Task.sleep(nanoseconds: 500_000_000) }
         }
+        lifelines[process] = nil
     }
 
     private func stopPrograms() async {
@@ -507,6 +486,7 @@ final class GoMaxNode: ObservableObject {
         await stop(zakura)
         zaino = nil
         zakura = nil
+        lifelines.removeAll()
         if let p = paths {
             try? FileManager.default.removeItem(at: p.zainoPid)
             try? FileManager.default.removeItem(at: p.zakuraPid)
