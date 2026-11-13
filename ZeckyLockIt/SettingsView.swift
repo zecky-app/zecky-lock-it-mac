@@ -745,7 +745,7 @@ struct SettingsView: View {
                     .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
                 if showTechnical {
                     VStack(spacing: 6) {
-                        aboutLine("Engine", "v4.0.0-zecky.5 + Tor sending · commit 90e877d")
+                        aboutLine("Engine", "v4.0.0-zecky.5 + Tor sending · commit ef8b055")
                         aboutLine("Engine fingerprint (Mac)", "ec88e073…3079fa")
                         aboutLine("NU7 check", WalletSelfTest.engineBranch(at: NetworkUpgrade.nu7Height) == 0x7719_0AD9 ? "Signs for NU7 (0x77190AD9)" : "Does not know NU7")
                         aboutLine("Swift SDK", "ZcashLightClientKit 4.0.0")
