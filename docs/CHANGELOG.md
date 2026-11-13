@@ -4,6 +4,10 @@ Plain-words notes on what changed in Zecky Lock it for Mac, newest first.
 
 ## Unreleased
 
+- One lock for all wallets, now said plainly: the time lock and the keys to
+  the lock apply to every wallet on this Mac (Settings says so), and with more
+  than one wallet the "Really open the lock?" and time lock prompts name the
+  wallet the lock opens for. (Tester feedback, 13 Nov.)
 - Send, with more than one wallet behind the lock: the paying wallet is named
   under the amount ("… available in Donations"), as the first line of the
   receipt ("From", in gold) and on the button ("Send 0.01 ZEC from

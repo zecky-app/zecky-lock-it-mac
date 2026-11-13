@@ -286,11 +286,12 @@ struct HomeView: View {
             .accessibilityHidden(model.asking || model.askingCode || model.timeLockShown)
 
             if model.asking {
-                OpenLockPrompt(days: heldDays) { model.countdownDone() } onKeep: { model.keepLocked() }
+                OpenLockPrompt(days: heldDays, wallet: lockWallet) { model.countdownDone() } onKeep: { model.keepLocked() }
                     .transition(.opacity)
             }
             if model.timeLockShown {
                 TimeLockPrompt(phase: TimeLock.phase,
+                               wallet: lockWallet,
                                onAsk: { model.startTimeLockWait() },
                                onCancelRequest: { model.cancelTimeLockRequest() },
                                onKeep: { model.keepLocked() },
@@ -498,6 +499,10 @@ struct HomeView: View {
     /// Lock it reads from the node on this Mac, and that node has had no new
     /// block for five minutes: the wallet is level with the node, the node
     /// is not level with the network. Same words and color as the Go Max coin.
+    /// The wallet the lock would open for, named on the prompts when the
+    /// lock holds more than one wallet.
+    private var lockWallet: WalletTag? { engine.hasSeveralWallets ? engine.currentTag : nil }
+
     private var nodeQuiet: Bool { Server.nodeKind(Server.host) == .thisMac && (goMax.quietMinutes != nil || goMax.disconnected) }
 
     /// Lock it still reads from the node on this Mac, and that node version
@@ -759,6 +764,8 @@ private extension CGFloat {
 /// opening needs a tick and a short wait.
 struct OpenLockPrompt: View {
     let days: Int?
+    /// The wallet the lock opens for, when the lock holds more than one.
+    var wallet: WalletTag? = nil
     let onOpen: () -> Void
     let onKeep: () -> Void
 
@@ -791,6 +798,7 @@ struct OpenLockPrompt: View {
                 .padding(.bottom, 4)
 
                 Text("Really open the lock?").font(Theme.serif(32, weight: .medium))
+                if let wallet { WalletTagView(tag: wallet) }
                 Text(intro).font(Theme.text(14)).foregroundStyle(Theme.muted)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)

@@ -152,6 +152,8 @@ enum TimeLock {
 /// Over the home screen when the lock has a time lock: ask, or wait.
 struct TimeLockPrompt: View {
     let phase: TimeLock.Phase
+    /// The wallet the lock would open for, when the lock holds more than one.
+    var wallet: WalletTag? = nil
     let onAsk: () -> Void
     let onCancelRequest: () -> Void
     let onKeep: () -> Void
@@ -179,6 +181,7 @@ struct TimeLockPrompt: View {
                 .frame(width: 104, height: 104)
                 Text("TIME LOCK · \(TimeLock.label(TimeLock.hours).uppercased())")
                     .font(Theme.text(11, weight: .semibold)).tracking(1.8).foregroundStyle(Theme.gold)
+                if let wallet { WalletTagView(tag: wallet) }
                 if breaking { glass } else { asking }
             }
             .padding(.horizontal, 40).padding(.top, 30).padding(.bottom, 32)

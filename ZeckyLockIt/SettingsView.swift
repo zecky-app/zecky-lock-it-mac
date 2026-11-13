@@ -278,7 +278,7 @@ struct SettingsView: View {
             }
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
-            Text("Always asked, whatever you choose: showing the recovery phrase and erasing. Making a key stricter needs nothing; weakening one asks you first. The time lock is its own setting under Security.")
+            Text("Always asked, whatever you choose: showing the recovery phrase and erasing. Making a key stricter needs nothing; weakening one asks you first. The time lock is its own setting under Security. The keys and the time lock apply to every wallet on this Mac.")
                 .font(Theme.text(11)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -517,7 +517,7 @@ struct SettingsView: View {
     @ViewBuilder private var timeLockPage: some View {
             card("Time lock", icon: "clock") {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Opening the lock has to be asked for this long ahead. Why: for Zcash you mean to keep, a wait of days protects you against pressure and impulse. Turning it off or shorter waits as long as the current time lock. In an emergency you can break the glass. It does not stop someone who has your 24 words.")
+                    Text("Opening the lock has to be asked for this long ahead. Why: for Zcash you mean to keep, a wait of days protects you against pressure and impulse. Turning it off or shorter waits as long as the current time lock. In an emergency you can break the glass. It does not stop someone who has your 24 words. It applies to every wallet on this Mac.")
                         .font(Theme.text(12)).foregroundStyle(Theme.muted)
                         .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 6) {

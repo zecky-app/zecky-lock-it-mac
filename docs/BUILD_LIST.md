@@ -130,3 +130,16 @@ Still open after build 5:
 - Adding a brand-new wallet makes the engine check older blocks for all wallets (seen: from block 3,172,501). Find out which wallet that start belongs to, and whether a new wallet can be added without it.
 - Two accounts on one Mac use the same ports: the second one's Go Max cannot start while the first runs.
 - Lock it hides its numbers from other programs in the background, so the Sync page cannot be read by a helper: fine, but note it for support.
+
+## Build 7 plan: a time lock per wallet (decided 13 Nov 2026)
+
+From tester feedback on build 5: with several wallets behind one lock, the
+lock's settings were not clearly about all of them. Build 6 says so plainly
+and names the wallet on the prompts. Build 7 makes the time lock per wallet:
+
+- [ ] Each wallet its own time lock (Savings a week, Donations none). A new wallet starts with the main wallet's time lock.
+- [ ] Shortening or switching off a wallet's time lock waits as long as that wallet's current one (as now).
+- [ ] Shared, for the whole Mac: the code, Touch ID or Mac password, security keys, "Really open the lock?".
+- [ ] Settings › Security shows the time lock per wallet; the prompts name the wallet (done in build 6).
+- [ ] Gap that exists today: "Show its words" asks for the owner but not the time lock, so a time-locked wallet's 24 words can be read without the wait. Showing a wallet's words should wait as long as its time lock, as opening does.
+- [ ] Tests for every rule in LockRules, per wallet.
