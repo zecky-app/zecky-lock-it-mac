@@ -14,8 +14,8 @@ chain takes most of a day.
 
 ## Try it
 
-TestFlight (Apple silicon Mac, macOS 13 or later):
-https://testflight.apple.com/join/qjn4ZU1T
+For an Apple silicon Mac with macOS 13 or later. To test, sign up at
+https://zecky.app and we email you the TestFlight invite.
 
 Feedback is very welcome: use TestFlight's feedback, or email
 dev@zecky.app. To report a security problem, see [SECURITY.md](SECURITY.md)
