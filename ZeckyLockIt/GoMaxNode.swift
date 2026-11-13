@@ -168,7 +168,10 @@ final class GoMaxNode: ObservableObject {
     /// The newest network height anyone reports right now: the node, or the
     /// server Lock it reads from. 0 when nothing answers.
     private var liveHeight: Int {
-        max(zakura?.isRunning == true ? max(info?.blocks ?? 0, info?.estimatedHeight ?? 0) : 0, engine?.networkHeight ?? 0)
+        let wallet = engine?.networkHeight ?? 0
+        guard zakura?.isRunning == true, let info else { return wallet }
+        return GoMaxSupport.networkHeight(nodeBlocks: info.blocks, nodeEstimate: info.estimatedHeight,
+                                          verificationProgress: info.verificationProgress, walletNetwork: wallet)
     }
 
     /// Remembered across restarts (a public number, nothing about a wallet),

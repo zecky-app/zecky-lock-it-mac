@@ -4,6 +4,9 @@ Plain-words notes on what changed in Zecky Lock it for Mac, newest first.
 
 ## Unreleased
 
+- Go Max: during the first check of history the page no longer says "needs an
+  update" weeks early. The node's own guess of the network height is only used
+  once it is close to the newest block.
 - Go Max: when the node stops while starting, the page shows one calm line
   ("Your wallet is fine"), a "Try again" button that waits half a minute and
   starts the node again, and "Still not working?" with the next steps.

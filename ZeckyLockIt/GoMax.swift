@@ -200,6 +200,17 @@ enum GoMaxSupport {
         return .soon(now.addingTimeInterval(Double(remaining) * blockSeconds))
     }
 
+    /// The network height the stop is judged by. The node's own estimate of
+    /// the network is only trusted once the node is close to the newest
+    /// block: during the first check of history it can be far too high (seen
+    /// 13 Nov 2026: about 60,000 blocks, which showed "needs an update before
+    /// Nov 17" three weeks early and could have stopped Go Max mid-sync).
+    /// Then the node's verified blocks and the wallet's server count.
+    static func networkHeight(nodeBlocks: Int, nodeEstimate: Int, verificationProgress: Double, walletNetwork: Int) -> Int {
+        let node = verificationProgress >= 0.999 ? max(nodeBlocks, nodeEstimate) : nodeBlocks
+        return max(node, walletNetwork)
+    }
+
     /// "Dec 5", in this Mac's time zone.
     static func dateText(_ date: Date) -> String {
         date.formatted(Date.FormatStyle(locale: Locale(identifier: "en_US")).month(.abbreviated).day())

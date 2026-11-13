@@ -952,4 +952,22 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertTrue(GoMaxWords.stillNotWorking.contains("Remove node and its data"))
         XCTAssertTrue(GoMaxWords.stillNotWorking.contains("Show the node's logs"))
     }
+
+    func testStopIsNotJudgedByTheNodesGuessDuringFirstSync() {
+        // As seen on 13 Nov 2026: first check of history at 2017, the node's
+        // estimate about 60,000 blocks too high, the wallet's server correct.
+        let h = GoMaxSupport.networkHeight(nodeBlocks: 470_000, nodeEstimate: 3_629_500,
+                                           verificationProgress: 0.01, walletNetwork: 3_569_000)
+        XCTAssertEqual(h, 3_569_000)
+        XCTAssertEqual(GoMaxSupport.state(reported: h, seenAt: nil, now: Date(), stopHeight: 3_643_309), .fine)
+        // Even an estimate past the stop does not end Go Max mid-sync.
+        XCTAssertEqual(GoMaxSupport.networkHeight(nodeBlocks: 470_000, nodeEstimate: 3_700_000,
+                                                  verificationProgress: 0.01, walletNetwork: 3_569_000), 3_569_000)
+        // Before the wallet knows a height, the node's verified blocks count.
+        XCTAssertEqual(GoMaxSupport.networkHeight(nodeBlocks: 470_000, nodeEstimate: 3_629_500,
+                                                  verificationProgress: 0.01, walletNetwork: 0), 470_000)
+        // Close to the newest block, the node's estimate counts again (the stop itself).
+        XCTAssertEqual(GoMaxSupport.networkHeight(nodeBlocks: 3_643_300, nodeEstimate: 3_643_320,
+                                                  verificationProgress: 0.9999, walletNetwork: 3_643_300), 3_643_320)
+    }
 }
