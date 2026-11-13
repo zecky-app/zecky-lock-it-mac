@@ -62,6 +62,7 @@ both change, Rock it first.
    a resync, which would mean the data did not carry over.
 6. `scripts/gomax-helpers.sh`, commit the new `GoMax/bin.sha256`, update the
    header of that script and the table above.
+6b. Acknowledgements: update the version and commit in `scripts/notices.py` (go_max) and in `ZeckyLockIt/Acknowledgements.md`, and copy the new release's license files into `scripts/licenses/` if they changed. Both programs ship inside the app, so their licenses must travel with it.
 7. Tests: `xcodebuild test`, then by hand: receive, send over Tor, send with
    Wi-Fi off, Go Max off and on, quit and reopen.
 8. Update `SettingsView` (About, How Zecky works) if any statement changed.

@@ -20,6 +20,25 @@ SHIPPED = [
 
 OFL = open(os.path.join(os.path.dirname(__file__), "OFL-1.1.txt")).read()
 
+LICENSES = os.path.join(os.path.dirname(__file__), "licenses")
+
+def read(name):
+    return open(os.path.join(LICENSES, name), encoding="utf-8").read()
+
+def go_max():
+    """The two programs Go Max ships inside the app (Contents/MacOS)."""
+    return ["## Go Max: Zakura (zakurad) 1.8.5", "",
+            "The Zcash node inside Go Max is Zakura 1.8.5 (github.com/zakura-core/zakura), a fork of the Zcash Foundation's Zebra, "
+            "built from source and unchanged. Licensed under MIT OR Apache-2.0, at your option:", "",
+            "```", read("zakura-LICENSE-MIT").strip(), "```", "", "```", read("zakura-LICENSE-APACHE").strip(), "```", "",
+            "## Go Max: Zaino (zainod)", "",
+            "The light-wallet server inside Go Max is Zaino by Zingo Labs (github.com/zingolabs/zaino), branch feat/nu7 at aaf8122, "
+            "built from source with two small changes made for Rock it. Licensed under the Apache License, Version 2.0 "
+            "(full text in the Zakura section above):", "",
+            "```", read("zaino-LICENSE").strip("\n"), "```", "",
+            "Both programs are built with their Rust dependencies, each under its own open-source license; every crate is listed in "
+            "each project's Cargo.lock.", ""]
+
 def main(checkouts):
     root = os.path.join(os.path.dirname(__file__), "..")
     resolved = json.load(open(os.path.join(root, "ZeckyLockIt.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved")))
@@ -30,6 +49,7 @@ def main(checkouts):
            "The Zecky engine v4.0.0-zecky.5 is the official zcash-swift-wallet-sdk 4.0.0 (MIT, Electric Coin Company and contributors) "
            "adapted to the NU7 releases of librustzcash, the Zcash developers' own core, and its Rust dependencies, published under "
            "MIT OR Apache-2.0. Every crate is listed in the engine's Cargo.lock.", ""]
+    out += go_max()
     for folder, name in SHIPPED:
         d = os.path.join(checkouts, folder)
         out += [f"## {name} {versions.get(folder.lower(), '')}".rstrip(), ""]
