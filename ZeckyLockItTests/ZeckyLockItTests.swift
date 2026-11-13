@@ -944,4 +944,13 @@ final class ZeckyLockItTests: XCTestCase {
         // At the end of the row nothing moves.
         XCTAssertEqual(KeyRingOrder.moved("cc", by: 1, in: ids, among: [KeyRingOrder.main, "aa", "cc"]), ids)
     }
+
+    func testStoppedWhileStartingSaysWhatToDo() {
+        let text = GoMaxWords.stoppedWhileStarting
+        XCTAssertTrue(text.hasPrefix("The node stopped while starting."))
+        XCTAssertTrue(text.contains("Wait one minute"))
+        XCTAssertTrue(text.contains("Switch Go Max off and on"))
+        XCTAssertTrue(text.contains("Remove node and its data"))
+        XCTAssertTrue(text.contains("Show the node's logs"))
+    }
 }

@@ -4,6 +4,9 @@ Plain-words notes on what changed in Zecky Lock it for Mac, newest first.
 
 ## Unreleased
 
+- Go Max: when the node stops while starting, the page now says what to do,
+  step by step (wait a minute, switch off and on, open Lock it again, remove
+  the node's data), that the wallet is not affected, and where the log is.
 - Wallets out of sight: right-click a wallet on the home screen and choose
   "Keep out of sight". It leaves the row and keeps syncing and receiving. A
   small gold star appears next to "+": click it to show those wallets again,

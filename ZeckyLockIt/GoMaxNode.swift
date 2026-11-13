@@ -475,7 +475,7 @@ final class GoMaxNode: ObservableObject {
     private func waitForNode() async throws {
         for _ in 0..<90 {
             if await chainInfo() != nil { return }
-            if zakura?.isRunning != true { throw Failure("The node stopped while starting. Its log is in the node's folder.") }
+            if zakura?.isRunning != true { throw Failure(GoMaxWords.stoppedWhileStarting) }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
         throw Failure("The node did not answer within 3 minutes of starting.")
