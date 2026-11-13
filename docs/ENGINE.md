@@ -42,7 +42,7 @@ cp zecky-engine/BuildSupport/LocalPackages-Package.swift zecky-engine/LocalPacka
 ## Branch go-max: Tor for sending (11 Nov 2026, in testing)
 
 This branch builds against the engine's `tor-submit` branch: commit
-`90e877d`, which is `v4.0.0-zecky.5` plus one Swift-only commit that adds
+`ef8b055`, which is `v4.0.0-zecky.5` plus one Swift-only commit that adds
 `SDKSynchronizer.submitOverTor(enabled:)`. The Rust core, the library and
 the header are the zecky.5 ones, with the same fingerprints.
 `scripts/check-engine.sh` pins that commit here. Before building this

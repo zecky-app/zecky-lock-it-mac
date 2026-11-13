@@ -30,7 +30,7 @@ Plain-words notes on what changed in Zecky Lock it for Mac, newest first.
   and the Send screen says so; it is never sent another way by itself.
   With your own node you can then choose "Send through my own node".
   Settings › Network › Sending switches it off. Needs the engine's
-  tor-submit commit (90e877d).
+  tor-submit commit (ef8b055).
 - Go Max (first build, in testing): the GO MAX button on the home screen
   (also Settings › Go Max) runs your own pruned
   Zcash node inside Lock it on this Mac. It checks every block since Canopy
