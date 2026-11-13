@@ -309,7 +309,8 @@ struct SendComposer: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack {
-                    Text("\(Amount.text(spendable, unit)) available" + (prices.value(of: spendable).map { " · \($0)" } ?? ""))
+                    Text("\(Amount.text(spendable, unit)) available" + fromWallet.map { " in \($0.name)" }.orEmpty
+                         + (prices.value(of: spendable).map { " · \($0)" } ?? ""))
                         .font(Theme.text(12)).foregroundStyle(Theme.muted)
                     Spacer()
                     Chip(title: "Max", on: max) { max.toggle() }
@@ -376,6 +377,13 @@ struct SendComposer: View {
         }
     }
 
+    /// The wallet that pays, named on the screen and the receipt when the
+    /// lock holds more than one wallet (with one there is nothing to mix up).
+    private var fromWallet: WalletTag? {
+        guard engine.hasSeveralWallets else { return nil }
+        return account.map(engine.tag) ?? engine.currentTag
+    }
+
     // MARK: Receipt
 
     private func review(_ plan: WalletEngine.SendPlan) -> some View {
@@ -383,6 +391,12 @@ struct SendComposer: View {
         let left = Swift.max(0, spendable - total)
         return VStack(alignment: .leading, spacing: 14) {
             VStack(spacing: 0) {
+                if let from = fromWallet {
+                    // Several wallets share one lock: say which one pays,
+                    // before anything else on the receipt.
+                    receiptRow("From", from.name, strong: true, accent: true)
+                    Rectangle().fill(Theme.line).frame(height: 1).padding(.vertical, 8)
+                }
                 receiptRow("To", plan.toSelf ? "Yourself" : (Contacts.name(for: plan.to) ?? "New address"), strong: true)
                 if !plan.toSelf {
                     Text(Contacts.grouped(plan.to))
@@ -413,10 +427,11 @@ struct SendComposer: View {
             HStack {
                 QuietButton(title: "Change") { self.plan = nil }.frame(width: 140)
                 Spacer()
-                PrimaryButton(title: purpose == .sealIt ? "Seal it on your phone" : "Send \(Amount.text(plan.amount, unit))") {
+                PrimaryButton(title: purpose == .sealIt ? "Seal it on your phone"
+                              : "Send \(Amount.text(plan.amount, unit))" + fromWallet.map { " from \($0.name)" }.orEmpty) {
                     onConfirm(plan)
                 }
-                .frame(width: 240)
+                .frame(width: fromWallet == nil ? 240 : 320)
             }
         }
     }
@@ -685,4 +700,8 @@ struct BookPicker: View {
         .padding(16)
         .frame(width: 340)
     }
+}
+
+private extension Optional where Wrapped == String {
+    var orEmpty: String { self ?? "" }
 }

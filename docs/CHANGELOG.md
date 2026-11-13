@@ -4,6 +4,10 @@ Plain-words notes on what changed in Zecky Lock it for Mac, newest first.
 
 ## Unreleased
 
+- Send, with more than one wallet behind the lock: the paying wallet is named
+  under the amount ("… available in Donations"), as the first line of the
+  receipt ("From", in gold) and on the button ("Send 0.01 ZEC from
+  Donations"). With one wallet nothing changes. (Tester feedback, 13 Nov.)
 - Go Max: during the first check of history the page no longer says "needs an
   update" weeks early. The node's own guess of the network height is only used
   once it is close to the newest block.

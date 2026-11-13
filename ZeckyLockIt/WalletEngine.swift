@@ -488,6 +488,10 @@ final class WalletEngine: ObservableObject {
     /// The wallet Receive and Send work on, as named on the key ring.
     var currentTag: WalletTag? { current.map(tag) }
 
+    /// More than the main wallet behind the lock: screens then name the
+    /// wallet they work on wherever money moves.
+    var hasSeveralWallets: Bool { !macWallets.isEmpty || !sealedWallets.isEmpty }
+
     func tag(_ id: AccountUUID) -> WalletTag {
         WalletTag(name: walletName(id), sealed: sealedWallets.contains { $0.id == id })
     }
