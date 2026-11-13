@@ -136,6 +136,10 @@ final class GoMaxNode: ObservableObject {
     /// Lock it went back to its server and the engine could not connect to
     /// it yet; it is tried again for a minute.
     @Published private(set) var unsettled = false
+    /// The node quit before it first answered: the page offers "Try again".
+    @Published private(set) var stoppedWhileStarting = false
+    /// "Try again" is waiting before it starts the node.
+    @Published private(set) var retrying = false
     private var looksWithoutPeers = 0
     private var lastBlocks = 0
     private var lastBlockChange = Date()
@@ -269,9 +273,23 @@ final class GoMaxNode: ObservableObject {
         await start()
     }
 
+    /// After "The node stopped while starting": stop what is left, give the
+    /// node from before half a minute to finish closing (it keeps its data
+    /// locked meanwhile, and this Lock it cannot see it), then start again.
+    func tryAgain() async {
+        guard !retrying else { return }
+        retrying = true
+        await stopPrograms()
+        try? await Task.sleep(nanoseconds: 30_000_000_000)
+        retrying = false
+        guard enabled else { return }
+        await start()
+    }
+
     /// Off: both programs stop, the data stays, Lock it goes back to its server.
     func switchOff() async {
         enabled = false
+        stoppedWhileStarting = false
         quietMinutes = nil
         needsChoice = false
         expiredChoice = nil
@@ -323,6 +341,7 @@ final class GoMaxNode: ObservableObject {
         needsChoice = false
         phase = .starting
         problem = nil
+        stoppedWhileStarting = false
         zainoRestarts = 0
         missedAnswers = 0
         do {
@@ -475,7 +494,10 @@ final class GoMaxNode: ObservableObject {
     private func waitForNode() async throws {
         for _ in 0..<90 {
             if await chainInfo() != nil { return }
-            if zakura?.isRunning != true { throw Failure(GoMaxWords.stoppedWhileStarting) }
+            if zakura?.isRunning != true {
+                stoppedWhileStarting = true
+                throw Failure(GoMaxWords.stoppedWhileStarting)
+            }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
         throw Failure("The node did not answer within 3 minutes of starting.")

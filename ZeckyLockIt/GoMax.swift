@@ -424,20 +424,11 @@ enum GoMaxWords {
     }
 
     /// The node moves on and the wallet does not hear of it.
-    /// The node quit before it first answered. The most likely cause is the
-    /// node from before still closing (it keeps its data locked up to a
-    /// minute after Lock it quits or crashes), so the steps start with waiting.
-    static let stoppedWhileStarting = """
-    The node stopped while starting. Your wallet and Zcash are not affected: Lock it reads the chain from its server meanwhile.
-
-    This often happens when Lock it is opened again right after it closed or crashed, while the node is still shutting down. To try again:
-    1. Wait one minute.
-    2. Switch Go Max off and on.
-    3. Still the same message? Quit Lock it, open it again, and switch Go Max on.
-    4. Still the same? Click "Remove node and its data…" and switch Go Max on. The node then starts over.
-
-    If it keeps happening, please send the node's log with your TestFlight feedback: How Go Max works › Show the node's logs.
-    """
+    /// The node quit before it first answered. Short and calm on the page,
+    /// with one button; the rest only when asked for.
+    static let stoppedWhileStarting = "The node stopped while starting. Your wallet is fine: Lock it reads from its server meanwhile."
+    static let tryingAgain = "Trying again in half a minute…"
+    static let stillNotWorking = "Quit Lock it and open it again. If the node still stops, click \"Remove node and its data…\" below and switch Go Max on: it starts over. To help us, send the node's log with your TestFlight feedback (How Go Max works › Show the node's logs)."
 
     static let walletQuiet = "Lock it is not getting new blocks from this node. It has connected again; if this line stays, switch Go Max off and on."
 

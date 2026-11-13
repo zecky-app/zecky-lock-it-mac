@@ -7,6 +7,7 @@ struct GoMaxPage: View {
     @State private var confirmRemove = false
     @State private var working = false
     @State private var showMore = false
+    @State private var showStillNot = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -31,7 +32,7 @@ struct GoMaxPage: View {
                         Text("No new blocks for \(quiet) minutes · check this Mac's internet connection")
                             .font(Theme.text(13)).foregroundStyle(Theme.gold)
                             .fixedSize(horizontal: false, vertical: true)
-                    } else {
+                    } else if !node.stoppedWhileStarting && !node.retrying {
                         Text(GoMaxWords.status(node.phase, node.info))
                             .font(Theme.text(13)).foregroundStyle(node.phase == .ready && node.info?.shownUpToDate != false ? Theme.green : Theme.text)
                             .fixedSize(horizontal: false, vertical: true)
@@ -72,7 +73,25 @@ struct GoMaxPage: View {
                         Text(GoMaxWords.storage(sizeOnDisk: info.sizeOnDisk, retention: node.retention))
                             .font(Theme.text(12)).foregroundStyle(Theme.muted)
                     }
-                    if let problem = node.problem {
+                    if node.stoppedWhileStarting || node.retrying {
+                        // One calm line, one button; the rest only when asked for.
+                        Text(node.retrying ? GoMaxWords.tryingAgain : GoMaxWords.stoppedWhileStarting)
+                            .font(Theme.text(13)).foregroundStyle(Theme.gold)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !node.retrying {
+                            HStack(spacing: 14) {
+                                SecondaryButton(title: "Try again") { Task { await node.tryAgain() } }
+                                    .frame(width: 150)
+                                Button(showStillNot ? "Less" : "Still not working?") { showStillNot.toggle() }
+                                    .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                            }
+                            if showStillNot {
+                                Text(GoMaxWords.stillNotWorking)
+                                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    } else if let problem = node.problem {
                         Text(problem).font(Theme.text(12)).foregroundStyle(Theme.red)
                             .fixedSize(horizontal: false, vertical: true)
                     }

@@ -946,11 +946,10 @@ final class ZeckyLockItTests: XCTestCase {
     }
 
     func testStoppedWhileStartingSaysWhatToDo() {
-        let text = GoMaxWords.stoppedWhileStarting
-        XCTAssertTrue(text.hasPrefix("The node stopped while starting."))
-        XCTAssertTrue(text.contains("Wait one minute"))
-        XCTAssertTrue(text.contains("Switch Go Max off and on"))
-        XCTAssertTrue(text.contains("Remove node and its data"))
-        XCTAssertTrue(text.contains("Show the node's logs"))
+        // One short, calm line on the page; the steps only behind "Still not working?".
+        XCTAssertLessThan(GoMaxWords.stoppedWhileStarting.count, 110)
+        XCTAssertTrue(GoMaxWords.stoppedWhileStarting.contains("Your wallet is fine"))
+        XCTAssertTrue(GoMaxWords.stillNotWorking.contains("Remove node and its data"))
+        XCTAssertTrue(GoMaxWords.stillNotWorking.contains("Show the node's logs"))
     }
 }
