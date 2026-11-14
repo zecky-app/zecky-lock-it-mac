@@ -70,6 +70,13 @@ struct ContentView: View {
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("com.apple.screenIsLocked"))) { _ in model.lockNow() }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in model.checkIdle() }
         .frame(minWidth: 680, minHeight: 760)
+        // Debug builds only: the attested-statement experiment answers
+        // challenges on this Mac when its developer switch is on.
+        .onAppear {
+            #if DEBUG
+            AttestedStatementMaker.shared.startIfEnabled()
+            #endif
+        }
         .font(Theme.text(14))
         // While the tests run inside the app, no wallet is started.
         .onAppear { if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil { model.launch() } }

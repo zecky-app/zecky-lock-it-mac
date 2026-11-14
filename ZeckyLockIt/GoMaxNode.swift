@@ -93,6 +93,12 @@ final class GoMaxNode: ObservableObject {
     // MARK: State
 
     private var zakura: Process?
+    /// True once this Lock it found Go Max's ports free and started its own
+    /// node on them; false again when the node stops. While the node runs,
+    /// nothing else can hold its port. Used by the attested-statement
+    /// experiment, which may not inspect processes inside the sandbox.
+    private var startedOnFreePorts = false
+    var ownNodeRunning: Bool { startedOnFreePorts && zakura?.isRunning == true }
     private var zaino: Process?
     /// The writing ends that tell each program Lock it is still there.
     private var lifelines: [Process: Pipe] = [:]
@@ -367,6 +373,7 @@ final class GoMaxNode: ObservableObject {
             retention = r
             try GoMaxConfig.zakura(dataDir: p.zakuraData.path, retention: r).write(to: p.zakuraConfig, atomically: true, encoding: .utf8)
             try GoMaxConfig.zaino(dataDir: p.zainoData.path).write(to: p.zainoConfig, atomically: true, encoding: .utf8)
+            startedOnFreePorts = true
             try startZakura(p)
             holdAwake(true)
             try await waitForNode()
@@ -524,6 +531,7 @@ final class GoMaxNode: ObservableObject {
         await stop(zakura)
         zaino = nil
         zakura = nil
+        startedOnFreePorts = false
         lifelines.removeAll()
         if let p = paths {
             try? FileManager.default.removeItem(at: p.zainoPid)
@@ -715,8 +723,10 @@ final class GoMaxNode: ObservableObject {
         do {
             await stop(zaino)
             await stop(zakura)
+            startedOnFreePorts = false
             try GoMaxConfig.zakura(dataDir: p.zakuraData.path, retention: GoMaxConfig.retentionAtTip)
                 .write(to: p.zakuraConfig, atomically: true, encoding: .utf8)
+            startedOnFreePorts = await LocalRPC.portOpen(GoMaxConfig.rpcPort) == false
             try startZakura(p)
             try await waitForNode()
             try startZaino(p)

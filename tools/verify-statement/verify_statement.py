@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify a Zecky attested Go Max statement (experiment, format v0).
+"""Verify a Zecky attested Go Max statement (experiment, formats v0 and v1).
 
 Checks, with no Zecky server involved:
   1. Apple's certificate chain: leaf <- intermediate <- the pinned Apple App
@@ -8,7 +8,9 @@ Checks, with no Zecky server involved:
      the app you expect (--app-id).
   3. The fingerprint: SHA-256 of the fingerprint text is the statement's hash,
      and Apple's nonce (attestation) or the key's signature (assertion)
-     covers exactly that hash.
+     covers exactly that hash. In v1 what is signed is the client data, which
+     holds the fingerprint hash and the challenge; with --challenge the
+     statement must answer exactly your challenge (so it is fresh).
   4. The key: the key ID is the SHA-256 of the attested public key.
 It reports the App Attest environment (development or production).
 
@@ -150,16 +152,43 @@ def verify_assertion(blob, client_hash, public, app_id):
 def main():
     parser = argparse.ArgumentParser(description="Verify a Zecky attested Go Max statement (v0).")
     parser.add_argument("statement", help="the statement file (.json)")
+    parser.add_argument("--challenge", default=None,
+                        help="the 64-hex challenge you sent (v1): the statement must answer exactly this")
     parser.add_argument("--app-id", required=True,
                         help='the app you expect, "<team id>.<bundle id>", e.g. ABCDE12345.app.zecky.lockit')
     args = parser.parse_args()
     data = json.loads(pathlib.Path(args.statement).read_text())
     print(f"Statement: {args.statement}")
     try:
-        check(data.get("format") == "zecky-attested-statement/v0", "format zecky-attested-statement/v0")
+        version = data.get("format")
+        check(version in ("zecky-attested-statement/v0", "zecky-attested-statement/v1"), f"format {version}")
         text = data["fingerprintJSON"].encode()
-        client_hash = hashlib.sha256(text).digest()
-        check(client_hash.hex() == data["fingerprintSHA256"], "fingerprint hash matches the fingerprint text")
+        fingerprint_hash = hashlib.sha256(text).digest()
+        check(fingerprint_hash.hex() == data["fingerprintSHA256"], "fingerprint hash matches the fingerprint text")
+        if version.endswith("/v0"):
+            if args.challenge:
+                raise Failure("a v0 statement carries no challenge")
+            client_hash = fingerprint_hash
+        else:
+            client = data["clientDataJSON"].encode()
+            client_data = json.loads(client)
+            canonical_client = json.dumps(client_data, sort_keys=True, separators=(",", ":")).encode()
+            check(canonical_client == client, "client data is canonical (sorted keys, no spaces)")
+            check(client_data.get("v") == 1 and client_data.get("purpose") == "zecky-go-max-state",
+                  "client data is for a Go Max state statement (v1)")
+            check(client_data.get("fingerprintSHA256") == data["fingerprintSHA256"],
+                  "client data names this fingerprint")
+            check(client_data.get("challenge") == data.get("challenge", ""), "client data carries the statement's challenge")
+            if args.challenge is not None:
+                check(client_data.get("challenge") == args.challenge.lower(), "it answers exactly your challenge (fresh)")
+            elif client_data.get("challenge"):
+                print("  --  a challenge is present; pass --challenge to check it was yours")
+            else:
+                print("  --  no challenge: nobody asked for this statement, so it may not be fresh")
+            check_check = data.get("nodeCheck", {})
+            if check_check.get("ownNode"):
+                print("  --  Lock it reported it checked the node was its own (not provable from outside)")
+            client_hash = hashlib.sha256(client).digest()
         canonical = json.dumps(json.loads(text), sort_keys=True, separators=(",", ":")).encode()
         check(canonical == text, "fingerprint text is canonical (sorted keys, no spaces)")
         fingerprint = json.loads(text)

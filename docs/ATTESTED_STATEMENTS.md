@@ -61,10 +61,14 @@ fingerprint at this height.
   team and bundle ID, not a build. Every build the team signs passes,
   including a modified one. Proving the code needs reproducible builds:
   anyone rebuilds the published source and gets the identical app.
-- **That the data came from Lock it's own node.** Lock it reads the node on
-  127.0.0.1:8232. Another program on that port could feed it data. Before
-  attesting, Lock it must check that the process on the port is its own
-  bundled `zakurad` (path and code signature). Not built yet.
+- **That the data came from Lock it's own node, as a fact anyone can check.**
+  Lock it reads the node on 127.0.0.1:8232. Before attesting it checks that
+  it found Go Max's ports free, started the `zakurad` inside Lock it on them,
+  that this node is still running, and that the `zakurad` file is validly
+  signed by the same team; only then does it make a statement, and it says so
+  in it. macOS does not let a sandboxed app inspect other processes, not even
+  its own children (tried: EPERM), so Lock it cannot look at the listening
+  process itself, and a verifier has to take the check on trust.
 - **A full chain state.** v0 does not cover the spent-note (nullifier) sets
   of each pool or the transparent coin set. No Zcash node offers a canonical
   fingerprint of those today. So v0 confirms a checkpoint ("this is the
@@ -114,9 +118,20 @@ Merkle root per set). With that, v1 statements could confirm a state a new
 node can actually start from, and nodes could compare state without
 trusting each other.
 
+## Fresh challenges (format v1)
+
+From v1 App Attest signs client data, not the fingerprint alone: sorted
+compact JSON of the fingerprint hash, a 32-byte challenge from whoever asks,
+the purpose `zecky-go-max-state` and the version. With the developer switch on,
+a debug build answers `GET /statement?challenge=<64 hex>` on 127.0.0.1:8139,
+this Mac only, one at a time; `verify_statement.py --challenge` checks the
+answer is for exactly that challenge. Tested on 14 Nov 2026: the answer to a
+fresh challenge passed (assertion, counter 4); the same statement against
+another challenge failed, and a challenge swapped inside the file broke the
+key's signature.
+
 ## Not done
 
-- Checking that the node on the port is Lock it's own `zakurad`.
-- A challenge-response protocol over Go Max's connection.
+- Answering challenges over Tor, so nodes can ask each other.
 - Production builds, the opt-in screen, and How Go Max works texts.
 - Reproducible builds.

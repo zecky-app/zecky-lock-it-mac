@@ -1007,4 +1007,16 @@ final class ZeckyLockItTests: XCTestCase {
         other["hash"] = "00"
         XCTAssertNil(StateFingerprint.make(block: block, treeState: other))
     }
+
+    func testStatementClientDataCarriesTheChallenge() throws {
+        let json = try StatementClientData.json(
+            fingerprintSHA256: "f17eb64d714918b65d3994aa22a60a24288bbd18e1ed8e6608e6883de5da9d5c",
+            challenge: String(repeating: "ab", count: 32))
+        // The same bytes as the verifier's Python check.
+        XCTAssertEqual(StateFingerprint.sha256Hex(json), "5ccba1dc81a5bd165c8add75720af17ce187277d810e1fc5d46f2e24a327db5b")
+        XCTAssertTrue(StatementClientData.validChallenge(""))
+        XCTAssertTrue(StatementClientData.validChallenge(String(repeating: "0f", count: 32)))
+        XCTAssertFalse(StatementClientData.validChallenge(String(repeating: "AB", count: 32)))
+        XCTAssertFalse(StatementClientData.validChallenge("abc"))
+    }
 }

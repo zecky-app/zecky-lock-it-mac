@@ -4,6 +4,7 @@ import CryptoKit
 import Foundation
 #if DEBUG
 import DeviceCheck
+import Network
 import Security
 #endif
 
@@ -57,11 +58,77 @@ enum StateFingerprint {
     }
 }
 
+/// What App Attest signs (v1): the fingerprint's hash together with a fresh
+/// challenge from whoever asks, so an old statement cannot be replayed as a
+/// new answer. Sorted, compact JSON; its SHA-256 is App Attest's client data.
+enum StatementClientData {
+    static let purpose = "zecky-go-max-state"
+
+    static func json(fingerprintSHA256: String, challenge: String) throws -> Data {
+        try StateFingerprint.canonicalJSON(["v": 1, "purpose": purpose,
+                                            "fingerprintSHA256": fingerprintSHA256, "challenge": challenge])
+    }
+
+    /// A challenge is 32 random bytes as 64 lowercase hex characters, or
+    /// empty for a statement nobody asked for.
+    static func validChallenge(_ text: String) -> Bool {
+        text.isEmpty || (text.count == 64 && text.allSatisfy { "0123456789abcdef".contains($0) })
+    }
+}
+
 #if DEBUG
-/// The developer switch and the App Attest part. Not compiled into TestFlight
-/// or App Store builds.
+/// Before Lock it attests anything, it checks that the node it reads is its
+/// own: this Lock it found Go Max's ports free, started the `zakurad` inside
+/// Lock it on them, and that node is still running (its keeper lives exactly
+/// as long as the node), so nothing else can hold the port. The `zakurad`
+/// file inside Lock it is checked to be validly signed by the same team as
+/// Lock it. macOS does not let a sandboxed app inspect other processes, not
+/// even its own children (seen 14 Nov 2026: EPERM), so this is as far as Lock
+/// it can check. Fails closed: when something cannot be checked, no statement.
+enum OwnNodeCheck {
+    struct Result { let executable: String }
+
+    @MainActor
+    static func run() -> (Result?, String) {
+        guard GoMaxNode.shared.ownNodeRunning else {
+            return (nil, "Go Max's node is not one this Lock it started on free ports.")
+        }
+        guard let url = GoMaxNode.helper("zakurad") else { return (nil, "This build has no node inside.") }
+        guard let team = ownTeam() else { return (nil, "Could not read Lock it's own signature.") }
+        guard fileSignedBy(team: team, url: url) else {
+            return (nil, "The node inside Lock it is not validly signed by the same team as Lock it.")
+        }
+        let relative = url.resolvingSymlinksInPath().path.components(separatedBy: "/").suffix(3).joined(separator: "/")
+        return (Result(executable: relative), "Lock it's own node")
+    }
+
+    static func ownTeam() -> String? {
+        var me: SecCode?
+        guard SecCodeCopySelf([], &me) == errSecSuccess, let me else { return nil }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(me, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let dict = info as? [String: Any] else { return nil }
+        return dict[kSecCodeInfoTeamIdentifier as String] as? String
+    }
+
+    /// The program file is intact and signed by this team.
+    static func fileSignedBy(team: String, url: URL) -> Bool {
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return false }
+        var requirement: SecRequirement?
+        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\"" as CFString
+        guard SecRequirementCreateWithString(text, [], &requirement) == errSecSuccess else { return false }
+        return SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures), requirement) == errSecSuccess
+    }
+}
+
+/// The developer switch, the App Attest part and the local endpoint. Not
+/// compiled into TestFlight or App Store builds.
 @MainActor
 final class AttestedStatementMaker: ObservableObject {
+    static let shared = AttestedStatementMaker()
     static let switchKey = "developer.attestedStatements"
     static var enabled: Bool {
         get { UserDefaults.standard.bool(forKey: switchKey) }
@@ -69,82 +136,100 @@ final class AttestedStatementMaker: ObservableObject {
     }
     private static let keyIdKey = "developer.appAttestKeyId"
     private static let attestationKey = "developer.appAttestAttestation"
+    /// The local endpoint: GET /statement?challenge=<64 hex> on this Mac only.
+    static let port: UInt16 = 8139
 
     @Published var status = ""
     @Published var working = false
+    @Published var serving = false
+    private var listener: NWListener?
+
+    struct Failure: Error { let message: String }
 
     var supported: Bool {
         if #available(macOS 27, *) { return DCAppAttestService.shared.isSupported }
         return false
     }
 
-    /// Reads the fingerprint 100 blocks below the node's tip, attests it (the
-    /// first time) or asserts it (after that), and asks where to save the
-    /// statement file. Reads only from the node; writes nothing to it.
-    func make() async {
-        working = true
-        defer { working = false }
+    /// One statement: the node is checked, the fingerprint read 100 blocks
+    /// below the tip, and App Attest signs it with the challenge. The first
+    /// statement of a key attests it (one contact with Apple); later ones are
+    /// assertions made on this Mac. Reads only from the node.
+    func statement(challenge: String) async throws -> Data {
         guard #available(macOS 27, *), DCAppAttestService.shared.isSupported else {
-            status = "App Attest is not supported on this Mac (macOS 27 or later, a normal Mac app)."
-            return
+            throw Failure(message: "App Attest is not supported on this Mac (macOS 27 or later, a normal Mac app).")
         }
+        guard StatementClientData.validChallenge(challenge) else {
+            throw Failure(message: "The challenge must be 64 lowercase hex characters (32 random bytes).")
+        }
+        let (own, why) = OwnNodeCheck.run()
+        guard let own else { throw Failure(message: "No statement: \(why)") }
         let port = GoMaxConfig.rpcPort
-        status = "Reading the node…"
         guard let info = await LocalRPC.call("getblockchaininfo", port: port) as? [String: Any],
               let tip = info["blocks"] as? Int,
               (info["verificationprogress"] as? Double ?? 0) >= 0.999 else {
-            status = "Go Max's node is not caught up (or not running). Try again when it is up to date."
-            return
+            throw Failure(message: "Go Max's node is not caught up (or not running). Try again when it is up to date.")
         }
         let height = tip - 100
         guard let block = await LocalRPC.call("getblock", params: [String(height), 1], port: port) as? [String: Any],
               let tree = await LocalRPC.call("z_gettreestate", params: [String(height)], port: port) as? [String: Any],
-              let fingerprint = StateFingerprint.make(block: block, treeState: tree),
-              let json = try? StateFingerprint.canonicalJSON(fingerprint) else {
-            status = "The node did not answer with everything the fingerprint needs."
-            return
+              let fingerprint = StateFingerprint.make(block: block, treeState: tree) else {
+            throw Failure(message: "The node did not answer with everything the fingerprint needs.")
         }
-        let digest = Data(SHA256.hash(data: json))
+        let json = try StateFingerprint.canonicalJSON(fingerprint)
+        let fingerprintHash = StateFingerprint.sha256Hex(json)
+        let clientData = try StatementClientData.json(fingerprintSHA256: fingerprintHash, challenge: challenge)
+        let digest = Data(SHA256.hash(data: clientData))
         let node = await LocalRPC.call("getinfo", port: port) as? [String: Any]
+        let service = DCAppAttestService.shared
+        var statement: [String: Any] = [
+            "format": "zecky-attested-statement/v1",
+            "fingerprint": fingerprint,
+            "fingerprintJSON": String(decoding: json, as: UTF8.self),
+            "fingerprintSHA256": fingerprintHash,
+            "clientDataJSON": String(decoding: clientData, as: UTF8.self),
+            "challenge": challenge,
+            "height": height,
+            "node": ["build": node?["build"] ?? "unknown", "subversion": node?["subversion"] ?? "unknown"],
+            "nodeCheck": ["ownNode": true, "startedByThisLockItOnFreePorts": true, "executable": own.executable,
+                          "executableSignedBySameTeamAsLockIt": true, "rpc": "127.0.0.1:\(port)"],
+            "lockIt": ["version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "",
+                       "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? ""],
+            "appId": Self.applicationIdentifier() ?? "unknown",
+            "createdAt": ISO8601DateFormatter().string(from: Date()),
+        ]
+        var keyId = UserDefaults.standard.string(forKey: Self.keyIdKey)
+        if keyId == nil {
+            keyId = try await service.generateKey()
+            UserDefaults.standard.set(keyId, forKey: Self.keyIdKey)
+        }
+        guard let keyId else { throw Failure(message: "No App Attest key.") }
+        if let saved = UserDefaults.standard.data(forKey: Self.attestationKey) {
+            let assertion = try await service.generateAssertion(keyId, clientDataHash: digest)
+            statement["kind"] = "assertion"
+            statement["assertion"] = assertion.base64EncodedString()
+            statement["keyAttestation"] = saved.base64EncodedString()
+        } else {
+            let attestation = try await service.attestKey(keyId, clientDataHash: digest)
+            UserDefaults.standard.set(attestation, forKey: Self.attestationKey)
+            statement["kind"] = "attestation"
+            statement["attestation"] = attestation.base64EncodedString()
+        }
+        statement["keyId"] = keyId
+        return try JSONSerialization.data(withJSONObject: statement, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])
+    }
+
+    /// The button: a statement nobody asked for (empty challenge), saved
+    /// where the developer chooses.
+    func make() async {
+        working = true
+        defer { working = false }
+        status = "Working…"
         do {
-            let service = DCAppAttestService.shared
-            var keyId = UserDefaults.standard.string(forKey: Self.keyIdKey)
-            var statement: [String: Any] = [
-                "format": "zecky-attested-statement/v0",
-                "fingerprint": fingerprint,
-                "fingerprintJSON": String(decoding: json, as: UTF8.self),
-                "fingerprintSHA256": StateFingerprint.sha256Hex(json),
-                "height": height,
-                "node": ["build": node?["build"] ?? "unknown", "subversion": node?["subversion"] ?? "unknown"],
-                "lockIt": ["version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "",
-                           "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? ""],
-                "appId": Self.applicationIdentifier() ?? "unknown",
-                "createdAt": ISO8601DateFormatter().string(from: Date()),
-            ]
-            if keyId == nil {
-                status = "Making an App Attest key…"
-                keyId = try await service.generateKey()
-                UserDefaults.standard.set(keyId, forKey: Self.keyIdKey)
-            }
-            guard let keyId else { return }
-            if let saved = UserDefaults.standard.data(forKey: Self.attestationKey) {
-                // The key is attested already: this statement is an assertion
-                // by that key, carrying the key's attestation for the verifier.
-                status = "Signing with the attested key…"
-                let assertion = try await service.generateAssertion(keyId, clientDataHash: digest)
-                statement["kind"] = "assertion"
-                statement["assertion"] = assertion.base64EncodedString()
-                statement["keyAttestation"] = saved.base64EncodedString()
-            } else {
-                status = "Asking Apple to attest the key (once per install)…"
-                let attestation = try await service.attestKey(keyId, clientDataHash: digest)
-                UserDefaults.standard.set(attestation, forKey: Self.attestationKey)
-                statement["kind"] = "attestation"
-                statement["attestation"] = attestation.base64EncodedString()
-            }
-            statement["keyId"] = keyId
-            let file = try JSONSerialization.data(withJSONObject: statement, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])
-            save(file, name: "zecky-statement-\(height).json")
+            let data = try await statement(challenge: "")
+            save(data, name: "zecky-statement.json")
+        } catch let failure as Failure {
+            status = failure.message
         } catch {
             status = "App Attest said: \(error.localizedDescription) (\((error as NSError).domain) \((error as NSError).code))"
         }
@@ -163,6 +248,82 @@ final class AttestedStatementMaker: ObservableObject {
         }
     }
 
+    // MARK: The local endpoint
+
+    func startIfEnabled() { if Self.enabled { startServing() } }
+
+    /// Listens on 127.0.0.1 only: nothing outside this Mac can ask.
+    func startServing() {
+        guard listener == nil, let port = NWEndpoint.Port(rawValue: Self.port) else { return }
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: port)
+        parameters.allowLocalEndpointReuse = false
+        guard let listener = try? NWListener(using: parameters) else { status = "Could not listen on port \(Self.port)."; return }
+        listener.newConnectionHandler = { connection in
+            Task { @MainActor in AttestedStatementMaker.shared.serve(connection) }
+        }
+        listener.stateUpdateHandler = { state in
+            Task { @MainActor in
+                switch state {
+                case .ready: AttestedStatementMaker.shared.serving = true
+                case .failed, .cancelled: AttestedStatementMaker.shared.serving = false
+                default: break
+                }
+            }
+        }
+        listener.start(queue: .main)
+        self.listener = listener
+    }
+
+    func stopServing() {
+        listener?.cancel()
+        listener = nil
+        serving = false
+    }
+
+    private func serve(_ connection: NWConnection) {
+        connection.start(queue: .main)
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, _, _ in
+            let request = String(decoding: data ?? Data(), as: UTF8.self)
+            Task { @MainActor in
+                let (code, body) = await AttestedStatementMaker.shared.answer(request)
+                let reason = code == 200 ? "OK" : (code == 400 ? "Bad Request" : "Service Unavailable")
+                let head = "HTTP/1.1 \(code) \(reason)\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+                connection.send(content: Data(head.utf8) + body, completion: .contentProcessed { _ in connection.cancel() })
+            }
+        }
+    }
+
+    /// GET /statement?challenge=<64 hex>. One at a time.
+    func answer(_ request: String) async -> (Int, Data) {
+        func fail(_ code: Int, _ message: String) -> (Int, Data) {
+            (code, (try? JSONSerialization.data(withJSONObject: ["error": message])) ?? Data())
+        }
+        guard let line = request.split(separator: "\r\n").first,
+              line.hasPrefix("GET /statement?challenge="),
+              let target = line.split(separator: " ").dropFirst().first else {
+            return fail(400, "Use GET /statement?challenge=<64 hex characters>")
+        }
+        let challenge = String(target.dropFirst("/statement?challenge=".count))
+        guard challenge.count == 64, StatementClientData.validChallenge(challenge) else {
+            return fail(400, "The challenge must be 64 lowercase hex characters (32 random bytes).")
+        }
+        guard !working else { return fail(503, "Busy with another statement; try again in a moment.") }
+        working = true
+        defer { working = false }
+        do {
+            let data = try await statement(challenge: challenge)
+            status = "Answered a challenge."
+            return (200, data)
+        } catch let failure as Failure {
+            status = failure.message
+            return fail(503, failure.message)
+        } catch {
+            status = "App Attest said: \(error.localizedDescription)"
+            return fail(503, "App Attest: \(error.localizedDescription)")
+        }
+    }
+
     /// "TEAMID.app.zecky.lockit", from this app's own signature.
     static func applicationIdentifier() -> String? {
         guard let task = SecTaskCreateFromSelf(nil) else { return nil }
@@ -173,7 +334,7 @@ final class AttestedStatementMaker: ObservableObject {
 /// Settings › About › Technical details, debug builds only: the developer
 /// switch for attested statements.
 struct DeveloperAttestRow: View {
-    @StateObject private var maker = AttestedStatementMaker()
+    @ObservedObject private var maker = AttestedStatementMaker.shared
     @State private var on = AttestedStatementMaker.enabled
 
     var body: some View {
@@ -181,9 +342,14 @@ struct DeveloperAttestRow: View {
             Toggle("Attested statements (developer)", isOn: $on)
                 .toggleStyle(.switch).controlSize(.mini)
                 .font(Theme.text(12)).foregroundStyle(Theme.muted)
-                .onChange(of: on) { value in AttestedStatementMaker.enabled = value }
+                .onChange(of: on) { value in
+                    AttestedStatementMaker.enabled = value
+                    if value { maker.startServing() } else { maker.stopServing() }
+                }
             if on {
                 Text(maker.supported ? "App Attest: supported on this Mac" : "App Attest: not supported on this Mac")
+                    .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                Text(maker.serving ? "Answering challenges on 127.0.0.1:\(String(AttestedStatementMaker.port)) (this Mac only)" : "Not answering challenges")
                     .font(Theme.text(11)).foregroundStyle(Theme.muted)
                 Button(maker.working ? "Working…" : "Make an attested statement…") { Task { await maker.make() } }
                     .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
@@ -195,6 +361,7 @@ struct DeveloperAttestRow: View {
             }
         }
         .padding(.top, 6)
+        .onAppear { maker.startIfEnabled() }
     }
 }
 #endif

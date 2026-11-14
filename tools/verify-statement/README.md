@@ -8,6 +8,26 @@ pip install cryptography
 python3 verify_statement.py statement.json --app-id <team id>.app.zecky.lockit
 ```
 
+## Asking a node for a fresh statement (v1)
+
+A Lock it debug build with the developer switch on answers challenges on its
+own Mac only (127.0.0.1:8139). Send 32 random bytes and check the answer is
+for exactly those:
+
+```
+c=$(openssl rand -hex 32)
+curl -s "http://127.0.0.1:8139/statement?challenge=$c" > statement.json
+python3 verify_statement.py statement.json --app-id <team id>.app.zecky.lockit --challenge $c
+```
+
+Before answering, Lock it checks that the node it reads is its own: it
+found Go Max's ports free, started the `zakurad` inside Lock it on them, the
+node is still running, and that `zakurad` file is validly signed by the same
+team as Lock it. It says so in the statement. macOS does not let a sandboxed
+app inspect other processes, so Lock it cannot look at the listening process
+itself. A verifier cannot prove the check from outside; it is as trustworthy
+as the app that made it.
+
 ## What it checks
 
 1. Apple's certificate chain: leaf, intermediate, and the pinned Apple App
