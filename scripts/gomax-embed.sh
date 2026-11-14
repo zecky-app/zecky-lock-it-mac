@@ -15,7 +15,7 @@ SRC="$ROOT/GoMax/bin"
 PINS="$ROOT/GoMax/bin.sha256"
 DEST="${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}"
 
-rm -f "$DEST/zakurad" "$DEST/zainod"
+rm -f "$DEST/zakurad" "$DEST/zainod" "$DEST/arti"
 
 if [ ! -x "$SRC/zakurad" ] || [ ! -x "$SRC/zainod" ]; then
   echo "warning: Go Max: no node programs in GoMax/bin, so this build has no node inside (see scripts/gomax-helpers.sh)."
@@ -25,7 +25,15 @@ fi
 ( cd "$SRC" && /usr/bin/shasum -a 256 -c "$PINS" >/dev/null ) || {
   echo "error: Go Max: the programs in GoMax/bin do not match GoMax/bin.sha256. Refused." >&2; exit 1; }
 
-for f in zakurad zainod; do
+PROGRAMS="zakurad zainod"
+# Arti (Tor) is for the attested-statement experiment: debug builds only,
+# never in an archive for TestFlight or the App Store.
+if [ "${CONFIGURATION:-}" = "Debug" ] && [ -x "$SRC/arti" ]; then
+  [ -f "$ROOT/GoMax/arti.sha256" ] && ( cd "$SRC" && /usr/bin/shasum -a 256 -c "$ROOT/GoMax/arti.sha256" >/dev/null ) || {
+    echo "error: Go Max: GoMax/bin/arti does not match GoMax/arti.sha256. Refused." >&2; exit 1; }
+  PROGRAMS="$PROGRAMS arti"
+fi
+for f in $PROGRAMS; do
   /bin/cp "$SRC/$f" "$DEST/$f"
   # Its own identifier under Lock it's, so App Store Connect can tell the
   # two programs apart.
@@ -34,4 +42,4 @@ for f in zakurad zainod; do
     --entitlements "$ROOT/GoMax/Helpers.entitlements" \
     --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" "$DEST/$f"
 done
-echo "Go Max: zakurad and zainod are in the app."
+echo "Go Max: $PROGRAMS in the app."

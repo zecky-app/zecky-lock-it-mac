@@ -139,7 +139,7 @@ final class AttestedStatementMaker: ObservableObject {
     /// The local endpoint: GET /statement?challenge=<64 hex> on this Mac only.
     static let port: UInt16 = 8139
 
-    @Published var status = ""
+    @Published var status = "" { didSet { if !status.isEmpty, status != "Working…" { AttestLog.write(status) } } }
     @Published var working = false
     @Published var serving = false
     private var listener: NWListener?
@@ -297,7 +297,8 @@ final class AttestedStatementMaker: ObservableObject {
     /// GET /statement?challenge=<64 hex>. One at a time.
     func answer(_ request: String) async -> (Int, Data) {
         func fail(_ code: Int, _ message: String) -> (Int, Data) {
-            (code, (try? JSONSerialization.data(withJSONObject: ["error": message])) ?? Data())
+            AttestLog.write("Refused a request (\(code)): \(message)")
+            return (code, (try? JSONSerialization.data(withJSONObject: ["error": message])) ?? Data())
         }
         guard let line = request.split(separator: "\r\n").first,
               line.hasPrefix("GET /statement?challenge="),
@@ -331,11 +332,145 @@ final class AttestedStatementMaker: ObservableObject {
     }
 }
 
+/// attest.log beside the node's logs (GoMax/logs), so "Show the logs" in
+/// Technical details and "Show the node's logs" in Go Max open one folder
+/// with zakurad, zainod, arti and attest. Holds no wallet data.
+@MainActor
+enum AttestLog {
+    static var folder: URL? { GoMaxNode.folder?.appendingPathComponent("logs", isDirectory: true) }
+
+    static func write(_ line: String) {
+        guard let folder else { return }
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let text = "\(ISO8601DateFormatter().string(from: Date())) \(line)\n"
+        guard let handle = try? GoMaxNode.logHandle(folder.appendingPathComponent("attest.log")) else { return }
+        handle.write(Data(text.utf8))
+        try? handle.close()
+    }
+}
+
+/// The challenge endpoint as a Tor onion service, so other nodes and wallets
+/// can ask from anywhere without learning this Mac's address. Arti (the Tor
+/// Project's Tor in Rust, inside debug builds only) runs in Lock it's sandbox
+/// and forwards the onion's port 80 to 127.0.0.1:8139. The onion key is made
+/// on the first start and kept in Lock it's own folder, so the address stays
+/// the same across restarts.
+@MainActor
+final class AttestOnion: ObservableObject {
+    static let shared = AttestOnion()
+    static let nickname = "zecky-attest"
+    /// Arti's own SOCKS port on this Mac, for testing the onion from Terminal.
+    static let socksPort = 9150
+
+    @Published var state = "Off"
+    @Published var address: String?
+    private var process: Process?
+    private var lifeline: Pipe?
+
+    var available: Bool { GoMaxNode.helper("arti") != nil }
+
+    private var root: URL? { GoMaxNode.folder?.appendingPathComponent("arti", isDirectory: true) }
+
+    private func config(_ root: URL) -> String {
+        """
+        # Written by Lock it (debug builds, attested-statement experiment).
+        [storage]
+        cache_dir = "\(root.appendingPathComponent("cache").path)"
+        state_dir = "\(root.appendingPathComponent("state").path)"
+
+        [logging]
+        console = "info"
+
+        [onion_services."\(Self.nickname)"]
+        proxy_ports = [["80", "127.0.0.1:\(AttestedStatementMaker.port)"]]
+        """
+    }
+
+    func start() {
+        guard process == nil else { return }
+        guard let arti = GoMaxNode.helper("arti"), let root else { state = "No Arti in this build."; return }
+        do {
+            let fm = FileManager.default
+            for dir in ["cache", "state"] {
+                try fm.createDirectory(at: root.appendingPathComponent(dir), withIntermediateDirectories: true)
+            }
+            guard let logs = AttestLog.folder else { state = "No log folder."; return }
+            try fm.createDirectory(at: logs, withIntermediateDirectories: true)
+            let configURL = root.appendingPathComponent("arti.toml")
+            try config(root).write(to: configURL, atomically: true, encoding: .utf8)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", GoMaxNode.keeper, arti.path, "proxy", "-c", configURL.path]
+            // Arti checks folder permissions all the way up; inside the
+            // sandbox it cannot see every parent folder, so that check is off.
+            process.environment = ProcessInfo.processInfo.environment.merging(["ARTI_FS_DISABLE_PERMISSION_CHECKS": "1"]) { $1 }
+            let log = try GoMaxNode.logHandle(logs.appendingPathComponent("arti.log"))
+            let lifeline = Pipe()
+            process.standardOutput = log
+            process.standardError = log
+            process.standardInput = lifeline
+            process.qualityOfService = .utility
+            try process.run()
+            self.process = process
+            self.lifeline = lifeline
+            state = "Starting Tor…"
+            Task { await waitForAddress(arti: arti, configURL: configURL) }
+        } catch {
+            state = "Could not start Arti: \(error.localizedDescription)"
+        }
+    }
+
+    func stop() {
+        process?.interrupt()
+        process = nil
+        lifeline = nil
+        address = nil
+        state = "Off"
+    }
+
+    /// The onion address, from Arti's own keystore (it is made on the first
+    /// start). Asked again for a minute while Tor bootstraps.
+    private func waitForAddress(arti: URL, configURL: URL) async {
+        for _ in 0..<30 {
+            for command in ["onion-address", "onion-name"] {
+                if let out = await Self.run(arti, ["-c", configURL.path, "hss", "--nickname", Self.nickname, command]),
+                   let onion = out.split(whereSeparator: \.isWhitespace).map(String.init).first(where: { $0.hasSuffix(".onion") }) {
+                    address = onion
+                    state = "Answering over Tor"
+                    return
+                }
+            }
+            guard process?.isRunning == true else { state = "Arti stopped. See arti.log (Show the logs, below)."; return }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        state = "Tor started, but no onion address yet. See arti.log (Show the logs, below)."
+    }
+
+    private static func run(_ program: URL, _ arguments: [String]) async -> String? {
+        await withCheckedContinuation { continuation in
+            let process = Process()
+            process.executableURL = program
+            process.arguments = arguments
+            process.environment = ProcessInfo.processInfo.environment.merging(["ARTI_FS_DISABLE_PERMISSION_CHECKS": "1"]) { $1 }
+            let out = Pipe()
+            process.standardOutput = out
+            process.standardError = Pipe()
+            process.terminationHandler = { _ in
+                let data = out.fileHandleForReading.readDataToEndOfFile()
+                continuation.resume(returning: String(decoding: data, as: UTF8.self))
+            }
+            do { try process.run() } catch { continuation.resume(returning: nil) }
+        }
+    }
+}
+
 /// Settings › About › Technical details, debug builds only: the developer
 /// switch for attested statements.
 struct DeveloperAttestRow: View {
     @ObservedObject private var maker = AttestedStatementMaker.shared
     @State private var on = AttestedStatementMaker.enabled
+    @ObservedObject private var onion = AttestOnion.shared
+    @State private var tor = UserDefaults.standard.bool(forKey: "developer.attestOverTor")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -344,13 +479,31 @@ struct DeveloperAttestRow: View {
                 .font(Theme.text(12)).foregroundStyle(Theme.muted)
                 .onChange(of: on) { value in
                     AttestedStatementMaker.enabled = value
-                    if value { maker.startServing() } else { maker.stopServing() }
+                    if value { maker.startServing() } else { maker.stopServing(); onion.stop(); tor = false }
                 }
             if on {
                 Text(maker.supported ? "App Attest: supported on this Mac" : "App Attest: not supported on this Mac")
                     .font(Theme.text(11)).foregroundStyle(Theme.muted)
                 Text(maker.serving ? "Answering challenges on 127.0.0.1:\(String(AttestedStatementMaker.port)) (this Mac only)" : "Not answering challenges")
                     .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                if onion.available {
+                    Toggle("Answer over Tor too", isOn: $tor)
+                        .toggleStyle(.switch).controlSize(.mini)
+                        .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                        .onChange(of: tor) { value in
+                            UserDefaults.standard.set(value, forKey: "developer.attestOverTor")
+                            if value { onion.start() } else { onion.stop() }
+                        }
+                    if tor {
+                        Text(onion.state).font(Theme.text(11)).foregroundStyle(Theme.muted)
+                        if let address = onion.address {
+                            Text(address).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text)
+                                .textSelection(.enabled)
+                        }
+                    }
+                } else {
+                    Text("No Arti in this build, so no Tor").font(Theme.text(11)).foregroundStyle(Theme.muted)
+                }
                 Button(maker.working ? "Working…" : "Make an attested statement…") { Task { await maker.make() } }
                     .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
                     .disabled(maker.working)
@@ -358,10 +511,17 @@ struct DeveloperAttestRow: View {
                     Text(maker.status).font(Theme.text(11)).foregroundStyle(Theme.muted)
                         .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 }
+                if let logs = AttestLog.folder, FileManager.default.fileExists(atPath: logs.path) {
+                    Button("Show the logs") { NSWorkspace.shared.activateFileViewerSelecting([logs]) }
+                        .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                }
             }
         }
         .padding(.top, 6)
-        .onAppear { maker.startIfEnabled() }
+        .onAppear {
+            maker.startIfEnabled()
+            if on && tor { onion.start() }
+        }
     }
 }
 #endif

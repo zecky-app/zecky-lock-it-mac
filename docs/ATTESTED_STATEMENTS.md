@@ -130,8 +130,27 @@ fresh challenge passed (assertion, counter 4); the same statement against
 another challenge failed, and a challenge swapped inside the file broke the
 key's signature.
 
+## Over Tor
+
+With "Answer over Tor too" on (Technical details, debug builds only), Lock
+it starts Arti 2.8.0 (the Tor Project's Tor in Rust) inside its sandbox and
+publishes an onion service whose port 80 forwards to the challenge endpoint
+on 127.0.0.1:8139. The onion key is made on the first start and kept in
+Lock it's own folder, so the address stays the same. Arti is put into Debug
+builds only, after a check against its pinned SHA-256 (`GoMax/arti.sha256`);
+`scripts/gomax-helpers.sh` refuses any helper that needs libraries outside
+macOS, because the sandbox blocks loading them (seen: a Homebrew liblzma;
+Arti is now built with `LZMA_API_STATIC=1`). Arti's log is GoMax/logs/arti.log
+and every statement or refused request is a line in GoMax/logs/attest.log.
+
+Tested on 14 Nov 2026, from the same Mac through Lock it's own Arti (SOCKS
+port 9150): a fresh challenge sent to the onion address was answered with a
+v1 assertion (height 3,572,357, counter 5) that passed
+`verify_statement.py --challenge`; the same statement against another
+challenge failed. Not yet tested: asking from another computer.
+
 ## Not done
 
-- Answering challenges over Tor, so nodes can ask each other.
+- Asking over Tor from another computer, and from one Go Max node to another.
 - Production builds, the opt-in screen, and How Go Max works texts.
 - Reproducible builds.

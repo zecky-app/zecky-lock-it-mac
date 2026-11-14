@@ -61,7 +61,7 @@ final class GoMaxNode: ObservableObject {
     static var isAvailable: Bool { helper("zakurad") != nil && helper("zainod") != nil }
 
     /// Lock it's own folder (the sandbox container), left out of Time Machine.
-    private static var folder: URL? {
+    static var folder: URL? {
         try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             .appendingPathComponent("GoMax", isDirectory: true)
     }
@@ -439,7 +439,7 @@ final class GoMaxNode: ObservableObject {
     }
 
     /// The log, appended to; started afresh once it passes 20 MB.
-    private static func logHandle(_ url: URL) throws -> FileHandle {
+    static func logHandle(_ url: URL) throws -> FileHandle {
         let fm = FileManager.default
         if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: nil) }
         let handle = try FileHandle(forWritingTo: url)
@@ -477,7 +477,7 @@ final class GoMaxNode: ObservableObject {
     /// and keep the ports (seen 12 Nov), and the next Lock it has no way to
     /// stop it: the sandbox lets a run of Lock it signal only what it
     /// started itself.
-    private static let keeper = """
+    static let keeper = """
     exec 3<&0
     "$0" "$@" </dev/null 3<&- &
     c=$!
