@@ -147,10 +147,28 @@ Tested on 14 Nov 2026, from the same Mac through Lock it's own Arti (SOCKS
 port 9150): a fresh challenge sent to the onion address was answered with a
 v1 assertion (height 3,572,357, counter 5) that passed
 `verify_statement.py --challenge`; the same statement against another
-challenge failed. Not yet tested: asking from another computer.
+challenge failed.
+
+Lock it can also ask: with Tor answering, Technical details takes another
+node's onion address, sends it a fresh challenge through Lock it's own Arti
+(the onion name is resolved by Tor, not on this Mac), checks the answer is a
+v1 statement for exactly that challenge, and saves it in GoMax/logs for
+`verify_statement.py`. `tools/verify-statement/ask_over_tor.sh` does the same
+from any computer with Tor. Tested on 14 Nov 2026 with Lock it asking its own
+onion address through Tor: answered at height 3,572,764 (counter 6) and the
+saved file passed `verify_statement.py --challenge` with the challenge from
+attest.log; another challenge failed. Not yet tested: asking from another
+computer, or between two Go Max nodes.
+
+Seen: Apple's certificate for the key is valid for three days only (here
+13–16 Nov). Assertions after that still verify with the key, but a verifier
+that also wants the certificate valid "now" must keep an attestation it
+checked in time, or the node makes a new key. To decide before a quorum.
 
 ## Not done
 
-- Asking over Tor from another computer, and from one Go Max node to another.
+- Asking over Tor from another computer, and between two Go Max nodes.
+- Full verification inside Lock it (today only the challenge is checked
+  there; the rest is the Python verifier).
 - Production builds, the opt-in screen, and How Go Max works texts.
 - Reproducible builds.

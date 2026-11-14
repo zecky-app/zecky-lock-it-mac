@@ -464,12 +464,127 @@ final class AttestOnion: ObservableObject {
     }
 }
 
+/// Asks another Go Max node for a statement over Tor, through Lock it's own
+/// Arti (SOCKS5 on 127.0.0.1:9150), with a fresh challenge. Lock it checks
+/// only that the answer is a v1 statement for exactly this challenge; the
+/// full check (Apple's chain, the app, the key's signature) is
+/// tools/verify-statement, run on the saved file.
+@MainActor
+final class AttestAsker: ObservableObject {
+    static let shared = AttestAsker()
+    @Published var status = "" { didSet { if !status.isEmpty, !status.hasPrefix("Asking ") { AttestLog.write(status) } } }
+    @Published var working = false
+
+    func ask(_ input: String) async {
+        let onion = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            .replacingOccurrences(of: "http://", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard onion.hasSuffix(".onion"), onion.count == 62 else { status = "That is not a v3 onion address (56 characters, then .onion)."; return }
+        guard AttestOnion.shared.address != nil else { status = "Switch on \"Answer over Tor too\" first: asking goes through the same Tor."; return }
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { status = "No random bytes."; return }
+        let challenge = bytes.map { String(format: "%02x", $0) }.joined()
+        working = true
+        status = "Asking \(onion.prefix(12))… over Tor"
+        AttestLog.write("Asking \(onion) with challenge \(challenge)")
+        defer { working = false }
+        do {
+            let body = try await Self.get(host: onion, path: "/statement?challenge=\(challenge)")
+            guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+                throw AskFailure("The answer is not JSON (\(body.count) bytes).")
+            }
+            if let error = json["error"] as? String { throw AskFailure("The node said: \(error)") }
+            guard json["format"] as? String == "zecky-attested-statement/v1",
+                  json["challenge"] as? String == challenge,
+                  let client = json["clientDataJSON"] as? String,
+                  client.contains("\"challenge\":\"\(challenge)\"") else {
+                throw AskFailure("The answer is not a v1 statement for this challenge.")
+            }
+            let height = (json["height"] as? Int).map(String.init) ?? "?"
+            let name = "asked-\(onion.prefix(8))-\(Int(Date().timeIntervalSince1970)).json"
+            if let folder = AttestLog.folder { try body.write(to: folder.appendingPathComponent(name)) }
+            status = "Answered for your challenge, height \(height). Saved \(name) in the logs folder; check it with verify_statement.py --challenge \(challenge)"
+        } catch let failure as AskFailure {
+            status = failure.message
+        } catch {
+            status = "Could not reach it over Tor: \(error.localizedDescription)"
+        }
+    }
+
+    struct AskFailure: Error { let message: String; init(_ m: String) { message = m } }
+
+    /// A plain HTTP GET to host:80 through SOCKS5 (the onion name is resolved
+    /// by Tor, never on this Mac). Reads until the node closes.
+    private static func get(host: String, path: String) async throws -> Data {
+        let connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: UInt16(AttestOnion.socksPort))!, using: .tcp)
+        defer { connection.cancel() }
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+            // Handlers run one after another on the queue; clearing the
+            // handler makes sure the continuation is resumed once.
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready: connection.stateUpdateHandler = nil; c.resume()
+                case .failed(let e), .waiting(let e): connection.stateUpdateHandler = nil; c.resume(throwing: e)
+                default: break
+                }
+            }
+            connection.start(queue: .global(qos: .utility))
+        }
+        try await send(connection, Data([5, 1, 0]))
+        guard try await receive(connection, 2) == Data([5, 0]) else { throw AskFailure("Tor's SOCKS port refused the greeting.") }
+        let name = Data(host.utf8)
+        try await send(connection, Data([5, 1, 0, 3, UInt8(name.count)]) + name + Data([0, 80]))
+        let reply = [UInt8](try await receive(connection, 4))
+        guard reply.count == 4, reply[1] == 0 else {
+            throw AskFailure("Tor could not reach that onion (SOCKS code \(reply.count > 1 ? Int(reply[1]) : -1)); it may be off or still publishing.")
+        }
+        let rest = reply[3] == 1 ? 6 : reply[3] == 4 ? 18 : Int(try await receive(connection, 1).first ?? 0) + 2
+        _ = try await receive(connection, rest)
+        try await send(connection, Data("GET \(path) HTTP/1.0\r\nHost: \(host)\r\nConnection: close\r\n\r\n".utf8))
+        var response = Data()
+        while response.count < 2_000_000 {
+            let chunk = try await receiveSome(connection)
+            if chunk.isEmpty { break }
+            response += chunk
+        }
+        guard let split = response.range(of: Data("\r\n\r\n".utf8)) else { throw AskFailure("No HTTP answer.") }
+        return Data(response[split.upperBound...])
+    }
+
+    private static func send(_ connection: NWConnection, _ data: Data) async throws {
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+            connection.send(content: data, completion: .contentProcessed { error in
+                if let error { c.resume(throwing: error) } else { c.resume() }
+            })
+        }
+    }
+
+    private static func receive(_ connection: NWConnection, _ count: Int) async throws -> Data {
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Data, Error>) in
+            connection.receive(minimumIncompleteLength: count, maximumLength: count) { data, _, _, error in
+                if let error { c.resume(throwing: error) } else { c.resume(returning: data ?? Data()) }
+            }
+        }
+    }
+
+    private static func receiveSome(_ connection: NWConnection) async throws -> Data {
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Data, Error>) in
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { data, _, isComplete, error in
+                if let data, !data.isEmpty { c.resume(returning: data) }
+                else if let error, !isComplete { c.resume(throwing: error) }
+                else { c.resume(returning: Data()) }
+            }
+        }
+    }
+}
+
 /// Settings › About › Technical details, debug builds only: the developer
 /// switch for attested statements.
 struct DeveloperAttestRow: View {
     @ObservedObject private var maker = AttestedStatementMaker.shared
     @State private var on = AttestedStatementMaker.enabled
     @ObservedObject private var onion = AttestOnion.shared
+    @ObservedObject private var asker = AttestAsker.shared
+    @State private var otherNode = ""
     @State private var tor = UserDefaults.standard.bool(forKey: "developer.attestOverTor")
 
     var body: some View {
@@ -499,6 +614,17 @@ struct DeveloperAttestRow: View {
                         if let address = onion.address {
                             Text(address).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text)
                                 .textSelection(.enabled)
+                            HStack(spacing: 8) {
+                                TextField("Another node's .onion address", text: $otherNode)
+                                    .textFieldStyle(.roundedBorder).font(.system(size: 11, design: .monospaced))
+                                Button(asker.working ? "Asking…" : "Ask over Tor") { Task { await asker.ask(otherNode) } }
+                                    .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                                    .disabled(asker.working || otherNode.isEmpty)
+                            }
+                            if !asker.status.isEmpty {
+                                Text(asker.status).font(Theme.text(11)).foregroundStyle(Theme.muted)
+                                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                            }
                         }
                     }
                 } else {

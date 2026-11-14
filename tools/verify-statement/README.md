@@ -20,6 +20,18 @@ curl -s "http://127.0.0.1:8139/statement?challenge=$c" > statement.json
 python3 verify_statement.py statement.json --app-id <team id>.app.zecky.lockit --challenge $c
 ```
 
+With "Answer over Tor too" on as well, the same endpoint is an onion
+service (the address is shown under the switch). From any computer with Tor
+running, one command makes a challenge, asks, and verifies:
+
+```
+./ask_over_tor.sh <address>.onion <team id>.app.zecky.lockit [socks port]
+```
+
+The SOCKS port is 9150 for Tor Browser (keep it open) and 9050 for the
+`tor` service. Publishing a new onion can take a minute, so the script tries
+three times.
+
 Before answering, Lock it checks that the node it reads is its own: it
 found Go Max's ports free, started the `zakurad` inside Lock it on them, the
 node is still running, and that `zakurad` file is validly signed by the same
