@@ -967,8 +967,9 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(GoMaxSupport.networkHeight(nodeBlocks: 470_000, nodeEstimate: 3_629_500,
                                                   verificationProgress: 0.01, walletNetwork: 0), 470_000)
         // Close to the newest block, the node's estimate counts again (the stop itself).
+        let atStop = Date(timeIntervalSince1970: 1_796_500_000) // 5 Dec 2026
         XCTAssertEqual(GoMaxSupport.networkHeight(nodeBlocks: 3_643_300, nodeEstimate: 3_643_320,
-                                                  verificationProgress: 0.9999, walletNetwork: 3_643_300), 3_643_320)
+                                                  verificationProgress: 0.9999, walletNetwork: 3_643_300, now: atStop), 3_643_320)
     }
 
     // MARK: Attested statements (experiment)
@@ -1018,5 +1019,24 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertTrue(StatementClientData.validChallenge(String(repeating: "0f", count: 32)))
         XCTAssertFalse(StatementClientData.validChallenge(String(repeating: "AB", count: 32)))
         XCTAssertFalse(StatementClientData.validChallenge("abc"))
+    }
+
+    func testHeightsTheClockDoesNotAllowAreNotTrusted() {
+        // 14 Nov 2026, 13:10 UTC: the real tip was 3,572,285.
+        let now = Date(timeIntervalSince1970: 1_794_661_800)
+        let limit = GoMaxSupport.plausibleMax(at: now)
+        XCTAssertGreaterThan(limit, 3_572_285)
+        XCTAssertLessThan(limit, 3_590_000)
+        // A remembered guess about 26,000 blocks too high is dropped; a real one is kept.
+        XCTAssertEqual(GoMaxSupport.trustedRemembered(height: 3_598_400, seenAt: now, now: now), 0)
+        XCTAssertEqual(GoMaxSupport.trustedRemembered(height: 3_572_285, seenAt: now, now: now), 3_572_285)
+        // Dropped, it shows no early notice.
+        XCTAssertEqual(GoMaxSupport.state(reported: GoMaxSupport.trustedRemembered(height: 3_598_400, seenAt: now, now: now),
+                                          seenAt: now, now: now, stopHeight: 3_643_309), .fine)
+        // A caught-up node's estimate above the clock is capped; its verified blocks are not.
+        XCTAssertEqual(GoMaxSupport.networkHeight(nodeBlocks: 3_572_285, nodeEstimate: 3_640_000,
+                                                  verificationProgress: 1, walletNetwork: 3_572_285, now: now), limit)
+        XCTAssertEqual(GoMaxSupport.networkHeight(nodeBlocks: 3_643_400, nodeEstimate: 0,
+                                                  verificationProgress: 1, walletNetwork: 0, now: now), 3_643_400)
     }
 }

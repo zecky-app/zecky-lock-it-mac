@@ -184,7 +184,11 @@ final class GoMaxNode: ObservableObject {
     /// so the stop is recognised when the node can no longer say it itself.
     private func rememberHeight() {
         let live = liveHeight
-        guard live > UserDefaults.standard.integer(forKey: Self.lastHeightKey) else { return }
+        let remembered = UserDefaults.standard.integer(forKey: Self.lastHeightKey)
+        let seen = UserDefaults.standard.double(forKey: Self.lastHeightTimeKey)
+        // A height remembered from a guess (older builds) is replaced, not kept.
+        let trusted = GoMaxSupport.trustedRemembered(height: remembered, seenAt: seen > 0 ? Date(timeIntervalSince1970: seen) : nil, now: Date())
+        guard live <= GoMaxSupport.plausibleMax(at: Date()), live > trusted else { return }
         UserDefaults.standard.set(live, forKey: Self.lastHeightKey)
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastHeightTimeKey)
     }
@@ -196,8 +200,10 @@ final class GoMaxNode: ObservableObject {
         let live = liveHeight
         if live > 0 { return GoMaxSupport.state(reported: live, seenAt: nil, now: now) }
         let seen = UserDefaults.standard.double(forKey: Self.lastHeightTimeKey)
-        return GoMaxSupport.state(reported: UserDefaults.standard.integer(forKey: Self.lastHeightKey),
-                                  seenAt: seen > 0 ? Date(timeIntervalSince1970: seen) : nil, now: now)
+        let seenAt = seen > 0 ? Date(timeIntervalSince1970: seen) : nil
+        let remembered = GoMaxSupport.trustedRemembered(height: UserDefaults.standard.integer(forKey: Self.lastHeightKey),
+                                                        seenAt: seenAt, now: now)
+        return GoMaxSupport.state(reported: remembered, seenAt: seenAt, now: now)
     }
 
     /// Whether Lock it reads the chain from the node on this Mac right now.

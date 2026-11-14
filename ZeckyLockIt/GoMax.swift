@@ -206,9 +206,29 @@ enum GoMaxSupport {
     /// 13 Nov 2026: about 60,000 blocks, which showed "needs an update before
     /// Nov 17" three weeks early and could have stopped Go Max mid-sync).
     /// Then the node's verified blocks and the wallet's server count.
-    static func networkHeight(nodeBlocks: Int, nodeEstimate: Int, verificationProgress: Double, walletNetwork: Int) -> Int {
-        let node = verificationProgress >= 0.999 ? max(nodeBlocks, nodeEstimate) : nodeBlocks
+    static func networkHeight(nodeBlocks: Int, nodeEstimate: Int, verificationProgress: Double, walletNetwork: Int,
+                              now: Date = Date()) -> Int {
+        // An estimate is never trusted above what the clock allows.
+        let estimate = min(nodeEstimate, plausibleMax(at: now))
+        let node = verificationProgress >= 0.999 ? max(nodeBlocks, estimate) : nodeBlocks
         return max(node, walletNetwork)
+    }
+
+    /// The highest network height the clock allows at a moment: NU7's block
+    /// plus one every 25 seconds (Birthday.estimatedTip), with room for
+    /// blocks coming faster than that. Verified blocks are never capped by it;
+    /// guesses and remembered heights are.
+    static let plausibleMargin = 5_000
+    static func plausibleMax(at date: Date) -> Int { Birthday.estimatedTip(now: date) + plausibleMargin }
+
+    /// A height remembered across restarts, if the clock allows it when it was
+    /// seen; 0 otherwise. One remembered from a node's guess during its first
+    /// sync (Lock it 0.2.0 build 5 and earlier) can be far too high, and kept
+    /// showing "needs an update" weeks early whenever nothing was answering
+    /// yet, such as right after a start (seen 14 Nov 2026: "before Nov 27").
+    static func trustedRemembered(height: Int, seenAt: Date?, now: Date) -> Int {
+        guard height > 0 else { return 0 }
+        return height <= plausibleMax(at: seenAt ?? now) ? height : 0
     }
 
     /// "Dec 5", in this Mac's time zone.
