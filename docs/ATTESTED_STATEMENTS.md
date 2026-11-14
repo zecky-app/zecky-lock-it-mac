@@ -157,8 +157,27 @@ v1 statement for exactly that challenge, and saves it in GoMax/logs for
 from any computer with Tor. Tested on 14 Nov 2026 with Lock it asking its own
 onion address through Tor: answered at height 3,572,764 (counter 6) and the
 saved file passed `verify_statement.py --challenge` with the challenge from
-attest.log; another challenge failed. Not yet tested: asking from another
-computer, or between two Go Max nodes.
+attest.log; another challenge failed.
+
+Tested on 14 Nov 2026 from another computer: an Umbrel (Raspberry Pi 5) on
+the same home network asked the Mac's onion address through its own Tor
+(umbrelOS's Tor proxy, with a throwaway curl container), with a challenge
+made on the Umbrel. Answered at height 3,572,944 (counter 7); the file passed
+`verify_statement.py --challenge`, and failed against an earlier challenge.
+Not yet tested: between two Go Max nodes.
+
+Two nodes agree: the Umbrel's own Zakura node (Rock it, not pruned, tip
+3,573,051 at the time) was read at the statement's height 3,572,944 with the
+same read-only calls (`getblock` verbosity 1, `z_gettreestate`), and the
+fingerprint v0 built from its answers is byte for byte the one in the Go Max
+statement (SHA-256 `ea606cbd…f153`). Separate machines and separate syncs,
+but the same Zakura version (1.8.5) and the fingerprint built by the same
+rules, so this shows agreement, not independence of software.
+
+A quorum compares at one height, not at each node's tip: the one asking
+should name it (for example `&height=H`), a node ahead of H answers as long as
+it still keeps that block (Go Max keeps about four weeks), and a node behind
+H says it is not there yet rather than answering for another height.
 
 Seen: Apple's certificate for the key is valid for three days only (here
 13–16 Nov). Assertions after that still verify with the key, but a verifier
@@ -167,7 +186,8 @@ checked in time, or the node makes a new key. To decide before a quorum.
 
 ## Not done
 
-- Asking over Tor from another computer, and between two Go Max nodes.
+- Asking between two Go Max nodes.
+- Asking for a named height (`&height=H`); today the node picks its tip − 100.
 - Full verification inside Lock it (today only the challenge is checked
   there; the rest is the Python verifier).
 - Production builds, the opt-in screen, and How Go Max works texts.
