@@ -120,6 +120,10 @@ struct GoMaxPage: View {
             }
             .card(padding: 16)
 
+            #if DEBUG
+            if node.hasData { GoMaxAttestCard() }
+            #endif
+
             if node.hasData {
                 Button { confirmRemove = true } label: {
                     Text("Remove node and its data…")

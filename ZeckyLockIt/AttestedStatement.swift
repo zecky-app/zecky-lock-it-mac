@@ -250,7 +250,11 @@ final class AttestedStatementMaker: ObservableObject {
 
     // MARK: The local endpoint
 
-    func startIfEnabled() { if Self.enabled { startServing() } }
+    func startIfEnabled() {
+        guard Self.enabled else { return }
+        startServing()
+        if AttestOnion.wanted { AttestOnion.shared.start() }
+    }
 
     /// Listens on 127.0.0.1 only: nothing outside this Mac can ask.
     func startServing() {
@@ -368,6 +372,12 @@ final class AttestOnion: ObservableObject {
     private var lifeline: Pipe?
 
     var available: Bool { GoMaxNode.helper("arti") != nil }
+
+    /// "Also over Tor", remembered across starts.
+    static var wanted: Bool {
+        get { UserDefaults.standard.bool(forKey: "developer.attestOverTor") }
+        set { UserDefaults.standard.set(newValue, forKey: "developer.attestOverTor") }
+    }
 
     private var root: URL? { GoMaxNode.folder?.appendingPathComponent("arti", isDirectory: true) }
 
@@ -577,76 +587,138 @@ final class AttestAsker: ObservableObject {
     }
 }
 
-/// Settings › About › Technical details, debug builds only: the developer
-/// switch for attested statements.
-struct DeveloperAttestRow: View {
+/// Settings › Go Max, debug builds only: the attested-statement experiment
+/// as its own card under the node, since every statement comes from it.
+struct GoMaxAttestCard: View {
     @ObservedObject private var maker = AttestedStatementMaker.shared
-    @State private var on = AttestedStatementMaker.enabled
     @ObservedObject private var onion = AttestOnion.shared
     @ObservedObject private var asker = AttestAsker.shared
+    @State private var on = AttestedStatementMaker.enabled
+    @State private var tor = AttestOnion.wanted
     @State private var otherNode = ""
-    @State private var tor = UserDefaults.standard.bool(forKey: "developer.attestOverTor")
+    @State private var copied = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Toggle("Attested statements (developer)", isOn: $on)
-                .toggleStyle(.switch).controlSize(.mini)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Label("Attested statements", systemImage: "checkmark.seal")
+                    .font(Theme.text(13, weight: .semibold)).foregroundStyle(Theme.text)
+                    .labelStyle(GoldIconLabelStyle())
+                Spacer()
+                Text("DEVELOPER")
+                    .font(Theme.text(9, weight: .semibold)).tracking(1.2).foregroundStyle(Theme.gold)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .overlay(Capsule().stroke(Theme.gold.opacity(0.5)))
+            }
+            Text("This node confirms the chain at a height, signed with Apple's App Attest, to whoever sends it a fresh challenge. An experiment in debug builds only.")
                 .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            settingRow("Answer challenges", detail: answerDetail, good: on && maker.serving && maker.supported, isOn: $on)
                 .onChange(of: on) { value in
                     AttestedStatementMaker.enabled = value
-                    if value { maker.startServing() } else { maker.stopServing(); onion.stop(); tor = false }
+                    if value { maker.startServing() } else { maker.stopServing(); onion.stop(); tor = false; AttestOnion.wanted = false }
                 }
-            if on {
-                Text(maker.supported ? "App Attest: supported on this Mac" : "App Attest: not supported on this Mac")
-                    .font(Theme.text(11)).foregroundStyle(Theme.muted)
-                Text(maker.serving ? "Answering challenges on 127.0.0.1:\(String(AttestedStatementMaker.port)) (this Mac only)" : "Not answering challenges")
-                    .font(Theme.text(11)).foregroundStyle(Theme.muted)
-                if onion.available {
-                    Toggle("Answer over Tor too", isOn: $tor)
-                        .toggleStyle(.switch).controlSize(.mini)
-                        .font(Theme.text(11)).foregroundStyle(Theme.muted)
-                        .onChange(of: tor) { value in
-                            UserDefaults.standard.set(value, forKey: "developer.attestOverTor")
-                            if value { onion.start() } else { onion.stop() }
-                        }
-                    if tor {
-                        Text(onion.state).font(Theme.text(11)).foregroundStyle(Theme.muted)
-                        if let address = onion.address {
-                            Text(address).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text)
-                                .textSelection(.enabled)
-                            HStack(spacing: 8) {
-                                TextField("Another node's .onion address", text: $otherNode)
-                                    .textFieldStyle(.roundedBorder).font(.system(size: 11, design: .monospaced))
-                                Button(asker.working ? "Asking…" : "Ask over Tor") { Task { await asker.ask(otherNode) } }
-                                    .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
-                                    .disabled(asker.working || otherNode.isEmpty)
-                            }
-                            if !asker.status.isEmpty {
-                                Text(asker.status).font(Theme.text(11)).foregroundStyle(Theme.muted)
-                                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                            }
-                        }
+
+            if onion.available {
+                settingRow("Also over Tor", detail: torDetail, good: onion.address != nil, isOn: $tor)
+                    .disabled(!on).opacity(on ? 1 : 0.45)
+                    .onChange(of: tor) { value in
+                        AttestOnion.wanted = value
+                        if value { onion.start() } else { onion.stop() }
                     }
-                } else {
-                    Text("No Arti in this build, so no Tor").font(Theme.text(11)).foregroundStyle(Theme.muted)
-                }
-                Button(maker.working ? "Working…" : "Make an attested statement…") { Task { await maker.make() } }
-                    .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
-                    .disabled(maker.working)
-                if !maker.status.isEmpty {
-                    Text(maker.status).font(Theme.text(11)).foregroundStyle(Theme.muted)
-                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                }
-                if let logs = AttestLog.folder, FileManager.default.fileExists(atPath: logs.path) {
-                    Button("Show the logs") { NSWorkspace.shared.activateFileViewerSelecting([logs]) }
+                if tor, let address = onion.address {
+                    HStack(spacing: 10) {
+                        Text(address)
+                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text)
+                            .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                        Spacer(minLength: 4)
+                        Button(copied ? "Copied" : "Copy") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(address, forType: .string)
+                            copied = true
+                            Task { try? await Task.sleep(nanoseconds: 1_500_000_000); copied = false }
+                        }
                         .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 9)
+                    .background(Theme.ink, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.line))
+                }
+            }
+
+            if on, tor, onion.address != nil {
+                Divider().overlay(Theme.line)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("ASK ANOTHER NODE")
+                        .font(Theme.text(10, weight: .semibold)).tracking(1.4).foregroundStyle(Theme.gold)
+                    HStack(spacing: 10) {
+                        TextField("its .onion address", text: $otherNode)
+                            .textFieldStyle(.plain).font(.system(size: 11, design: .monospaced))
+                            .padding(.horizontal, 10).padding(.vertical, 8)
+                            .background(Theme.ink, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.line))
+                            .onSubmit { ask() }
+                        Button(asker.working ? "Asking…" : "Ask over Tor") { ask() }
+                            .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                            .disabled(asker.working || otherNode.isEmpty)
+                            .opacity(otherNode.isEmpty ? 0.5 : 1)
+                    }
+                    if !asker.status.isEmpty {
+                        Text(asker.status).font(Theme.text(11)).foregroundStyle(Theme.muted)
+                            .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    }
+                }
+            }
+
+            if on {
+                Divider().overlay(Theme.line)
+                HStack(spacing: 18) {
+                    Button(maker.working ? "Working…" : "Make a statement…") { Task { await maker.make() } }
+                        .disabled(maker.working)
+                    if let logs = AttestLog.folder {
+                        Button("Show the logs") { NSWorkspace.shared.activateFileViewerSelecting([logs]) }
+                    }
+                    Spacer()
+                }
+                .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                if !maker.status.isEmpty {
+                    Text("Last: \(maker.status)").font(Theme.text(11)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 }
             }
         }
-        .padding(.top, 6)
-        .onAppear {
-            maker.startIfEnabled()
-            if on && tor { onion.start() }
+        .card(padding: 16)
+    }
+
+    private var answerDetail: String {
+        guard on else { return "Off. Nothing answers." }
+        guard maker.supported else { return "App Attest is not available on this Mac." }
+        return maker.serving ? "On this Mac only (127.0.0.1:\(String(AttestedStatementMaker.port)))" : "Starting…"
+    }
+
+    private var torDetail: String {
+        guard on else { return "Needs Answer challenges." }
+        return tor ? onion.state : "Off. Other nodes cannot reach this one."
+    }
+
+    private func ask() {
+        guard !asker.working, !otherNode.isEmpty else { return }
+        Task { await asker.ask(otherNode) }
+    }
+
+    private func settingRow(_ title: String, detail: String, good: Bool, isOn: Binding<Bool>) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.text)
+                HStack(spacing: 6) {
+                    Circle().fill(good ? Theme.green : Theme.muted.opacity(0.6)).frame(width: 6, height: 6)
+                    Text(detail).font(Theme.text(11)).foregroundStyle(good ? Theme.green : Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer()
+            Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small).tint(Theme.gold)
         }
     }
 }
