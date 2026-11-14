@@ -20,5 +20,12 @@
 	<array>
 		<string>$(AppIdentifierPrefix)app.zecky.lockit</string>
 	</array>
+	<!-- Attested statements (experimental, off by default): App Attest in
+	     its production environment, and saving a statement file where the
+	     person chooses. -->
+	<key>com.apple.developer.devicecheck.appattest-environment</key>
+	<string>production</string>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
 </dict>
 </plist>

@@ -4,6 +4,7 @@ import SwiftUI
 /// Settings › Go Max: one switch, two lines, and the fine print tucked away.
 struct GoMaxPage: View {
     @ObservedObject var node: GoMaxNode
+    @ObservedObject private var attest = AttestedStatementMaker.shared
     @State private var confirmRemove = false
     @State private var working = false
     @State private var showMore = false
@@ -120,9 +121,9 @@ struct GoMaxPage: View {
             }
             .card(padding: 16)
 
-            #if DEBUG
-            if node.hasData { GoMaxAttestCard() }
-            #endif
+            if node.hasData {
+                AdvancedBox(featureOn: attest.serving) { GoMaxAttestCard() }
+            }
 
             if node.hasData {
                 Button { confirmRemove = true } label: {
@@ -197,6 +198,7 @@ struct GoMaxPage: View {
         "Every block since the Canopy upgrade (2020) is checked here, proofs and all. Older blocks are accepted on checkpoints built into the node, as every Zcash node does.",
         "The node keeps about a month of recent blocks in full, and what every node needs to check new ones. Its files live in Lock it's own folder, left out of Time Machine.",
         "It runs while Lock it is open. While it is checking or catching up, the Mac does not fall asleep on its own; up to date, it sleeps as usual.",
+        "Genuine node (experimental, off unless you switch it on): wallets and other nodes that ask over Tor can check that this node is genuine Lock it on a real Mac, signed with Apple's App Attest. Each answer also carries a fingerprint of the chain, which may later help new nodes start faster; nothing uses that yet. Only public chain data is shared. Switching it on contacts Apple once from this Mac's internet address to set up a key; the key is the same in every answer, so answers can be linked to each other.",
         "Each version of the node follows the chain up to a fixed block, about six weeks after it comes out; this one up to block \(GoMaxSupport.stopHeightText). Lock it says so two weeks ahead. At that block the node stops and Lock it asks you: a public server, or wait for the update.",
     ]
 }
@@ -402,5 +404,58 @@ struct GoMaxSwitch: View {
         }
         .frame(width: Self.knob, height: Self.knob)
         .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+    }
+}
+
+/// Settings › Go Max: everything beyond the switch, in one thin red box
+/// marked Advanced · Experimental, closed until opened. Closed, it still
+/// shows what is inside and whether it is on.
+struct AdvancedBox<Content: View>: View {
+    /// Whether the feature inside is switched on, shown while closed.
+    var featureOn: Bool
+    @ViewBuilder var content: () -> Content
+    @State private var open = false
+    @State private var hover = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button { withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) { open.toggle() } } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.red)
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                        .frame(width: 12)
+                    Text("ADVANCED · EXPERIMENTAL")
+                        .font(Theme.text(11, weight: .bold)).tracking(1.4).foregroundStyle(Theme.red)
+                    Spacer(minLength: 12)
+                    if !open {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.seal").font(.system(size: 13)).foregroundStyle(Theme.gold)
+                            Text("Genuine node").font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.text)
+                            Circle().fill(featureOn ? Theme.green : Theme.muted.opacity(0.6)).frame(width: 6, height: 6)
+                            Text(featureOn ? "On" : "Off").font(Theme.text(12)).foregroundStyle(featureOn ? Theme.green : Theme.muted)
+                        }
+                        .transition(.opacity)
+                    }
+                    Text(open ? "Hide" : "Show")
+                        .font(Theme.text(12, weight: .medium)).foregroundStyle(hover ? Theme.text : Theme.muted)
+                        .padding(.leading, 6)
+                }
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hover = $0 }
+            if open {
+                content()
+                    .padding(.top, 12)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(12)
+        .background(Theme.red.opacity(hover && !open ? 0.04 : 0), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.red.opacity(0.55), lineWidth: 1))
+        .clipped()
+        .animation(.easeOut(duration: 0.15), value: hover)
     }
 }

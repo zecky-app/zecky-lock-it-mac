@@ -2,11 +2,9 @@ import AppKit
 import SwiftUI
 import CryptoKit
 import Foundation
-#if DEBUG
 import DeviceCheck
 import Network
 import Security
-#endif
 
 /// Experiment (14 Nov 2026): an attested Go Max state confirmation.
 /// A caught-up Go Max node on this Mac says "at height H the chain state
@@ -135,7 +133,6 @@ struct RequestLimit {
     }
 }
 
-#if DEBUG
 /// Before Lock it attests anything, it checks that the node it reads is its
 /// own: this Lock it found Go Max's ports free, started the `zakurad` inside
 /// Lock it on them, and that node is still running (its keeper lives exactly
@@ -172,14 +169,21 @@ enum OwnNodeCheck {
         return dict[kSecCodeInfoTeamIdentifier as String] as? String
     }
 
-    /// The program file is intact and signed by this team.
+    /// The program file is intact, signed through Apple's chain, and carries
+    /// this team's identifier. Not a check on the certificate's OU: TestFlight
+    /// and App Store builds are signed again by Apple, whose certificate
+    /// names no team; the team identifier in the signature stays.
     static func fileSignedBy(team: String, url: URL) -> Bool {
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return false }
         var requirement: SecRequirement?
-        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\"" as CFString
-        guard SecRequirementCreateWithString(text, [], &requirement) == errSecSuccess else { return false }
-        return SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures), requirement) == errSecSuccess
+        guard SecRequirementCreateWithString("anchor apple generic" as CFString, [], &requirement) == errSecSuccess,
+              SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures), requirement) == errSecSuccess
+        else { return false }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let dict = info as? [String: Any] else { return false }
+        return dict[kSecCodeInfoTeamIdentifier as String] as? String == team
     }
 }
 
@@ -336,7 +340,10 @@ final class AttestedStatementMaker: ObservableObject {
     // MARK: The local endpoint
 
     func startIfEnabled() {
-        guard Self.enabled else { return }
+        // Switched on before the explanation existed (debug builds): off
+        // again until it has been read once.
+        if Self.enabled && !AttestSupport.agreed { Self.enabled = false; AttestOnion.wanted = false }
+        guard Self.enabled, AttestSupport.unavailableReason == nil else { return }
         startServing()
         if AttestOnion.wanted { AttestOnion.shared.start() }
     }
@@ -740,6 +747,67 @@ final class AttestAsker: ObservableObject {
     }
 }
 
+/// Whether this Mac can make attested statements, and the one-time "yes"
+/// to the explanation shown before the first switch-on.
+enum AttestSupport {
+    static var agreed: Bool {
+        get { UserDefaults.standard.bool(forKey: "experimental.attest.agreed") }
+        set { UserDefaults.standard.set(newValue, forKey: "experimental.attest.agreed") }
+    }
+
+    /// nil when App Attest works here; otherwise why not, in two lines.
+    static var unavailableReason: (title: String, detail: String)? {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        guard v.majorVersion >= 27 else {
+            let version = v.patchVersion > 0 ? "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)" : "\(v.majorVersion).\(v.minorVersion)"
+            return ("Needs macOS 27 or later.",
+                    "This Mac has macOS \(version), so it cannot make attested statements.")
+        }
+        if #available(macOS 27, *), DCAppAttestService.shared.isSupported { return nil }
+        return ("App Attest is not available on this Mac.",
+                "Attested statements need Apple's App Attest, which this Mac does not offer (for example with reduced security settings, or in a virtual machine).")
+    }
+}
+
+/// Shown once, before the first switch-on: what is shared, with whom, and
+/// that nothing uses it yet.
+struct AttestConsentSheet: View {
+    let onAgree: () -> Void
+    let onCancel: () -> Void
+
+    private let points = [
+        "Only public chain data is shared. Nothing about your wallet.",
+        "Once, Apple is contacted from this Mac's own internet address to set up a key. After that, answers go over Tor.",
+        "Every statement carries the same key, so the statements this Mac makes can be linked to each other.",
+        "You can switch it off at any time.",
+    ]
+
+    var body: some View {
+        SheetScaffold(title: "Genuine node", subtitle: "Experimental. Off unless you switch it on.",
+                      showsClose: false, width: 520, height: 470, onClose: onCancel) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Wallets and other nodes that ask can check that this node is genuine Lock it on a real Mac: Apple's App Attest, the security chip in this Mac, signs its answers. Each answer also carries a fingerprint of the chain, which may later help new nodes start faster.")
+                    .font(Theme.text(13)).foregroundStyle(Theme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(points, id: \.self) { point in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Text("•").foregroundStyle(Theme.gold)
+                            Text(point).font(Theme.text(12)).foregroundStyle(Theme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+                HStack(spacing: 12) {
+                    SecondaryButton(title: "Not now", action: onCancel)
+                    PrimaryButton(title: "Switch on", action: onAgree)
+                }
+            }
+        }
+    }
+}
+
 /// Settings › Go Max, debug builds only: the attested-statement experiment
 /// as its own card under the node, since every statement comes from it.
 struct GoMaxAttestCard: View {
@@ -751,25 +819,55 @@ struct GoMaxAttestCard: View {
     @State private var otherNode = ""
     @State private var askHeight = ""
     @State private var copied = false
+    @State private var showConsent = false
+    @State private var showWhat = false
+
+    static let explanation: [(title: String, text: String)] = [
+        ("Why", "Go Max is open source, so anyone can build a changed copy that looks the same from outside: one that hides a payment, gives a wrong chain, or logs which wallets ask about what. A wallet connecting to a node cannot tell the difference. With this on, your node can prove it is genuine Lock it on a real Mac: Apple's App Attest, the security chip in this Mac, signs its answers. A changed copy cannot. Each question carries a fresh random code, so an old answer cannot be passed off as new, and anyone can check an answer with the free, open-source verifier in Lock it's code, without asking Zecky."),
+        ("Where it leads", "First your iPhone checking it talks to your own genuine node, then a verified mark other wallets can adopt. While this is tested it is off unless you switch it on; once proven, Go Max will do it by itself."),
+        ("What it proves, and what not", "That the answer comes from the Zecky team's app on a real Mac with its security on. Not yet which version or which source code: that needs builds anyone can reproduce, which is still to come."),
+        ("The switches", "Answer checks: this Mac answers such questions. Also over Tor: wallets and nodes can reach it through a private onion address, without learning where this Mac is. Check another node: you ask a node yourself."),
+        ("What it does not do", "Nothing about your wallet is shared, and your node and your Zcash are not changed."),
+    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Label("Attested statements", systemImage: "checkmark.seal")
-                    .font(Theme.text(13, weight: .semibold)).foregroundStyle(Theme.text)
-                    .labelStyle(GoldIconLabelStyle())
-                Spacer()
-                Text("DEVELOPER")
-                    .font(Theme.text(9, weight: .semibold)).tracking(1.2).foregroundStyle(Theme.gold)
-                    .padding(.horizontal, 7).padding(.vertical, 3)
-                    .overlay(Capsule().stroke(Theme.gold.opacity(0.5)))
-            }
-            Text("This node confirms the chain at a height, signed with Apple's App Attest, to whoever sends it a fresh challenge. An experiment in debug builds only.")
+            Label("Genuine node", systemImage: "checkmark.seal")
+                .font(Theme.text(13, weight: .semibold)).foregroundStyle(Theme.text)
+                .labelStyle(GoldIconLabelStyle())
+            Text("Lets wallets and other nodes check that this node is genuine Lock it on a real Mac. Off unless you switch it on.")
                 .font(Theme.text(12)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
+            Button(showWhat ? "Less" : "What is this?") { showWhat.toggle() }
+                .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+            if showWhat {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Self.explanation, id: \.title) { part in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(part.title).font(Theme.text(12, weight: .semibold)).foregroundStyle(Theme.text)
+                            Text(part.text).font(Theme.text(12)).foregroundStyle(Theme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+            if let unavailable = AttestSupport.unavailableReason {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(unavailable.title).font(Theme.text(12, weight: .semibold)).foregroundStyle(Theme.gold)
+                    Text(unavailable.detail).font(Theme.text(12)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
 
-            settingRow("Answer challenges", detail: answerDetail, good: on && maker.serving && maker.supported, isOn: $on)
+            settingRow("Answer checks", detail: answerDetail, good: on && maker.serving && maker.supported, isOn: $on)
+                .disabled(AttestSupport.unavailableReason != nil).opacity(AttestSupport.unavailableReason == nil ? 1 : 0.45)
                 .onChange(of: on) { value in
+                    if value, !AttestSupport.agreed {
+                        // First time: the explanation decides, not the switch.
+                        on = false
+                        showConsent = true
+                        return
+                    }
                     AttestedStatementMaker.enabled = value
                     if value { maker.startServing() } else { maker.stopServing(); onion.stop(); tor = false; AttestOnion.wanted = false }
                 }
@@ -804,7 +902,7 @@ struct GoMaxAttestCard: View {
             if on, tor, onion.address != nil {
                 Divider().overlay(Theme.line)
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("ASK ANOTHER NODE")
+                    Text("CHECK ANOTHER NODE")
                         .font(Theme.text(10, weight: .semibold)).tracking(1.4).foregroundStyle(Theme.gold)
                     HStack(spacing: 10) {
                         TextField("its .onion address", text: $otherNode)
@@ -821,7 +919,7 @@ struct GoMaxAttestCard: View {
                             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.line))
                             .help("Optional. Empty: the node answers for its tip minus 100.")
                             .onSubmit { ask() }
-                        Button(asker.working ? "Asking…" : "Ask over Tor") { ask() }
+                        Button(asker.working ? "Checking…" : "Check over Tor") { ask() }
                             .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
                             .disabled(asker.working || otherNode.isEmpty)
                             .opacity(otherNode.isEmpty ? 0.5 : 1)
@@ -835,6 +933,13 @@ struct GoMaxAttestCard: View {
 
             if on {
                 Divider().overlay(Theme.line)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("CHAIN CONFIRMATIONS · EXPERIMENTAL")
+                        .font(Theme.text(10, weight: .semibold)).tracking(1.4).foregroundStyle(Theme.gold)
+                    Text("Each answer also carries a fingerprint of the chain at a settled block. Later, new Go Max nodes could start much faster from a point many genuine nodes confirm. Nothing uses this yet.")
+                        .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 HStack(spacing: 18) {
                     Button(maker.working ? "Working…" : "Make a statement…") { Task { await maker.make() } }
                         .disabled(maker.working)
@@ -851,17 +956,26 @@ struct GoMaxAttestCard: View {
             }
         }
         .card(padding: 16)
+        .sheet(isPresented: $showConsent) {
+            AttestConsentSheet {
+                showConsent = false
+                AttestSupport.agreed = true
+                on = true
+            } onCancel: {
+                showConsent = false
+            }
+        }
     }
 
     private var answerDetail: String {
-        guard on else { return "Off. Nothing answers." }
+        guard on else { return "Off" }
         guard maker.supported else { return "App Attest is not available on this Mac." }
-        return maker.serving ? "On this Mac only (127.0.0.1:\(String(AttestedStatementMaker.port)))" : "Starting…"
+        return maker.serving ? "On · this Mac (127.0.0.1:\(String(AttestedStatementMaker.port)))" : "Starting…"
     }
 
     private var torDetail: String {
-        guard on else { return "Needs Answer challenges." }
-        return tor ? onion.state : "Off. Other nodes cannot reach this one."
+        guard on else { return "Needs Answer checks" }
+        return tor ? onion.state : "Off · other nodes cannot reach this one"
     }
 
     private func ask() {
@@ -884,4 +998,3 @@ struct GoMaxAttestCard: View {
         }
     }
 }
-#endif

@@ -1,19 +1,39 @@
 # Attested Go Max statements (experiment)
 
-Status: prototype, 14 Nov 2026. Debug builds only, behind a developer switch
-(Settings › About › Technical details). Not in TestFlight or release builds.
-Inspired by work on attested apps in trusted
+Status: experimental, from build 7 (Nov 2026) in TestFlight builds too, off
+by default. Settings › Go Max shows it as a card marked Experimental once the
+node has data. The first switch-on shows what is shared, the one contact with
+Apple, and that statements can be linked to each other; nothing starts
+without that. On a Mac below macOS 27, or one without App Attest (reduced
+security, a virtual machine), the switches are disabled and the card says
+why. Debug builds ask App Attest for its development environment, release
+builds for production. Inspired by work on attested apps in trusted
 hardware; nothing on-chain is used here.
 
 ## The idea
 
-Today a new Go Max node checks every block from the start, which takes hours.
-In the future a new node could start from a recent state instead, if many
-independent, genuine Go Max nodes confirm that state. This experiment builds
-the first half: one caught-up Go Max node proves
+Go Max is open source and reachable over Tor, so anyone can build a changed
+copy that looks the same from outside: one that hides a payment, gives a
+wrong chain, or logs which wallets ask about what. Whoever talks to a node (a
+wallet, a phone, another node) has to trust that it runs the code it claims. The core of
+this experiment is validation: a Go Max node can prove
 
-> genuine, unmodified Lock it, on a real Apple device, says: at height H the
-> chain state fingerprint is X.
+> genuine Lock it, signed by the Zecky team, on a real Apple device with its
+> security on, gives this answer to your fresh question,
+
+and anyone can check that proof without a Zecky server. In Lock it this is
+the "Genuine node" card on the Go Max page.
+
+On top of that, as an experimental feature, each answer carries a
+fingerprint of the chain at a settled block ("at height H the chain state
+fingerprint is X"). Today a new Go Max node checks every block from the
+start, which takes hours; later it could start from a recent point that many
+genuine nodes confirm. Nothing uses those confirmations yet.
+
+Decided 14 Nov 2026: off by default while it is tested (from build 7, a
+switch on the Go Max page). Once proven, and once something checks it (first
+the iPhone at pairing), it is on by default with Go Max, without a separate
+switch, and the Go Max explanation says plainly that it contacts Apple once.
 
 ## What was built and tested
 
@@ -207,7 +227,9 @@ checked in time, or the node makes a new key. To decide before a quorum.
 ## Not done
 
 - Asking between two Go Max nodes.
-- Full verification inside Lock it (today only the challenge is checked
-  there; the rest is the Python verifier).
-- Production builds, the opt-in screen, and How Go Max works texts.
+- Full verification inside Lock it (today only the challenge and height are
+  checked there; the rest is the Python verifier).
+- Testing a TestFlight build: App Attest in production, and the own-node
+  check on a build signed again by Apple.
+- What to do about Apple's three-day key certificate before a quorum.
 - Reproducible builds.

@@ -26,9 +26,9 @@ fi
   echo "error: Go Max: the programs in GoMax/bin do not match GoMax/bin.sha256. Refused." >&2; exit 1; }
 
 PROGRAMS="zakurad zainod"
-# Arti (Tor) is for the attested-statement experiment: debug builds only,
-# never in an archive for TestFlight or the App Store.
-if [ "${CONFIGURATION:-}" = "Debug" ] && [ -x "$SRC/arti" ]; then
+# Arti (Tor) for attested statements (experimental, off by default): in
+# every build when GoMax/bin has it, after the same kind of pin check.
+if [ -x "$SRC/arti" ]; then
   [ -f "$ROOT/GoMax/arti.sha256" ] && ( cd "$SRC" && /usr/bin/shasum -a 256 -c "$ROOT/GoMax/arti.sha256" >/dev/null ) || {
     echo "error: Go Max: GoMax/bin/arti does not match GoMax/arti.sha256. Refused." >&2; exit 1; }
   PROGRAMS="$PROGRAMS arti"

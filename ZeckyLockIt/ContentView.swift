@@ -73,9 +73,7 @@ struct ContentView: View {
         // Debug builds only: the attested-statement experiment answers
         // challenges on this Mac when its developer switch is on.
         .onAppear {
-            #if DEBUG
             AttestedStatementMaker.shared.startIfEnabled()
-            #endif
         }
         .font(Theme.text(14))
         // While the tests run inside the app, no wallet is started.
