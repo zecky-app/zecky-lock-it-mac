@@ -750,6 +750,9 @@ struct SettingsView: View {
                         aboutLine("NU7 check", WalletSelfTest.engineBranch(at: NetworkUpgrade.nu7Height) == 0x7719_0AD9 ? "Signs for NU7 (0x77190AD9)" : "Does not know NU7")
                         aboutLine("Swift SDK", "ZcashLightClientKit 4.0.0")
                     }
+                    #if DEBUG
+                    DeveloperAttestRow()
+                    #endif
                 }
                 // The terms accepted at the first start, and the same privacy
                 // policy as Lock it iPhone (audit C-38).

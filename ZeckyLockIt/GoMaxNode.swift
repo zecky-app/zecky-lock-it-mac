@@ -801,8 +801,8 @@ final class GoMaxNode: ObservableObject {
 /// Not the web: nothing here can reach another machine.
 enum LocalRPC {
     /// The `result` of a call, or nil when the node does not answer.
-    static func call(_ method: String, port: Int) async -> Any? {
-        let request: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": method, "params": [Any]()]
+    static func call(_ method: String, params: [Any] = [], port: Int) async -> Any? {
+        let request: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": method, "params": params]
         guard let body = try? JSONSerialization.data(withJSONObject: request) else { return nil }
         let head = "POST / HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
         guard let response = await exchange(Data(head.utf8) + body, port: port, timeout: 5),

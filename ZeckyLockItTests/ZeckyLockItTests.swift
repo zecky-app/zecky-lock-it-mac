@@ -970,4 +970,41 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(GoMaxSupport.networkHeight(nodeBlocks: 3_643_300, nodeEstimate: 3_643_320,
                                                   verificationProgress: 0.9999, walletNetwork: 3_643_300), 3_643_320)
     }
+
+    // MARK: Attested statements (experiment)
+
+    func testStateFingerprintV0MatchesTheNodeCheck() throws {
+        // Height 3,572,141 as read from a caught-up Go Max node on 14 Nov 2026,
+        // twice, with the same answers. The hash was worked out separately
+        // (Python, sort_keys, no spaces) from the same answers.
+        let block: [String: Any] = [
+            "height": 3_572_141,
+            "hash": "00000000004cd7dd4872e1297afcff16d35326e9866c66fe99f3fe4eb5c95cb8",
+            "blockcommitments": "49647988e37d90f6c388891372bc01e876b74be2ac0d0a7bba9b8a353cd27591",
+            "trees": ["sapling": ["size": Int64(73_998_529)], "orchard": ["size": Int64(50_482_901)], "ironwood": ["size": Int64(1_221_975)]],
+            "valuePools": [
+                ["id": "transparent", "chainValueZat": Int64(1_203_207_003_547_583)],
+                ["id": "sprout", "chainValueZat": Int64(1_222_421_094_946)],
+                ["id": "sapling", "chainValueZat": Int64(41_799_243_186_949)],
+                ["id": "orchard", "chainValueZat": Int64(32_095_005_911_000)],
+                ["id": "lockbox", "chainValueZat": Int64(7_623_449_971_263)],
+                ["id": "ironwood", "chainValueZat": Int64(418_168_756_608_146)],
+            ],
+            "chainSupply": ["chainValueZat": Int64(1_704_115_880_319_887)],
+        ]
+        func pool(_ root: String) -> [String: Any] { ["commitments": ["finalRoot": root]] }
+        let tree: [String: Any] = [
+            "hash": "00000000004cd7dd4872e1297afcff16d35326e9866c66fe99f3fe4eb5c95cb8",
+            "sapling": pool("10bbab91363c4fbea88fb7587b4a4c4bffda5bc86416e9c8265bac0ba70cb743"),
+            "orchard": pool("f678cf38d95a8f9e237bf1a60ce64885fad0aac4aa9275603c6460e2f2696f36"),
+            "ironwood": pool("2a7de8393e1af1ce6cb442703370be3bd77d1061eb045ee6dd5be89990c9171f"),
+        ]
+        let fingerprint = try XCTUnwrap(StateFingerprint.make(block: block, treeState: tree))
+        let json = try StateFingerprint.canonicalJSON(fingerprint)
+        XCTAssertEqual(StateFingerprint.sha256Hex(json), "f17eb64d714918b65d3994aa22a60a24288bbd18e1ed8e6608e6883de5da9d5c")
+        // A tree state from another block is refused.
+        var other = tree
+        other["hash"] = "00"
+        XCTAssertNil(StateFingerprint.make(block: block, treeState: other))
+    }
 }
