@@ -1042,6 +1042,19 @@ final class ZeckyLockItTests: XCTestCase {
         if case .success = StatementRequest.parse("POST /statement?challenge=\(c) HTTP/1.1") { XCTFail("only GET") }
     }
 
+    func testStatementRequestsAreLimitedPerMinute() {
+        var limit = RequestLimit()
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        for i in 0..<6 { XCTAssertTrue(limit.allow(at: start.addingTimeInterval(Double(i))).allowed) }
+        let seventh = limit.allow(at: start.addingTimeInterval(10))
+        XCTAssertFalse(seventh.allowed)
+        XCTAssertEqual(seventh.retryAfter, 50)                   // the first leaves at 60 s
+        XCTAssertFalse(limit.allow(at: start.addingTimeInterval(59.5)).allowed)
+        XCTAssertTrue(limit.allow(at: start.addingTimeInterval(60)).allowed)   // one left the window
+        XCTAssertFalse(limit.allow(at: start.addingTimeInterval(60.5)).allowed)
+        XCTAssertEqual(limit.recent.count, 6)                    // refusals are not counted
+    }
+
     func testHeightsTheClockDoesNotAllowAreNotTrusted() {
         // 14 Nov 2026, 13:10 UTC: the real tip was 3,572,285.
         let now = Date(timeIntervalSince1970: 1_794_661_800)

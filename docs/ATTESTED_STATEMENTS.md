@@ -191,6 +191,14 @@ there yet (tip 3,573,180), and 3,400,000 as no longer kept. The first try
 once failed with a dropped Tor circuit (NWError 96); Lock it now tries a
 second time with the same challenge.
 
+Limits, so nobody can keep a Mac busy through its onion address: at most 6
+statements in any 60 seconds (over Tor every request arrives from 127.0.0.1,
+so this is for all askers together), answered with 429 and `retryAfter`
+above that; at most 8 connections open; a connection that sends nothing is
+closed after 10 seconds; refusals over the limit are one line a minute in
+attest.log at most. Tested on 14 Nov 2026: eight requests in a row gave six
+answers and two 429s, and an idle connection was closed after 10 seconds.
+
 Seen: Apple's certificate for the key is valid for three days only (here
 13–16 Nov). Assertions after that still verify with the key, but a verifier
 that also wants the certificate valid "now" must keep an attestation it
@@ -199,7 +207,6 @@ checked in time, or the node makes a new key. To decide before a quorum.
 ## Not done
 
 - Asking between two Go Max nodes.
-- A limit on requests per minute, before an onion address is shared.
 - Full verification inside Lock it (today only the challenge is checked
   there; the rest is the Python verifier).
 - Production builds, the opt-in screen, and How Go Max works texts.

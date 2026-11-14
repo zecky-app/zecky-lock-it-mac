@@ -115,6 +115,26 @@ struct StatementRequest: Equatable {
     }
 }
 
+/// At most `perMinute` statements in any 60 seconds, so nobody can keep a
+/// Mac busy through its onion address. Over Tor every request arrives from
+/// 127.0.0.1, so the limit is for all askers together, not per asker.
+struct RequestLimit {
+    var perMinute = 6
+    private(set) var recent: [Date] = []
+
+    /// Counts the request when it is allowed; otherwise says how many seconds
+    /// until the oldest one leaves the window.
+    mutating func allow(at now: Date) -> (allowed: Bool, retryAfter: Int) {
+        recent.removeAll { now.timeIntervalSince($0) >= 60 }
+        guard recent.count < perMinute else {
+            let wait = 60 - now.timeIntervalSince(recent[0])
+            return (false, max(1, Int(wait.rounded(.up))))
+        }
+        recent.append(now)
+        return (true, 0)
+    }
+}
+
 #if DEBUG
 /// Before Lock it attests anything, it checks that the node it reads is its
 /// own: this Lock it found Go Max's ports free, started the `zakurad` inside
@@ -182,6 +202,11 @@ final class AttestedStatementMaker: ObservableObject {
     @Published var working = false
     @Published var serving = false
     private var listener: NWListener?
+    private var limit = RequestLimit()
+    private var openConnections = 0
+    private var overLimit = 0
+    private var overLimitLogged = Date.distantPast
+    static let maxConnections = 8
 
     struct Failure: Error {
         let message: String
@@ -345,15 +370,45 @@ final class AttestedStatementMaker: ObservableObject {
         serving = false
     }
 
+    /// One request's connection: closed once, by whichever comes first (the
+    /// answer sent, or 10 s without a request).
+    private final class Exchange {
+        let connection: NWConnection
+        var answering = false
+        var closed = false
+        init(_ connection: NWConnection) { self.connection = connection }
+    }
+
+    private func close(_ exchange: Exchange) {
+        guard !exchange.closed else { return }
+        exchange.closed = true
+        exchange.connection.cancel()
+        openConnections -= 1
+    }
+
     private func serve(_ connection: NWConnection) {
+        // A few connections at a time, and none kept open longer than needed:
+        // a client that connects and sends nothing is dropped after 10 s.
+        guard openConnections < Self.maxConnections else { connection.cancel(); return }
+        openConnections += 1
+        let exchange = Exchange(connection)
         connection.start(queue: .main)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            if !exchange.answering { AttestedStatementMaker.shared.close(exchange) }
+        }
         connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, _, _ in
             let request = String(decoding: data ?? Data(), as: UTF8.self)
             Task { @MainActor in
-                let (code, body) = await AttestedStatementMaker.shared.answer(request)
-                let reason = [200: "OK", 400: "Bad Request", 409: "Conflict", 410: "Gone"][code] ?? "Service Unavailable"
+                let maker = AttestedStatementMaker.shared
+                guard !exchange.closed else { return }
+                exchange.answering = true
+                let (code, body) = await maker.answer(request)
+                let reason = [200: "OK", 400: "Bad Request", 409: "Conflict", 410: "Gone", 429: "Too Many Requests"][code] ?? "Service Unavailable"
                 let head = "HTTP/1.1 \(code) \(reason)\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
-                connection.send(content: Data(head.utf8) + body, completion: .contentProcessed { _ in connection.cancel() })
+                connection.send(content: Data(head.utf8) + body, completion: .contentProcessed { _ in
+                    Task { @MainActor in maker.close(exchange) }
+                })
             }
         }
     }
@@ -378,6 +433,20 @@ final class AttestedStatementMaker: ObservableObject {
         case .failure(let problem): return fail(400, problem.message)
         }
         let challenge = parsed.challenge
+        let now = Date()
+        let verdict = limit.allow(at: now)
+        guard verdict.allowed else {
+            // One log line a minute at most, so a flood cannot fill the disk.
+            overLimit += 1
+            if now.timeIntervalSince(overLimitLogged) >= 60 {
+                AttestLog.write("Refused \(overLimit) request(s) over the limit of \(limit.perMinute) a minute.")
+                overLimit = 0
+                overLimitLogged = now
+            }
+            let body: [String: Any] = ["error": "Too many requests; at most \(limit.perMinute) a minute.",
+                                       "reason": "limit", "retryAfter": verdict.retryAfter]
+            return (429, (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data())
+        }
         guard !working else { return fail(503, "Busy with another statement; try again in a moment.") }
         working = true
         defer { working = false }
