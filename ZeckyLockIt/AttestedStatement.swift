@@ -76,6 +76,45 @@ enum StatementClientData {
     }
 }
 
+/// A request line for the challenge endpoint:
+/// `GET /statement?challenge=<64 hex>[&height=<H>]`. Parsed strictly: only
+/// these two names, each once, nothing else.
+struct StatementRequest: Equatable {
+    let challenge: String
+    let height: Int?
+
+    struct Problem: Error, Equatable { let message: String }
+
+    static func parse(_ line: String) -> Result<StatementRequest, Problem> {
+        let parts = line.split(separator: " ")
+        guard parts.count >= 2, parts[0] == "GET", parts[1].hasPrefix("/statement?") else {
+            return .failure(Problem(message: "Use GET /statement?challenge=<64 hex characters>[&height=<block height>]"))
+        }
+        var challenge: String?
+        var height: Int?
+        for pair in parts[1].dropFirst("/statement?".count).split(separator: "&") {
+            let kv = pair.split(separator: "=", maxSplits: 1).map(String.init)
+            guard kv.count == 2 else { return .failure(Problem(message: "Every parameter needs a value.")) }
+            switch kv[0] {
+            case "challenge" where challenge == nil:
+                guard kv[1].count == 64, StatementClientData.validChallenge(kv[1]) else {
+                    return .failure(Problem(message: "The challenge must be 64 lowercase hex characters (32 random bytes)."))
+                }
+                challenge = kv[1]
+            case "height" where height == nil:
+                guard kv[1].count <= 9, kv[1].allSatisfy({ $0.isASCII && $0.isNumber }), let value = Int(kv[1]), value > 0 else {
+                    return .failure(Problem(message: "The height must be a positive whole number."))
+                }
+                height = value
+            default:
+                return .failure(Problem(message: "Unknown or repeated parameter \(kv[0])."))
+            }
+        }
+        guard let challenge else { return .failure(Problem(message: "A challenge is needed.")) }
+        return .success(StatementRequest(challenge: challenge, height: height))
+    }
+}
+
 #if DEBUG
 /// Before Lock it attests anything, it checks that the node it reads is its
 /// own: this Lock it found Go Max's ports free, started the `zakurad` inside
@@ -144,7 +183,17 @@ final class AttestedStatementMaker: ObservableObject {
     @Published var serving = false
     private var listener: NWListener?
 
-    struct Failure: Error { let message: String }
+    struct Failure: Error {
+        let message: String
+        /// For a height the node cannot answer for: "behind", "unsettled" or
+        /// "not-kept", with the node's tip, so the asker can try another node
+        /// or later instead of reading it as disagreement.
+        var reason: String? = nil
+        var tip: Int? = nil
+    }
+
+    /// Blocks below the tip before a height counts as settled.
+    static let settledDepth = 100
 
     var supported: Bool {
         if #available(macOS 27, *) { return DCAppAttestService.shared.isSupported }
@@ -155,7 +204,8 @@ final class AttestedStatementMaker: ObservableObject {
     /// below the tip, and App Attest signs it with the challenge. The first
     /// statement of a key attests it (one contact with Apple); later ones are
     /// assertions made on this Mac. Reads only from the node.
-    func statement(challenge: String) async throws -> Data {
+    /// A statement for `height`, or for the tip minus 100 when none is asked.
+    func statement(challenge: String, height asked: Int? = nil) async throws -> Data {
         guard #available(macOS 27, *), DCAppAttestService.shared.isSupported else {
             throw Failure(message: "App Attest is not supported on this Mac (macOS 27 or later, a normal Mac app).")
         }
@@ -170,10 +220,20 @@ final class AttestedStatementMaker: ObservableObject {
               (info["verificationprogress"] as? Double ?? 0) >= 0.999 else {
             throw Failure(message: "Go Max's node is not caught up (or not running). Try again when it is up to date.")
         }
-        let height = tip - 100
+        let height = asked ?? tip - Self.settledDepth
+        if height > tip {
+            throw Failure(message: "Not there yet: this node is at \(tip), below \(height).", reason: "behind", tip: tip)
+        }
+        if height > tip - Self.settledDepth {
+            throw Failure(message: "Not settled yet: \(height) is less than \(Self.settledDepth) blocks below this node's tip \(tip).",
+                          reason: "unsettled", tip: tip)
+        }
         guard let block = await LocalRPC.call("getblock", params: [String(height), 1], port: port) as? [String: Any],
-              let tree = await LocalRPC.call("z_gettreestate", params: [String(height)], port: port) as? [String: Any],
-              let fingerprint = StateFingerprint.make(block: block, treeState: tree) else {
+              let tree = await LocalRPC.call("z_gettreestate", params: [String(height)], port: port) as? [String: Any] else {
+            // Go Max keeps about four weeks of blocks; older ones are gone.
+            throw Failure(message: "This node no longer keeps block \(height).", reason: "not-kept", tip: tip)
+        }
+        guard let fingerprint = StateFingerprint.make(block: block, treeState: tree) else {
             throw Failure(message: "The node did not answer with everything the fingerprint needs.")
         }
         let json = try StateFingerprint.canonicalJSON(fingerprint)
@@ -291,38 +351,44 @@ final class AttestedStatementMaker: ObservableObject {
             let request = String(decoding: data ?? Data(), as: UTF8.self)
             Task { @MainActor in
                 let (code, body) = await AttestedStatementMaker.shared.answer(request)
-                let reason = code == 200 ? "OK" : (code == 400 ? "Bad Request" : "Service Unavailable")
+                let reason = [200: "OK", 400: "Bad Request", 409: "Conflict", 410: "Gone"][code] ?? "Service Unavailable"
                 let head = "HTTP/1.1 \(code) \(reason)\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
                 connection.send(content: Data(head.utf8) + body, completion: .contentProcessed { _ in connection.cancel() })
             }
         }
     }
 
-    /// GET /statement?challenge=<64 hex>. One at a time.
+    static let usage = "Use GET /statement?challenge=<64 hex characters>[&height=<block height>]"
+
+    /// GET /statement?challenge=<64 hex>[&height=<H>]. One at a time.
     func answer(_ request: String) async -> (Int, Data) {
-        func fail(_ code: Int, _ message: String) -> (Int, Data) {
+        func fail(_ code: Int, _ message: String, reason: String? = nil, tip: Int? = nil) -> (Int, Data) {
             AttestLog.write("Refused a request (\(code)): \(message)")
-            return (code, (try? JSONSerialization.data(withJSONObject: ["error": message])) ?? Data())
+            var body: [String: Any] = ["error": message]
+            if let reason { body["reason"] = reason }
+            if let tip { body["tip"] = tip }
+            return (code, (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data())
         }
-        guard let line = request.split(separator: "\r\n").first,
-              line.hasPrefix("GET /statement?challenge="),
-              let target = line.split(separator: " ").dropFirst().first else {
-            return fail(400, "Use GET /statement?challenge=<64 hex characters>")
+        guard let line = request.split(separator: "\r\n").first.map(String.init) else {
+            return fail(400, Self.usage)
         }
-        let challenge = String(target.dropFirst("/statement?challenge=".count))
-        guard challenge.count == 64, StatementClientData.validChallenge(challenge) else {
-            return fail(400, "The challenge must be 64 lowercase hex characters (32 random bytes).")
+        let parsed: StatementRequest
+        switch StatementRequest.parse(line) {
+        case .success(let request): parsed = request
+        case .failure(let problem): return fail(400, problem.message)
         }
+        let challenge = parsed.challenge
         guard !working else { return fail(503, "Busy with another statement; try again in a moment.") }
         working = true
         defer { working = false }
         do {
-            let data = try await statement(challenge: challenge)
-            status = "Answered a challenge."
+            let data = try await statement(challenge: challenge, height: parsed.height)
+            status = parsed.height.map { "Answered a challenge for height \($0)." } ?? "Answered a challenge."
             return (200, data)
         } catch let failure as Failure {
             status = failure.message
-            return fail(503, failure.message)
+            let code = failure.reason == "not-kept" ? 410 : failure.reason != nil ? 409 : 503
+            return fail(code, failure.message, reason: failure.reason, tip: failure.tip)
         } catch {
             status = "App Attest said: \(error.localizedDescription)"
             return fail(503, "App Attest: \(error.localizedDescription)")
@@ -485,11 +551,14 @@ final class AttestAsker: ObservableObject {
     @Published var status = "" { didSet { if !status.isEmpty, !status.hasPrefix("Asking ") { AttestLog.write(status) } } }
     @Published var working = false
 
-    func ask(_ input: String) async {
+    func ask(_ input: String, height heightText: String = "") async {
         let onion = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             .replacingOccurrences(of: "http://", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard onion.hasSuffix(".onion"), onion.count == 62 else { status = "That is not a v3 onion address (56 characters, then .onion)."; return }
         guard AttestOnion.shared.address != nil else { status = "Switch on \"Answer over Tor too\" first: asking goes through the same Tor."; return }
+        let trimmed = heightText.trimmingCharacters(in: .whitespaces)
+        let height = trimmed.isEmpty ? nil : Int(trimmed)
+        if !trimmed.isEmpty, height == nil || height! <= 0 { status = "The height must be a whole number, or empty for the node's own choice."; return }
         var bytes = [UInt8](repeating: 0, count: 32)
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { status = "No random bytes."; return }
         let challenge = bytes.map { String(format: "%02x", $0) }.joined()
@@ -498,21 +567,36 @@ final class AttestAsker: ObservableObject {
         AttestLog.write("Asking \(onion) with challenge \(challenge)")
         defer { working = false }
         do {
-            let body = try await Self.get(host: onion, path: "/statement?challenge=\(challenge)")
+            let path = "/statement?challenge=\(challenge)" + (height.map { "&height=\($0)" } ?? "")
+            let body: Data
+            do {
+                body = try await Self.get(host: onion, path: path)
+            } catch is NWError {
+                // A fresh Tor circuit to an onion sometimes drops on the
+                // first try; one more try with the same challenge.
+                status = "Asking again over a new circuit…"
+                body = try await Self.get(host: onion, path: path)
+            }
             guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
                 throw AskFailure("The answer is not JSON (\(body.count) bytes).")
             }
-            if let error = json["error"] as? String { throw AskFailure("The node said: \(error)") }
+            if let error = json["error"] as? String {
+                let tip = (json["tip"] as? Int).map { " (its tip: \($0))" } ?? ""
+                throw AskFailure("The node said: \(error)\(tip)")
+            }
             guard json["format"] as? String == "zecky-attested-statement/v1",
                   json["challenge"] as? String == challenge,
                   let client = json["clientDataJSON"] as? String,
                   client.contains("\"challenge\":\"\(challenge)\"") else {
                 throw AskFailure("The answer is not a v1 statement for this challenge.")
             }
-            let height = (json["height"] as? Int).map(String.init) ?? "?"
+            if let height, json["height"] as? Int != height {
+                throw AskFailure("The answer is for another height than \(height).")
+            }
+            let answered = (json["height"] as? Int).map(String.init) ?? "?"
             let name = "asked-\(onion.prefix(8))-\(Int(Date().timeIntervalSince1970)).json"
             if let folder = AttestLog.folder { try body.write(to: folder.appendingPathComponent(name)) }
-            status = "Answered for your challenge, height \(height). Saved \(name) in the logs folder; check it with verify_statement.py --challenge \(challenge)"
+            status = "Answered for your challenge, height \(answered). Saved \(name) in the logs folder; check it with verify_statement.py --challenge \(challenge)\(height.map { " --height \($0)" } ?? "")"
         } catch let failure as AskFailure {
             status = failure.message
         } catch {
@@ -596,6 +680,7 @@ struct GoMaxAttestCard: View {
     @State private var on = AttestedStatementMaker.enabled
     @State private var tor = AttestOnion.wanted
     @State private var otherNode = ""
+    @State private var askHeight = ""
     @State private var copied = false
 
     var body: some View {
@@ -659,6 +744,14 @@ struct GoMaxAttestCard: View {
                             .background(Theme.ink, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.line))
                             .onSubmit { ask() }
+                        TextField("height", text: $askHeight)
+                            .textFieldStyle(.plain).font(.system(size: 11, design: .monospaced))
+                            .frame(width: 78)
+                            .padding(.horizontal, 10).padding(.vertical, 8)
+                            .background(Theme.ink, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.line))
+                            .help("Optional. Empty: the node answers for its tip minus 100.")
+                            .onSubmit { ask() }
                         Button(asker.working ? "Asking…" : "Ask over Tor") { ask() }
                             .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
                             .disabled(asker.working || otherNode.isEmpty)
@@ -704,7 +797,7 @@ struct GoMaxAttestCard: View {
 
     private func ask() {
         guard !asker.working, !otherNode.isEmpty else { return }
-        Task { await asker.ask(otherNode) }
+        Task { await asker.ask(otherNode, height: askHeight) }
     }
 
     private func settingRow(_ title: String, detail: String, good: Bool, isOn: Binding<Bool>) -> some View {

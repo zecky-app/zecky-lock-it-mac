@@ -179,6 +179,18 @@ should name it (for example `&height=H`), a node ahead of H answers as long as
 it still keeps that block (Go Max keeps about four weeks), and a node behind
 H says it is not there yet rather than answering for another height.
 
+From 14 Nov 2026 the asker can name it: `GET /statement?challenge=<64
+hex>&height=H` (without a height the node still takes its tip − 100). A
+height above the tip is refused as `behind` (409), one less than 100 blocks
+below the tip as `unsettled` (409), and one the node no longer keeps as
+`not-kept` (410), each with the node's tip; the node never answers for a
+different height. `verify_statement.py --height H` checks the statement is
+for exactly H. Tested over Tor with Lock it asking its own onion address: H =
+3,572,900 was answered for exactly that height, 4,000,000 was refused as not
+there yet (tip 3,573,180), and 3,400,000 as no longer kept. The first try
+once failed with a dropped Tor circuit (NWError 96); Lock it now tries a
+second time with the same challenge.
+
 Seen: Apple's certificate for the key is valid for three days only (here
 13–16 Nov). Assertions after that still verify with the key, but a verifier
 that also wants the certificate valid "now" must keep an attestation it
@@ -187,7 +199,7 @@ checked in time, or the node makes a new key. To decide before a quorum.
 ## Not done
 
 - Asking between two Go Max nodes.
-- Asking for a named height (`&height=H`); today the node picks its tip − 100.
+- A limit on requests per minute, before an onion address is shared.
 - Full verification inside Lock it (today only the challenge is checked
   there; the rest is the Python verifier).
 - Production builds, the opt-in screen, and How Go Max works texts.

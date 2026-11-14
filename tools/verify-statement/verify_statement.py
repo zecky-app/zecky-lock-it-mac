@@ -150,10 +150,12 @@ def verify_assertion(blob, client_hash, public, app_id):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Verify a Zecky attested Go Max statement (v0).")
+    parser = argparse.ArgumentParser(description="Verify a Zecky attested Go Max statement (v0 or v1).")
     parser.add_argument("statement", help="the statement file (.json)")
     parser.add_argument("--challenge", default=None,
                         help="the 64-hex challenge you sent (v1): the statement must answer exactly this")
+    parser.add_argument("--height", type=int, default=None,
+                        help="the block height you asked for (&height=H): the statement must be for exactly this height")
     parser.add_argument("--app-id", required=True,
                         help='the app you expect, "<team id>.<bundle id>", e.g. ABCDE12345.app.zecky.lockit')
     args = parser.parse_args()
@@ -193,6 +195,8 @@ def main():
         check(canonical == text, "fingerprint text is canonical (sorted keys, no spaces)")
         fingerprint = json.loads(text)
         check(fingerprint.get("height") == data.get("height"), f"height {data.get('height')}")
+        if args.height is not None:
+            check(fingerprint.get("height") == args.height, f"it is for exactly the height you asked ({args.height})")
         check(data.get("appId") == args.app_id, f"statement names the expected app {args.app_id}")
         key_id = base64.b64decode(data["keyId"])
         when = datetime.datetime.fromisoformat(data["createdAt"].replace("Z", "+00:00"))

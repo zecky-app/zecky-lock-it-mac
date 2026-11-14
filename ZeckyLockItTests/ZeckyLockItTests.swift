@@ -1021,6 +1021,27 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertFalse(StatementClientData.validChallenge("abc"))
     }
 
+    func testStatementRequestsAreParsedStrictly() {
+        let c = String(repeating: "ab", count: 32)
+        func parse(_ query: String) -> StatementRequest? {
+            if case .success(let r) = StatementRequest.parse("GET /statement?\(query) HTTP/1.1") { return r }
+            return nil
+        }
+        XCTAssertEqual(parse("challenge=\(c)"), StatementRequest(challenge: c, height: nil))
+        XCTAssertEqual(parse("challenge=\(c)&height=3572944"), StatementRequest(challenge: c, height: 3_572_944))
+        XCTAssertEqual(parse("height=3572944&challenge=\(c)"), StatementRequest(challenge: c, height: 3_572_944))
+        XCTAssertNil(parse("height=3572944"))                         // no challenge
+        XCTAssertNil(parse("challenge="))                             // empty challenge
+        XCTAssertNil(parse("challenge=\(c.uppercased())"))
+        XCTAssertNil(parse("challenge=\(c)&height=0"))
+        XCTAssertNil(parse("challenge=\(c)&height=-5"))
+        XCTAssertNil(parse("challenge=\(c)&height=12a"))
+        XCTAssertNil(parse("challenge=\(c)&height=1&height=2"))      // repeated
+        XCTAssertNil(parse("challenge=\(c)&challenge=\(c)"))
+        XCTAssertNil(parse("challenge=\(c)&other=1"))                // unknown
+        if case .success = StatementRequest.parse("POST /statement?challenge=\(c) HTTP/1.1") { XCTFail("only GET") }
+    }
+
     func testHeightsTheClockDoesNotAllowAreNotTrusted() {
         // 14 Nov 2026, 13:10 UTC: the real tip was 3,572,285.
         let now = Date(timeIntervalSince1970: 1_794_661_800)
