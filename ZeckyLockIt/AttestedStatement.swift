@@ -197,8 +197,20 @@ final class AttestedStatementMaker: ObservableObject {
         get { UserDefaults.standard.bool(forKey: switchKey) }
         set { UserDefaults.standard.set(newValue, forKey: switchKey) }
     }
-    private static let keyIdKey = "developer.appAttestKeyId"
-    private static let attestationKey = "developer.appAttestAttestation"
+    /// One key per App Attest environment: a key made by a development build
+    /// (Xcode) cannot sign in a production build (TestFlight, App Store) and
+    /// the other way round, and both share this app's settings.
+    private static var environment: String {
+        guard let task = SecTaskCreateFromSelf(nil) else { return "unknown" }
+        return SecTaskCopyValueForEntitlement(task, "com.apple.developer.devicecheck.appattest-environment" as CFString, nil) as? String ?? "unknown"
+    }
+    private static var keyIdKey: String { "attest.\(environment).keyId" }
+    private static var attestationKey: String { "attest.\(environment).attestation" }
+
+    private static func forgetKey() {
+        UserDefaults.standard.removeObject(forKey: keyIdKey)
+        UserDefaults.standard.removeObject(forKey: attestationKey)
+    }
     /// The local endpoint: GET /statement?challenge=<64 hex> on this Mac only.
     static let port: UInt16 = 8139
 
@@ -287,24 +299,38 @@ final class AttestedStatementMaker: ObservableObject {
             "appId": Self.applicationIdentifier() ?? "unknown",
             "createdAt": ISO8601DateFormatter().string(from: Date()),
         ]
-        var keyId = UserDefaults.standard.string(forKey: Self.keyIdKey)
-        if keyId == nil {
-            keyId = try await service.generateKey()
-            UserDefaults.standard.set(keyId, forKey: Self.keyIdKey)
+        // A stored key that no longer signs (made by another build, or lost
+        // from the security chip) is forgotten, and a new one made once.
+        var lastError: Error?
+        for attempt in 0..<2 {
+            do {
+                var keyId = UserDefaults.standard.string(forKey: Self.keyIdKey)
+                if keyId == nil {
+                    keyId = try await service.generateKey()
+                    UserDefaults.standard.set(keyId, forKey: Self.keyIdKey)
+                }
+                guard let keyId else { throw Failure(message: "No App Attest key.") }
+                if let saved = UserDefaults.standard.data(forKey: Self.attestationKey) {
+                    let assertion = try await service.generateAssertion(keyId, clientDataHash: digest)
+                    statement["kind"] = "assertion"
+                    statement["assertion"] = assertion.base64EncodedString()
+                    statement["keyAttestation"] = saved.base64EncodedString()
+                } else {
+                    let attestation = try await service.attestKey(keyId, clientDataHash: digest)
+                    UserDefaults.standard.set(attestation, forKey: Self.attestationKey)
+                    statement["kind"] = "attestation"
+                    statement["attestation"] = attestation.base64EncodedString()
+                }
+                statement["keyId"] = keyId
+                lastError = nil
+                break
+            } catch let error as DCError where attempt == 0 && error.code != .serverUnavailable {
+                AttestLog.write("App Attest key did not work (\(error.code.rawValue)); making a new key.")
+                Self.forgetKey()
+                lastError = error
+            }
         }
-        guard let keyId else { throw Failure(message: "No App Attest key.") }
-        if let saved = UserDefaults.standard.data(forKey: Self.attestationKey) {
-            let assertion = try await service.generateAssertion(keyId, clientDataHash: digest)
-            statement["kind"] = "assertion"
-            statement["assertion"] = assertion.base64EncodedString()
-            statement["keyAttestation"] = saved.base64EncodedString()
-        } else {
-            let attestation = try await service.attestKey(keyId, clientDataHash: digest)
-            UserDefaults.standard.set(attestation, forKey: Self.attestationKey)
-            statement["kind"] = "attestation"
-            statement["attestation"] = attestation.base64EncodedString()
-        }
-        statement["keyId"] = keyId
+        if let lastError { throw lastError }
         return try JSONSerialization.data(withJSONObject: statement, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])
     }
 
