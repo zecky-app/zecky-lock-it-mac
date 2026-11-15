@@ -7,8 +7,8 @@ Apple, and that statements can be linked to each other; nothing starts
 without that. On a Mac below macOS 27, or one without App Attest (reduced
 security, a virtual machine), the switches are disabled and the card says
 why. Debug builds ask App Attest for its development environment, release
-builds for production. Inspired by work on attested apps in trusted
-hardware; nothing on-chain is used here.
+builds for production. Inspired by Andrew Miller's work on attested apps in
+trusted hardware (with his permission); nothing on-chain is used here.
 
 ## The idea
 
