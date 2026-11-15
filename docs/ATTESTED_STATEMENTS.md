@@ -224,12 +224,21 @@ Seen: Apple's certificate for the key is valid for three days only (here
 that also wants the certificate valid "now" must keep an attestation it
 checked in time, or the node makes a new key. To decide before a quorum.
 
+## In TestFlight
+
+Tested on 15 Nov 2026 with build 8 from TestFlight (signed again by Apple,
+"TestFlight Beta Distribution", App Attest production), asked from the
+Umbrel over Tor: answered at height 3,574,910, passed `verify_statement.py
+--challenge`, failed against an earlier challenge; the own-node check passed
+on the re-signed build. Build 7 had failed at the last step with App Attest
+error 0: it tried to sign with the key a development (Xcode) build had made.
+Keys are now kept per App Attest environment, and a key that does not sign
+is replaced once.
+
 ## Not done
 
 - Asking between two Go Max nodes.
 - Full verification inside Lock it (today only the challenge and height are
   checked there; the rest is the Python verifier).
-- Testing a TestFlight build: App Attest in production, and the own-node
-  check on a build signed again by Apple.
 - What to do about Apple's three-day key certificate before a quorum.
 - Reproducible builds.
