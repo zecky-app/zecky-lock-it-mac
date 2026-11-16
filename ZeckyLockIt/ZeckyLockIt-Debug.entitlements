@@ -27,5 +27,12 @@
 	<array>
 		<string>$(AppIdentifierPrefix)app.zecky.lockit</string>
 	</array>
+	<!-- Ask App Attest to include this app's code fingerprint (CDHash) in
+	     its evidence, as dsmack does, so a check can tell which exact build
+	     answered. Debug first; Release once it is shown to sign and work. -->
+	<key>com.apple.developer.devicecheck.app-attest-opt-in</key>
+	<array>
+		<string>CDhash</string>
+	</array>
 </dict>
 </plist>

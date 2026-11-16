@@ -67,6 +67,24 @@ enum StatementClientData {
                                             "fingerprintSHA256": fingerprintSHA256, "challenge": challenge])
     }
 
+    /// The node's state, signed together with the challenge (v2): genuine is
+    /// proven whatever the state; the fingerprint only when the node can vouch.
+    struct NodeState {
+        let state: String      // "up-to-date", "syncing" or "not-running"
+        let tip: Int?          // the node's own height, when it runs
+        let estimate: Int      // the clock's estimate of the network's height
+        var dictionary: [String: Any] {
+            var d: [String: Any] = ["state": state, "estimate": estimate]
+            if let tip { d["tip"] = tip }
+            return d
+        }
+    }
+
+    static func jsonV2(fingerprintSHA256: String, challenge: String, node: NodeState) throws -> Data {
+        try StateFingerprint.canonicalJSON(["v": 2, "purpose": purpose, "fingerprintSHA256": fingerprintSHA256,
+                                            "challenge": challenge, "node": node.dictionary])
+    }
+
     /// A challenge is 32 random bytes as 64 lowercase hex characters, or
     /// empty for a statement nobody asked for.
     static func validChallenge(_ text: String) -> Bool {
@@ -110,6 +128,188 @@ struct StatementRequest: Equatable {
         }
         guard let challenge else { return .failure(Problem(message: "A challenge is needed.")) }
         return .success(StatementRequest(challenge: challenge, height: height))
+    }
+}
+
+/// Checks a statement the way tools/verify-statement does, inside Lock it:
+/// Apple's certificate chain up to the pinned App Attestation root, the app,
+/// the key, the signature over exactly this client data, and the challenge.
+/// Used where Lock it must decide by itself whether a node is genuine
+/// (finding other nodes, later pairing); never to vouch for this Mac itself.
+struct StatementCheck {
+    struct Result {
+        let genuine: Bool
+        let reason: String            // why not, or "genuine"
+        let build: String?            // as Apple attests it
+        let cdhash: String?           // as Apple attests it, when the app opted in
+        let nodeState: [String: Any]?
+        let height: Int?
+        let hasFingerprint: Bool
+        var attestedAt: Date? = nil   // when Apple attested the key
+        var keyId: String? = nil
+        var counter: Int? = nil       // how many answers the key has signed
+    }
+
+    /// macOS: the access policy of the key in the security chip, in the leaf's
+    /// extension 1.2.840.113635.100.8.6. Apple: trust a Mac's key only with
+    /// exactly this value (System Integrity Protection and full security on).
+    static let macSecurePolicy = Data(base64Encoded: "MEAMAjExMDowCQwCb2uhAwEB/zAJDAJvYaEDAQH/MAsMBG9kZWyhAwEB/zAVDARvc2duoAYMBHJzZWMwBaYDAgEB")!
+
+    /// Apple App Attestation Root CA (valid 2020-03-18 to 2045-03-15),
+    /// SHA-256 1cb9823ba28ba6ad2d33a006941de2ae4f513ef1d4e831b9f7e0fa7b6242c932.
+    static let appleRootBase64 = "MIICITCCAaegAwIBAgIQC/O+DvHN0uD7jG5yH2IXmDAKBggqhkjOPQQDAzBSMSYwJAYDVQQDDB1BcHBsZSBBcHAgQXR0ZXN0YXRpb24gUm9vdCBDQTETMBEGA1UECgwKQXBwbGUgSW5jLjETMBEGA1UECAwKQ2FsaWZvcm5pYTAeFw0yMDAzMTgxODMyNTNaFw00NTAzMTUwMDAwMDBaMFIxJjAkBgNVBAMMHUFwcGxlIEFwcCBBdHRlc3RhdGlvbiBSb290IENBMRMwEQYDVQQKDApBcHBsZSBJbmMuMRMwEQYDVQQIDApDYWxpZm9ybmlhMHYwEAYHKoZIzj0CAQYFK4EEACIDYgAERTHhmLW07ATaFQIEVwTtT4dyctdhNbJhFs/Ii2FdCgAHGbpphY3+d8qjuDngIN3WVhQUBHAoMeQ/cLiP1sOUtgjqK9auYen1mMEvRq9Sk3Jm5X8U62H+xTD3FE9TgS41o0IwQDAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBSskRBTM72+aEH/pwyp5frq5eWKoTAOBgNVHQ8BAf8EBAMCAQYwCgYIKoZIzj0EAwMDaAAwZQIwQgFGnByvsiVbpTKwSga0kP0e8EeDS4+sQmTvb7vn53O5+FRXgeLhpJ06ysC5PrOyAjEAp5U4xDgEgllF7En3VcE3iexZZtKeYnpqtijVoyFraWVIyd/dganmrduC1bmTBGwD"
+    static let appleRootSHA256 = "1cb9823ba28ba6ad2d33a006941de2ae4f513ef1d4e831b9f7e0fa7b6242c932"
+
+    /// The app every genuine node must be: this app's own identifier.
+    static func check(_ data: Data, expectedAppID: String, challenge: String) -> Result {
+        func no(_ why: String) -> Result {
+            Result(genuine: false, reason: why, build: nil, cdhash: nil, nodeState: nil, height: nil, hasFingerprint: false)
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return no("not a statement") }
+        let format = json["format"] as? String
+        guard format == "zecky-attested-statement/v1" || format == "zecky-attested-statement/v2" else { return no("unknown format") }
+        guard json["appId"] as? String == expectedAppID else { return no("another app") }
+        guard let clientText = json["clientDataJSON"] as? String,
+              let client = try? JSONSerialization.jsonObject(with: Data(clientText.utf8)) as? [String: Any],
+              client["challenge"] as? String == challenge, json["challenge"] as? String == challenge,
+              client["purpose"] as? String == StatementClientData.purpose else { return no("not an answer to this challenge") }
+        let fingerprintHash = json["fingerprintSHA256"] as? String ?? ""
+        guard client["fingerprintSHA256"] as? String == fingerprintHash else { return no("fingerprint not signed") }
+        if let text = json["fingerprintJSON"] as? String {
+            guard StateFingerprint.sha256Hex(Data(text.utf8)) == fingerprintHash else { return no("fingerprint altered") }
+        }
+        if format == "zecky-attested-statement/v2" {
+            guard NSDictionary(dictionary: client["node"] as? [String: Any] ?? [:])
+                    .isEqual(to: json["nodeState"] as? [String: Any] ?? [:]) else { return no("node state not signed") }
+        }
+        let clientHash = Data(SHA256.hash(data: Data(clientText.utf8)))
+
+        guard let keyIdText = json["keyId"] as? String, let keyId = Data(base64Encoded: keyIdText),
+              let attText = (json["keyAttestation"] ?? json["attestation"]) as? String,
+              let attData = Data(base64Encoded: attText),
+              let att = try? ZCBORReader.decode(attData),
+              att.value(forText: "fmt")?.textValue == "apple-appattest",
+              let x5c = att.value(forText: "attStmt")?.value(forText: "x5c")?.arrayValue, x5c.count == 2,
+              let leafData = x5c[0].bytesValue, let interData = x5c[1].bytesValue,
+              let attAuth = att.value(forText: "authData")?.bytesValue, attAuth.count >= 55 else { return no("no key attestation") }
+
+        // Apple's chain, at the time the statement says it was made.
+        guard let rootData = Data(base64Encoded: appleRootBase64),
+              StateFingerprint.sha256Hex(rootData) == appleRootSHA256,
+              let root = SecCertificateCreateWithData(nil, rootData as CFData),
+              let leaf = SecCertificateCreateWithData(nil, leafData as CFData),
+              let inter = SecCertificateCreateWithData(nil, interData as CFData) else { return no("unreadable certificates") }
+        var trust: SecTrust?
+        guard SecTrustCreateWithCertificates([leaf, inter] as CFArray, SecPolicyCreateBasicX509(), &trust) == errSecSuccess,
+              let trust else { return no("certificate chain") }
+        SecTrustSetAnchorCertificates(trust, [root] as CFArray)
+        SecTrustSetAnchorCertificatesOnly(trust, true)
+        SecTrustSetNetworkFetchAllowed(trust, false)
+        // Checked the way Apple intends: once, at the moment Apple attested
+        // the key (the leaf is valid for three days; the key lives on in the
+        // security chip and signs every later answer). Apple's intermediate
+        // must still be valid today (to 2030).
+        // Reading a certificate's dates needs macOS 15; checking another node
+        // needs macOS 27 anyway (Genuine node), so older macOS never gets here.
+        guard #available(macOS 15.0, *) else { return no("this Mac's macOS is too old to check Apple's certificates") }
+        guard let issued = SecCertificateCopyNotValidBeforeDate(leaf) as Date?,
+              let interEnds = SecCertificateCopyNotValidAfterDate(inter) as Date? else { return no("unreadable certificates") }
+        let attestedAt = issued.addingTimeInterval(60)
+        SecTrustSetVerifyDate(trust, attestedAt as CFDate)
+        guard SecTrustEvaluateWithError(trust, nil) else { return no("not signed by Apple's App Attest") }
+        guard interEnds > Date() else { return no("Apple's intermediate certificate has ended") }
+        if let made = (json["createdAt"] as? String).flatMap({ ISO8601DateFormatter().date(from: $0) }) {
+            guard attestedAt <= made.addingTimeInterval(300) else { return no("key attested after the answer") }
+        }
+        guard leafPolicy(SecCertificateCopyData(leaf) as Data) == macSecurePolicy else {
+            return no("the Mac did not have System Integrity Protection and full security on")
+        }
+
+        // The attested key and the app it belongs to.
+        guard let key = SecCertificateCopyKey(leaf),
+              let point = SecKeyCopyExternalRepresentation(key, nil) as Data?,
+              Data(SHA256.hash(data: point)) == keyId,
+              let publicKey = try? P256.Signing.PublicKey(x963Representation: point) else { return no("key does not match") }
+        let appHash = Data(SHA256.hash(data: Data(expectedAppID.utf8)))
+        guard attAuth.prefix(32) == appHash else { return no("key belongs to another app") }
+        let aaguid = attAuth[attAuth.startIndex + 37 ..< attAuth.startIndex + 53]
+        guard aaguid == Data("appattest".utf8) + Data(repeating: 0, count: 7) || aaguid == Data("appattestdevelop".utf8) else {
+            return no("unknown App Attest environment")
+        }
+
+        var facts = appleFacts(attAuth, attested: true)
+        var counter = 0
+        if json["kind"] as? String == "attestation" {
+            // Apple's nonce in the leaf covers exactly this client data.
+            let nonce = Data(SHA256.hash(data: attAuth + clientHash))
+            guard let inLeaf = leafNonce(SecCertificateCopyData(leaf) as Data), inLeaf == nonce else {
+                return no("Apple's nonce does not cover this answer")
+            }
+        } else {
+            guard let assertText = json["assertion"] as? String, let assertData = Data(base64Encoded: assertText),
+                  let assertion = try? ZCBORReader.decode(assertData),
+                  let signatureData = assertion.value(forText: "signature")?.bytesValue,
+                  let auth = assertion.value(forText: "authenticatorData")?.bytesValue, auth.count >= 37,
+                  auth.prefix(32) == appHash else { return no("no valid assertion") }
+            let nonce = Data(SHA256.hash(data: auth + clientHash))
+            guard let signature = try? P256.Signing.ECDSASignature(derRepresentation: signatureData),
+                  publicKey.isValidSignature(signature, for: nonce) else { return no("the key did not sign this answer") }
+            let count = auth[auth.startIndex + 33 ..< auth.startIndex + 37].reduce(0) { $0 << 8 | Int($1) }
+            guard count > 0 else { return no("assertion counter") }
+            counter = count
+            facts.merge(appleFacts(auth, attested: false)) { $1 }
+        }
+        return Result(genuine: true, reason: "genuine",
+                      build: facts["apple_bundle_version_01"]?.textValue,
+                      cdhash: facts["apple_cd_hash_hash_01"]?.bytesValue.map { $0.map { String(format: "%02x", $0) }.joined() },
+                      nodeState: json["nodeState"] as? [String: Any], height: json["height"] as? Int,
+                      hasFingerprint: json["fingerprintJSON"] != nil,
+                      attestedAt: attestedAt, keyId: keyIdText, counter: counter)
+    }
+
+    /// The policy in the leaf's extension 1.2.840.113635.100.8.6:
+    /// SEQUENCE { [3] { OCTET STRING (66 bytes) } }.
+    static func leafPolicy(_ der: Data) -> Data? {
+        let oid: [UInt8] = [0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x63, 0x64, 0x08, 0x06]
+        let prefix: [UInt8] = [0x30, 0x46, 0xA3, 0x44, 0x04, 0x42]
+        let b = [UInt8](der)
+        guard let at = b.indices.first(where: { b[$0...].starts(with: oid) }) else { return nil }
+        let window = b[(at + oid.count)..<min(b.count, at + oid.count + 16)]
+        guard let start = window.indices.first(where: { b[$0...].starts(with: prefix) }),
+              start + prefix.count + 66 <= b.count else { return nil }
+        return Data(b[(start + prefix.count)..<(start + prefix.count + 66)])
+    }
+
+    /// The extensions App Attest's service wrote into the signed
+    /// authenticator data: build number, validation category, CDHash.
+    static func appleFacts(_ auth: Data, attested: Bool) -> [String: ZCBOR] {
+        let bytes = [UInt8](auth)
+        guard bytes.count > 37, bytes[32] & 0x80 != 0 else { return [:] }
+        var offset = 37
+        if attested {
+            guard bytes.count >= 55 else { return [:] }
+            offset = 55 + (Int(bytes[53]) << 8 | Int(bytes[54]))
+            guard offset <= bytes.count,
+                  let cose = try? ZCBORReader.decodePrefix(Data(bytes[offset...])) else { return [:] }
+            offset += cose.length
+        }
+        guard offset < bytes.count, let ext = try? ZCBORReader.decodePrefix(Data(bytes[offset...])),
+              case let .map(entries) = ext.item else { return [:] }
+        var out: [String: ZCBOR] = [:]
+        for entry in entries { if let key = entry.key.textValue { out[key] = entry.value } }
+        return out
+    }
+
+    /// The 32-byte nonce in the leaf's extension 1.2.840.113635.100.8.2.
+    static func leafNonce(_ der: Data) -> Data? {
+        let oid: [UInt8] = [0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x63, 0x64, 0x08, 0x02]
+        let prefix: [UInt8] = [0x30, 0x24, 0xA1, 0x22, 0x04, 0x20]
+        let b = [UInt8](der)
+        guard let at = b.indices.first(where: { b[$0...].starts(with: oid) }) else { return nil }
+        let window = b[(at + oid.count)..<min(b.count, at + oid.count + 16)]
+        guard let start = window.indices.first(where: { b[$0...].starts(with: prefix) }),
+              start + prefix.count + 32 <= b.count else { return nil }
+        return Data(b[(start + prefix.count)..<(start + prefix.count + 32)])
     }
 }
 
@@ -187,8 +387,8 @@ enum OwnNodeCheck {
     }
 }
 
-/// The developer switch, the App Attest part and the local endpoint. Not
-/// compiled into TestFlight or App Store builds.
+/// Genuine node: the switch, the App Attest part and the local endpoint.
+/// In every build, off until the owner switches it on.
 @MainActor
 final class AttestedStatementMaker: ObservableObject {
     static let shared = AttestedStatementMaker()
@@ -207,6 +407,10 @@ final class AttestedStatementMaker: ObservableObject {
     private static var keyIdKey: String { "attest.\(environment).keyId" }
     private static var attestationKey: String { "attest.\(environment).attestation" }
 
+    /// "New address": also a new App Attest key, so answers from the new
+    /// address cannot be linked to the old one by their key.
+    static func forgetKeyForNewAddress() { forgetKey() }
+
     private static func forgetKey() {
         UserDefaults.standard.removeObject(forKey: keyIdKey)
         UserDefaults.standard.removeObject(forKey: attestationKey)
@@ -220,8 +424,9 @@ final class AttestedStatementMaker: ObservableObject {
     private var listener: NWListener?
     private var limit = RequestLimit()
     private var openConnections = 0
-    private var overLimit = 0
-    private var overLimitLogged = Date.distantPast
+    private var refusedBad = 0
+    private var refusedOverLimit = 0
+    private var refusalsLogged = Date.distantPast
     static let maxConnections = 8
 
     struct Failure: Error {
@@ -253,52 +458,76 @@ final class AttestedStatementMaker: ObservableObject {
         guard StatementClientData.validChallenge(challenge) else {
             throw Failure(message: "The challenge must be 64 lowercase hex characters (32 random bytes).")
         }
-        let (own, why) = OwnNodeCheck.run()
-        guard let own else { throw Failure(message: "No statement: \(why)") }
+        // v2: the proof that this is genuine Lock it does not depend on the
+        // node. The node's state is signed with it, and the chain fingerprint
+        // is added only for a height this node has checked and settled.
+        let (own, _) = OwnNodeCheck.run()
         let port = GoMaxConfig.rpcPort
-        guard let info = await LocalRPC.call("getblockchaininfo", port: port) as? [String: Any],
-              let tip = info["blocks"] as? Int,
-              (info["verificationprogress"] as? Double ?? 0) >= 0.999 else {
-            throw Failure(message: "Go Max's node is not caught up (or not running). Try again when it is up to date.")
+        var info: [String: Any]?
+        if own != nil { info = await LocalRPC.call("getblockchaininfo", port: port) as? [String: Any] }
+        let tip = info?["blocks"] as? Int
+        let estimate = Birthday.estimatedTip()
+        let caughtUp = (info?["verificationprogress"] as? Double ?? 0) >= 0.999
+        let state: String
+        if let tip { state = caughtUp ? "up-to-date" : "syncing" } else { state = "not-running" }
+
+        var fingerprint: [String: Any]?
+        var fingerprintNote: String?
+        let height: Int? = asked ?? (state == "up-to-date" ? tip.map { $0 - Self.settledDepth } : nil)
+        if let tip, let height {
+            if height > tip {
+                fingerprintNote = "behind"
+            } else if height > tip - Self.settledDepth {
+                fingerprintNote = "unsettled"
+            } else if let block = await LocalRPC.call("getblock", params: [String(height), 1], port: port) as? [String: Any],
+                      let tree = await LocalRPC.call("z_gettreestate", params: [String(height)], port: port) as? [String: Any],
+                      let made = StateFingerprint.make(block: block, treeState: tree) {
+                fingerprint = made
+            } else {
+                // Go Max keeps about four weeks of blocks; older ones are gone.
+                fingerprintNote = "not-kept"
+            }
+        } else if asked != nil {
+            fingerprintNote = state == "not-running" ? "not-running" : "behind"
+        } else {
+            fingerprintNote = state == "not-running" ? "not-running" : "syncing"
         }
-        let height = asked ?? tip - Self.settledDepth
-        if height > tip {
-            throw Failure(message: "Not there yet: this node is at \(tip), below \(height).", reason: "behind", tip: tip)
-        }
-        if height > tip - Self.settledDepth {
-            throw Failure(message: "Not settled yet: \(height) is less than \(Self.settledDepth) blocks below this node's tip \(tip).",
-                          reason: "unsettled", tip: tip)
-        }
-        guard let block = await LocalRPC.call("getblock", params: [String(height), 1], port: port) as? [String: Any],
-              let tree = await LocalRPC.call("z_gettreestate", params: [String(height)], port: port) as? [String: Any] else {
-            // Go Max keeps about four weeks of blocks; older ones are gone.
-            throw Failure(message: "This node no longer keeps block \(height).", reason: "not-kept", tip: tip)
-        }
-        guard let fingerprint = StateFingerprint.make(block: block, treeState: tree) else {
-            throw Failure(message: "The node did not answer with everything the fingerprint needs.")
-        }
-        let json = try StateFingerprint.canonicalJSON(fingerprint)
-        let fingerprintHash = StateFingerprint.sha256Hex(json)
-        let clientData = try StatementClientData.json(fingerprintSHA256: fingerprintHash, challenge: challenge)
+
+        var json: Data?
+        if let fingerprint { json = try StateFingerprint.canonicalJSON(fingerprint) }
+        let fingerprintHash = json.map { StateFingerprint.sha256Hex($0) } ?? ""
+        let nodeState = StatementClientData.NodeState(state: state, tip: tip, estimate: estimate)
+        let clientData = try StatementClientData.jsonV2(fingerprintSHA256: fingerprintHash, challenge: challenge, node: nodeState)
         let digest = Data(SHA256.hash(data: clientData))
-        let node = await LocalRPC.call("getinfo", port: port) as? [String: Any]
+        var node: [String: Any]?
+        if own != nil { node = await LocalRPC.call("getinfo", port: port) as? [String: Any] }
+        var nodeCheck: [String: Any] = ["ownNode": false]
+        if let own {
+            nodeCheck = ["ownNode": true, "startedByThisLockItOnFreePorts": true, "executable": own.executable,
+                         "executableSignedBySameTeamAsLockIt": true, "rpc": "127.0.0.1:\(port)"]
+        }
         let service = DCAppAttestService.shared
         var statement: [String: Any] = [
-            "format": "zecky-attested-statement/v1",
-            "fingerprint": fingerprint,
-            "fingerprintJSON": String(decoding: json, as: UTF8.self),
+            "format": "zecky-attested-statement/v2",
             "fingerprintSHA256": fingerprintHash,
             "clientDataJSON": String(decoding: clientData, as: UTF8.self),
             "challenge": challenge,
-            "height": height,
+            "nodeState": nodeState.dictionary,
             "node": ["build": node?["build"] ?? "unknown", "subversion": node?["subversion"] ?? "unknown"],
-            "nodeCheck": ["ownNode": true, "startedByThisLockItOnFreePorts": true, "executable": own.executable,
-                          "executableSignedBySameTeamAsLockIt": true, "rpc": "127.0.0.1:\(port)"],
+            "nodeCheck": nodeCheck,
             "lockIt": ["version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "",
                        "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? ""],
             "appId": Self.applicationIdentifier() ?? "unknown",
             "createdAt": ISO8601DateFormatter().string(from: Date()),
         ]
+        if let fingerprint, let json, let height {
+            statement["fingerprint"] = fingerprint
+            statement["fingerprintJSON"] = String(decoding: json, as: UTF8.self)
+            statement["height"] = height
+        } else {
+            statement["fingerprintNote"] = fingerprintNote ?? "none"
+            if let height { statement["height"] = height }
+        }
         // A stored key that no longer signs (made by another build, or lost
         // from the security chip) is forgotten, and a new one made once.
         var lastError: Error?
@@ -371,7 +600,7 @@ final class AttestedStatementMaker: ObservableObject {
         if Self.enabled && !AttestSupport.agreed { Self.enabled = false; AttestOnion.wanted = false }
         guard Self.enabled, AttestSupport.unavailableReason == nil else { return }
         startServing()
-        if AttestOnion.wanted { AttestOnion.shared.start() }
+        if AttestOnion.wanted { AttestOnion.shared.start(); GenuineNodes.shared.start() }
     }
 
     /// Listens on 127.0.0.1 only: nothing outside this Mac can ask.
@@ -398,6 +627,7 @@ final class AttestedStatementMaker: ObservableObject {
     }
 
     func stopServing() {
+        flushRefusals(force: true)
         listener?.cancel()
         listener = nil
         serving = false
@@ -437,7 +667,7 @@ final class AttestedStatementMaker: ObservableObject {
                 guard !exchange.closed else { return }
                 exchange.answering = true
                 let (code, body) = await maker.answer(request)
-                let reason = [200: "OK", 400: "Bad Request", 409: "Conflict", 410: "Gone", 429: "Too Many Requests"][code] ?? "Service Unavailable"
+                let reason = [200: "OK", 400: "Bad Request", 404: "Not Found", 409: "Conflict", 410: "Gone", 429: "Too Many Requests"][code] ?? "Service Unavailable"
                 let head = "HTTP/1.1 \(code) \(reason)\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
                 connection.send(content: Data(head.utf8) + body, completion: .contentProcessed { _ in
                     Task { @MainActor in maker.close(exchange) }
@@ -450,51 +680,82 @@ final class AttestedStatementMaker: ObservableObject {
 
     /// GET /statement?challenge=<64 hex>[&height=<H>]. One at a time.
     func answer(_ request: String) async -> (Int, Data) {
-        func fail(_ code: Int, _ message: String, reason: String? = nil, tip: Int? = nil) -> (Int, Data) {
-            AttestLog.write("Refused a request (\(code)): \(message)")
-            var body: [String: Any] = ["error": message]
-            if let reason { body["reason"] = reason }
-            if let tip { body["tip"] = tip }
-            return (code, (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data())
+        func body(_ fields: [String: Any]) -> Data {
+            (try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys])) ?? Data()
+        }
+        // Every request counts towards the limit, well-formed or not, so junk
+        // cannot be sent faster than real questions.
+        let now = Date()
+        let verdict = limit.allow(at: now)
+        guard verdict.allowed else {
+            noteRefusal(overLimit: true, at: now)
+            return (429, body(["error": "Too many requests; at most \(limit.perMinute) a minute.",
+                               "reason": "limit", "retryAfter": verdict.retryAfter]))
         }
         guard let line = request.split(separator: "\r\n").first.map(String.init) else {
-            return fail(400, Self.usage)
+            noteRefusal(overLimit: false, at: now)
+            return (400, body(["error": Self.usage]))
+        }
+        if line.hasPrefix("GET /peers ") || line == "GET /peers" {
+            return GenuineNodes.shared.peersAnswer()
         }
         let parsed: StatementRequest
         switch StatementRequest.parse(line) {
         case .success(let request): parsed = request
-        case .failure(let problem): return fail(400, problem.message)
+        case .failure(let problem):
+            // The answer may repeat the asker's words; the log never does.
+            noteRefusal(overLimit: false, at: now)
+            return (400, body(["error": problem.message]))
         }
         let challenge = parsed.challenge
-        let now = Date()
-        let verdict = limit.allow(at: now)
-        guard verdict.allowed else {
-            // One log line a minute at most, so a flood cannot fill the disk.
-            overLimit += 1
-            if now.timeIntervalSince(overLimitLogged) >= 60 {
-                AttestLog.write("Refused \(overLimit) request(s) over the limit of \(limit.perMinute) a minute.")
-                overLimit = 0
-                overLimitLogged = now
-            }
-            let body: [String: Any] = ["error": "Too many requests; at most \(limit.perMinute) a minute.",
-                                       "reason": "limit", "retryAfter": verdict.retryAfter]
-            return (429, (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data())
+        guard !working else {
+            AttestLog.write("Busy: refused a request while answering another.")
+            return (503, body(["error": "Busy with another statement; try again in a moment."]))
         }
-        guard !working else { return fail(503, "Busy with another statement; try again in a moment.") }
         working = true
         defer { working = false }
         do {
             let data = try await statement(challenge: challenge, height: parsed.height)
-            status = parsed.height.map { "Answered a challenge for height \($0)." } ?? "Answered a challenge."
+            let summary = Self.summary(of: data)
+            status = "Answered a challenge (\(challenge.prefix(8))…)\(summary)."
             return (200, data)
         } catch let failure as Failure {
             status = failure.message
-            let code = failure.reason == "not-kept" ? 410 : failure.reason != nil ? 409 : 503
-            return fail(code, failure.message, reason: failure.reason, tip: failure.tip)
+            return (503, body(["error": failure.message]))
         } catch {
             status = "App Attest said: \(error.localizedDescription)"
-            return fail(503, "App Attest: \(error.localizedDescription)")
+            return (503, body(["error": "App Attest: \(error.localizedDescription)"]))
         }
+    }
+
+    /// Refused requests are counted and written as one line a minute at
+    /// most, with the counts only, so a flood cannot fill the log or put the
+    /// asker's text in it.
+    private func noteRefusal(overLimit isOverLimit: Bool, at now: Date) {
+        if isOverLimit { refusedOverLimit += 1 } else { refusedBad += 1 }
+        flushRefusals(at: now)
+    }
+
+    func flushRefusals(at now: Date = Date(), force: Bool = false) {
+        guard refusedOverLimit + refusedBad > 0, force || now.timeIntervalSince(refusalsLogged) >= 60 else { return }
+        var parts: [String] = []
+        if refusedBad > 0 { parts.append("\(refusedBad) malformed") }
+        if refusedOverLimit > 0 { parts.append("\(refusedOverLimit) over the limit of \(limit.perMinute) a minute") }
+        AttestLog.write("Refused \(parts.joined(separator: ", ")).")
+        refusedBad = 0
+        refusedOverLimit = 0
+        refusalsLogged = now
+    }
+
+    /// " · up to date, fingerprint at 3,576,912" and the like, for the log.
+    nonisolated static func summary(of statement: Data) -> String {
+        guard let json = try? JSONSerialization.jsonObject(with: statement) as? [String: Any],
+              let node = json["nodeState"] as? [String: Any], let state = node["state"] as? String else { return "" }
+        var text = " · " + (state == "syncing" ? "syncing at block \((node["tip"] as? Int).map(String.init) ?? "?")"
+                                              : state == "up-to-date" ? "up to date" : "node not running")
+        if let height = json["height"] as? Int, json["fingerprint"] != nil { text += ", fingerprint at \(height)" }
+        else if let note = json["fingerprintNote"] as? String { text += ", no fingerprint (\(note))" }
+        return text
     }
 
     /// "TEAMID.app.zecky.lockit", from this app's own signature.
@@ -606,6 +867,31 @@ final class AttestOnion: ObservableObject {
         state = "Off"
     }
 
+    /// A new onion address for good: the old key is deleted from Arti's
+    /// folders, so the old address never works again, for anyone. The App
+    /// Attest key is replaced too (one more contact with Apple at the next
+    /// answer), so the new address is not linkable to the old one.
+    func newAddress() async {
+        let wasRunning = process != nil
+        stop()
+        try? await Task.sleep(nanoseconds: 1_500_000_000)   // let Arti exit
+        if let root {
+            let fm = FileManager.default
+            let state = root.appendingPathComponent("state")
+            if let walker = fm.enumerator(at: state, includingPropertiesForKeys: [.isDirectoryKey]) {
+                var doomed: [URL] = []
+                for case let url as URL in walker where url.lastPathComponent == Self.nickname {
+                    doomed.append(url)
+                    walker.skipDescendants()
+                }
+                for url in doomed { try? fm.removeItem(at: url) }
+                AttestLog.write("New onion address: removed \(doomed.count) folder(s) of the old onion key.")
+            }
+        }
+        AttestedStatementMaker.forgetKeyForNewAddress()
+        if wasRunning { start() }
+    }
+
     /// The onion address, from Arti's own keystore (it is made on the first
     /// start). Asked again for a minute while Tor bootstraps.
     private func waitForAddress(arti: URL, configURL: URL) async {
@@ -686,19 +972,32 @@ final class AttestAsker: ObservableObject {
                 let tip = (json["tip"] as? Int).map { " (its tip: \($0))" } ?? ""
                 throw AskFailure("The node said: \(error)\(tip)")
             }
-            guard json["format"] as? String == "zecky-attested-statement/v1",
+            let format = json["format"] as? String
+            guard format == "zecky-attested-statement/v1" || format == "zecky-attested-statement/v2",
                   json["challenge"] as? String == challenge,
                   let client = json["clientDataJSON"] as? String,
                   client.contains("\"challenge\":\"\(challenge)\"") else {
-                throw AskFailure("The answer is not a v1 statement for this challenge.")
+                throw AskFailure("The answer is not a statement for this challenge.")
             }
-            if let height, json["height"] as? Int != height {
+            // A v2 node always answers; a fingerprint only for a height it can vouch for.
+            if let height, json["fingerprint"] != nil, json["height"] as? Int != height {
                 throw AskFailure("The answer is for another height than \(height).")
             }
-            let answered = (json["height"] as? Int).map(String.init) ?? "?"
+            let summary = AttestedStatementMaker.summary(of: body)
             let name = "asked-\(onion.prefix(8))-\(Int(Date().timeIntervalSince1970)).json"
             if let folder = AttestLog.folder { try body.write(to: folder.appendingPathComponent(name)) }
-            status = "Answered for your challenge, height \(answered). Saved \(name) in the logs folder; check it with verify_statement.py --challenge \(challenge)\(height.map { " --height \($0)" } ?? "")"
+            // Full check here, on this Mac: Apple's chain, the key, the
+            // signature over this challenge, and the same app. The other
+            // node's screen can say anything; this check is done by us.
+            let check = StatementCheck.check(body, expectedAppID: AttestedStatementMaker.applicationIdentifier() ?? "", challenge: challenge)
+            GenuineNodes.shared.noteManualCheck(onion, check)
+            if check.genuine {
+                let build = check.build.map { " build \($0)" } ?? ""
+                let since = check.attestedAt.map { " · key attested \($0.formatted(date: .abbreviated, time: .omitted))" } ?? ""
+                status = "Genuine ✓ Zecky Lock it\(build)\(since)\(summary). Saved \(name) in the logs folder; verify_statement.py --challenge \(challenge)\(height.map { " --height \($0)" } ?? "") gives a second opinion."
+            } else {
+                status = "Not genuine: \(check.reason). Saved \(name) in the logs folder."
+            }
         } catch let failure as AskFailure {
             status = failure.message
         } catch {
@@ -710,7 +1009,7 @@ final class AttestAsker: ObservableObject {
 
     /// A plain HTTP GET to host:80 through SOCKS5 (the onion name is resolved
     /// by Tor, never on this Mac). Reads until the node closes.
-    private static func get(host: String, path: String) async throws -> Data {
+    static func get(host: String, path: String) async throws -> Data {
         let connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: UInt16(AttestOnion.socksPort))!, using: .tcp)
         defer { connection.cancel() }
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
@@ -786,8 +1085,8 @@ enum AttestSupport {
         let v = ProcessInfo.processInfo.operatingSystemVersion
         guard v.majorVersion >= 27 else {
             let version = v.patchVersion > 0 ? "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)" : "\(v.majorVersion).\(v.minorVersion)"
-            return ("Needs macOS 27 or later.",
-                    "This Mac has macOS \(version), so it cannot make attested statements.")
+            return ("Needs macOS 27, a free update for this Mac.",
+                    "This Mac has macOS \(version). Every Mac that runs Lock it can update to macOS 27.")
         }
         if #available(macOS 27, *), DCAppAttestService.shared.isSupported { return nil }
         return ("App Attest is not available on this Mac.",
@@ -840,6 +1139,9 @@ struct GoMaxAttestCard: View {
     @ObservedObject private var maker = AttestedStatementMaker.shared
     @ObservedObject private var onion = AttestOnion.shared
     @ObservedObject private var asker = AttestAsker.shared
+    @ObservedObject private var known = GenuineNodes.shared
+    @State private var share = GenuineNodes.sharing
+    @State private var showKnown = false
     @State private var on = AttestedStatementMaker.enabled
     @State private var tor = AttestOnion.wanted
     @State private var otherNode = ""
@@ -847,13 +1149,14 @@ struct GoMaxAttestCard: View {
     @State private var copied = false
     @State private var showConsent = false
     @State private var showWhat = false
+    @State private var confirmNewAddress = false
 
     static let explanation: [(title: String, text: String)] = [
         ("Why", "Go Max is open source, so anyone can build a changed copy that looks the same from outside: one that hides a payment, gives a wrong chain, or logs which wallets ask about what. A wallet connecting to a node cannot tell the difference. With this on, your node can prove it is genuine Lock it on a real Mac: Apple's App Attest, the security chip in this Mac, signs its answers. A changed copy cannot. Each question carries a fresh random code, so an old answer cannot be passed off as new, and anyone can check an answer with the free, open-source verifier in Lock it's code, without asking Zecky."),
         ("Where it leads", "First your iPhone checking it talks to your own genuine node, then a verified mark other wallets can adopt. While this is tested it is off unless you switch it on; once proven, Go Max will do it by itself."),
         ("What it proves, and what not", "That the answer comes from the Zecky team's app on a real Mac with its security on. Not yet which version or which source code: that needs builds anyone can reproduce, which is still to come."),
         ("The switches", "Answer checks: this Mac answers such questions. Also over Tor: wallets and nodes can reach it through a private onion address, without learning where this Mac is. Check another node: you ask a node yourself."),
-        ("What it does not do", "Nothing about your wallet is shared, and your node and your Zcash are not changed."),
+        ("What it does not do", "Nothing about your wallet is shared, and your node and your Zcash are not changed. Genuine node answers on its onion address only, never on the node's peer-to-peer port or this Mac's home internet address, so nobody can link your home address to an attested node."),
     ]
 
     var body: some View {
@@ -882,6 +1185,12 @@ struct GoMaxAttestCard: View {
                     Text(unavailable.title).font(Theme.text(12, weight: .semibold)).foregroundStyle(Theme.gold)
                     Text(unavailable.detail).font(Theme.text(12)).foregroundStyle(Theme.muted)
                         .fixedSize(horizontal: false, vertical: true)
+                    if ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 27,
+                       let url = URL(string: "x-apple.systempreferences:com.apple.Software-Update-Settings.extension") {
+                        Button("Open Software Update") { NSWorkspace.shared.open(url) }
+                            .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                            .padding(.top, 2)
+                    }
                 }
             }
 
@@ -895,7 +1204,7 @@ struct GoMaxAttestCard: View {
                         return
                     }
                     AttestedStatementMaker.enabled = value
-                    if value { maker.startServing() } else { maker.stopServing(); onion.stop(); tor = false; AttestOnion.wanted = false }
+                    if value { maker.startServing() } else { maker.stopServing(); onion.stop(); known.stop(); tor = false; AttestOnion.wanted = false }
                 }
 
             if onion.available {
@@ -903,7 +1212,7 @@ struct GoMaxAttestCard: View {
                     .disabled(!on).opacity(on ? 1 : 0.45)
                     .onChange(of: tor) { value in
                         AttestOnion.wanted = value
-                        if value { onion.start() } else { onion.stop() }
+                        if value { onion.start(); known.start() } else { onion.stop(); known.stop() }
                     }
                 if tor, let address = onion.address {
                     HStack(spacing: 10) {
@@ -922,6 +1231,8 @@ struct GoMaxAttestCard: View {
                     .padding(.horizontal, 12).padding(.vertical, 9)
                     .background(Theme.ink, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.line))
+                    Button("New address…") { confirmNewAddress = true }
+                        .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
                 }
             }
 
@@ -955,6 +1266,46 @@ struct GoMaxAttestCard: View {
                             .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                     }
                 }
+
+                Divider().overlay(Theme.line)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("FINDING OTHER NODES · EXPERIMENTAL")
+                        .font(Theme.text(10, weight: .semibold)).tracking(1.4).foregroundStyle(Theme.gold)
+                    Text("Lock it asks the genuine nodes it knows for the ones they know, checks every one itself, and checks them again about once a day. Only genuine ones are kept.")
+                        .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    settingRow("Share my address with other Go Max nodes",
+                               detail: share ? "On · other genuine nodes can pass your address on" : "Off · your node can find others, others cannot find it",
+                               good: share, isOn: $share)
+                        .onChange(of: share) { GenuineNodes.sharing = $0 }
+                    Button {
+                        showKnown.toggle()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.seal").foregroundStyle(known.genuineCount > 0 ? Theme.green : Theme.muted)
+                            Text("Genuine nodes known: \(known.genuineCount)").foregroundStyle(Theme.text)
+                            if !known.nodes.isEmpty {
+                                Image(systemName: showKnown ? "chevron.up" : "chevron.down").foregroundStyle(Theme.muted)
+                            }
+                        }
+                        .font(Theme.text(12, weight: .medium))
+                    }
+                    .buttonStyle(.plain).disabled(known.nodes.isEmpty)
+                    if showKnown {
+                        ForEach(known.nodes) { node in
+                            HStack(spacing: 8) {
+                                Circle().fill(node.genuine ? Theme.green : Theme.muted.opacity(0.6)).frame(width: 6, height: 6)
+                                Text("\(node.onion.prefix(10))…\(node.onion.dropLast(6).suffix(4))")
+                                    .font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text)
+                                    .textSelection(.enabled)
+                                Text(knownDetail(node)).font(Theme.text(11)).foregroundStyle(Theme.muted)
+                                Spacer(minLength: 4)
+                                Button("Remove") { known.remove(node.onion) }
+                                    .buttonStyle(.plain).font(Theme.text(11, weight: .medium)).foregroundStyle(Theme.gold)
+                            }
+                        }
+                    }
+                }
             }
 
             if on {
@@ -982,6 +1333,12 @@ struct GoMaxAttestCard: View {
             }
         }
         .card(padding: 16)
+        .alert("A new address?", isPresented: $confirmNewAddress) {
+            Button("Cancel", role: .cancel) {}
+            Button("New address", role: .destructive) { Task { await onion.newAddress() } }
+        } message: {
+            Text("The current address stops working for good, for everyone who has it. Your node gets a new address and a new key, which contacts Apple once more at the next answer.")
+        }
         .sheet(isPresented: $showConsent) {
             AttestConsentSheet {
                 showConsent = false
@@ -1004,6 +1361,17 @@ struct GoMaxAttestCard: View {
         return tor ? onion.state : "Off · other nodes cannot reach this one"
     }
 
+    private func knownDetail(_ node: GenuineNodes.Node) -> String {
+        var parts: [String] = []
+        if let build = node.build { parts.append("build \(build)") }
+        if let checked = node.lastChecked {
+            parts.append("checked " + RelativeDateTimeFormatter().localizedString(for: checked, relativeTo: Date()))
+        }
+        if node.failures > 0 { parts.append("unreachable \(node.failures)×") }
+        if node.learnedFrom != "manual" { parts.append("via \(node.learnedFrom.prefix(6))…") }
+        return parts.joined(separator: " · ")
+    }
+
     private func ask() {
         guard !asker.working, !otherNode.isEmpty else { return }
         Task { await asker.ask(otherNode, height: askHeight) }
@@ -1021,6 +1389,219 @@ struct GoMaxAttestCard: View {
             }
             Spacer()
             Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small).tint(Theme.gold)
+        }
+    }
+}
+
+/// Go Max nodes finding each other (docs/discovery.md). Asking is allowed
+/// whenever "Also over Tor" runs; being found is the separate "Share my
+/// address" switch, off by default. Every address is checked by Lock it
+/// itself (StatementCheck) before it counts, and again about once a day.
+/// The list lives in GoMax/genuine-nodes.json and holds onion addresses
+/// and check times only, no wallet data.
+@MainActor
+final class GenuineNodes: ObservableObject {
+    static let shared = GenuineNodes()
+
+    struct Node: Codable, Identifiable, Equatable {
+        var onion: String
+        var learnedFrom: String          // "manual" or the onion that passed it on
+        var lastChecked: Date?
+        var lastGenuine: Date?
+        var nextCheck: Date
+        var build: String?
+        var failures: Int = 0
+        var shares: Bool = false         // answered /peers the last time we asked
+        var lastAskedPeers: Date?
+        var keyId: String?
+        var counter: Int?                // the key's answer count at the last check
+        var id: String { onion }
+        var genuine: Bool { lastGenuine != nil && failures == 0 }
+    }
+
+    static let maxNodes = 50
+    static let maxPeersAnswer = 20
+    static let maxFailures = 3
+    static let shareWindow: TimeInterval = 7 * 24 * 3600
+
+    @Published private(set) var nodes: [Node] = []
+    @Published var status = ""
+    private var loop: Task<Void, Never>?
+
+    static var sharing: Bool {
+        get { UserDefaults.standard.bool(forKey: "attest.shareAddress") }
+        set { UserDefaults.standard.set(newValue, forKey: "attest.shareAddress") }
+    }
+
+    private static var file: URL? { GoMaxNode.folder?.appendingPathComponent("genuine-nodes.json") }
+
+    init() {
+        if let file = Self.file, let data = try? Data(contentsOf: file) {
+            let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+            nodes = (try? decoder.decode([Node].self, from: data)) ?? []
+        }
+    }
+
+    var genuineCount: Int { nodes.filter(\.genuine).count }
+
+    private func save() {
+        guard let file = Self.file else { return }
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try? encoder.encode(nodes).write(to: file, options: .atomic)
+    }
+
+    /// A v3 onion name: 56 base32 characters (a–z, 2–7), then ".onion".
+    nonisolated static func validOnion(_ text: String) -> Bool {
+        guard text.count == 62, text.hasSuffix(".onion") else { return false }
+        return text.dropLast(6).allSatisfy { c in (c >= "a" && c <= "z") || (c >= "2" && c <= "7") }
+    }
+
+    private var ownAddress: String? { AttestOnion.shared.address?.lowercased() }
+
+    private static func nextDailyCheck(from now: Date = Date()) -> Date {
+        // About once a day, at a random time, so checks do not line up.
+        now.addingTimeInterval(Double.random(in: 18 * 3600...30 * 3600))
+    }
+
+    /// The owner checked this node by hand in "Check another node".
+    func noteManualCheck(_ onion: String, _ result: StatementCheck.Result) {
+        guard onion != ownAddress else { return }
+        let now = Date()
+        if let i = nodes.firstIndex(where: { $0.onion == onion }) {
+            apply(result, to: i, at: now)
+        } else if result.genuine {
+            guard nodes.count < Self.maxNodes else { return }
+            nodes.append(Node(onion: onion, learnedFrom: "manual", lastChecked: now, lastGenuine: now,
+                              nextCheck: Self.nextDailyCheck(from: now), build: result.build,
+                              keyId: result.keyId, counter: result.counter))
+        }
+        save()
+    }
+
+    private func apply(_ result: StatementCheck.Result, to i: Int, at now: Date) {
+        nodes[i].lastChecked = now
+        nodes[i].nextCheck = Self.nextDailyCheck(from: now)
+        // Apple: a key's count must go up with every answer. Same key, same or
+        // lower count: an old answer played back, or a copy. Not kept.
+        if result.genuine, let key = result.keyId, key == nodes[i].keyId,
+           let before = nodes[i].counter, let count = result.counter, count <= before {
+            nodes[i].failures = Self.maxFailures
+            AttestLog.write("Dropped \(nodes[i].onion.prefix(8))…: its key's count did not go up.")
+            return
+        }
+        if result.genuine {
+            nodes[i].lastGenuine = now
+            nodes[i].build = result.build
+            nodes[i].failures = 0
+            nodes[i].keyId = result.keyId
+            nodes[i].counter = result.counter
+        } else {
+            nodes[i].failures = Self.maxFailures      // answered, but not genuine: dropped
+        }
+    }
+
+    func remove(_ onion: String) {
+        nodes.removeAll { $0.onion == onion }
+        save()
+    }
+
+    /// GET /peers: genuine nodes checked in the last week that share their
+    /// address themselves. Only when this node shares too.
+    func peersAnswer() -> (Int, Data) {
+        guard Self.sharing else {
+            return (404, (try? JSONSerialization.data(withJSONObject: ["error": "This node does not share addresses."])) ?? Data())
+        }
+        let since = Date().addingTimeInterval(-Self.shareWindow)
+        let list = nodes.filter { $0.genuine && $0.shares && ($0.lastGenuine ?? .distantPast) >= since }
+            .prefix(Self.maxPeersAnswer).map(\.onion)
+        let body = ["v": 1, "peers": Array(list)] as [String: Any]
+        return (200, (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data())
+    }
+
+    func start() {
+        guard loop == nil else { return }
+        loop = Task { @MainActor [weak self] in
+            // A first round a few minutes after Tor is up, then every 30 min
+            // a look at what is due. Most rounds do nothing.
+            try? await Task.sleep(nanoseconds: 180_000_000_000)
+            while !Task.isCancelled {
+                await self?.discoveryRound()
+                try? await Task.sleep(nanoseconds: 1_800_000_000_000)
+            }
+        }
+    }
+
+    func stop() { loop?.cancel(); loop = nil }
+
+    private func discoveryRound() async {
+        guard AttestedStatementMaker.enabled, AttestOnion.shared.address != nil, !AttestAsker.shared.working else { return }
+        let now = Date()
+        // 1. Re-check what is due, one at a time, with a pause between.
+        for onion in nodes.filter({ $0.nextCheck <= now }).map(\.onion) {
+            await checkOne(onion)
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+        }
+        nodes.removeAll { $0.failures >= Self.maxFailures }
+        // 2. Ask genuine nodes for the nodes they know, once a day each.
+        let dayAgo = now.addingTimeInterval(-24 * 3600)
+        for onion in nodes.filter({ $0.genuine && ($0.lastAskedPeers ?? .distantPast) < dayAgo }).map(\.onion) {
+            await askPeers(onion)
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+        }
+        nodes.removeAll { $0.failures >= Self.maxFailures }
+        save()
+        status = "Genuine nodes known: \(genuineCount)."
+        AttestLog.write("Discovery round: \(genuineCount) genuine of \(nodes.count) known.")
+    }
+
+    /// A fresh challenge to the node, then Lock it's own full check.
+    private func checkOne(_ onion: String) async {
+        let result = await Self.check(onion)
+        guard let i = nodes.firstIndex(where: { $0.onion == onion }) else { return }
+        if let result {
+            apply(result, to: i, at: Date())
+            if !result.genuine { AttestLog.write("Dropped \(onion.prefix(8))…: \(result.reason)") }
+        } else {
+            nodes[i].failures += 1
+            nodes[i].lastChecked = Date()
+            // Unreachable: try again in a few hours rather than a day.
+            nodes[i].nextCheck = Date().addingTimeInterval(Double.random(in: 3 * 3600...6 * 3600))
+        }
+    }
+
+    /// nil when the node could not be reached or gave no statement.
+    static func check(_ onion: String) async -> StatementCheck.Result? {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return nil }
+        let challenge = bytes.map { String(format: "%02x", $0) }.joined()
+        guard let body = try? await AttestAsker.get(host: onion, path: "/statement?challenge=\(challenge)"),
+              let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              json["error"] == nil else { return nil }
+        return StatementCheck.check(body, expectedAppID: AttestedStatementMaker.applicationIdentifier() ?? "", challenge: challenge)
+    }
+
+    private func askPeers(_ onion: String) async {
+        guard let i = nodes.firstIndex(where: { $0.onion == onion }) else { return }
+        nodes[i].lastAskedPeers = Date()
+        guard let body = try? await AttestAsker.get(host: onion, path: "/peers"),
+              let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let peers = json["peers"] as? [String] else {
+            if let j = nodes.firstIndex(where: { $0.onion == onion }) { nodes[j].shares = false }
+            return
+        }
+        if let j = nodes.firstIndex(where: { $0.onion == onion }) { nodes[j].shares = true }
+        // New addresses count only once they pass a check of their own.
+        for peer in peers.prefix(Self.maxPeersAnswer).map({ $0.lowercased() })
+        where Self.validOnion(peer) && peer != ownAddress && !nodes.contains(where: { $0.onion == peer }) {
+            guard nodes.count < Self.maxNodes else { break }
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard let result = await Self.check(peer), result.genuine else { continue }
+            let now = Date()
+            nodes.append(Node(onion: peer, learnedFrom: onion, lastChecked: now, lastGenuine: now,
+                              nextCheck: Self.nextDailyCheck(from: now), build: result.build,
+                              keyId: result.keyId, counter: result.counter))
+            AttestLog.write("Found a genuine node \(peer.prefix(8))… (build \(result.build ?? "?")) via \(onion.prefix(8))…")
         }
     }
 }
