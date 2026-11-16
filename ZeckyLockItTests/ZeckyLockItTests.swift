@@ -721,6 +721,14 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertTrue(zakura.contains(#"listen_addr = "127.0.0.1:8232""#))
         XCTAssertTrue(zakura.contains(#"cache_dir = "/tmp/Go Max/zakura""#))
         XCTAssertTrue(zakura.contains(#"identity_dir = "/tmp/Go Max/zakura/identity""#))
+        // The byte counters for the data overview, on this Mac only; left
+        // out when their port is taken (Zakura would refuse to start).
+        XCTAssertTrue(zakura.contains("[metrics]"))
+        XCTAssertTrue(zakura.contains(#"endpoint_addr = "127.0.0.1:8234""#))
+        XCTAssertTrue(zakura.contains("\n[tracing]"))
+        let noMetrics = GoMaxConfig.zakura(dataDir: "/tmp/Go Max/zakura", retention: 10_000, metrics: false)
+        XCTAssertFalse(noMetrics.contains("[metrics]"))
+        XCTAssertFalse(noMetrics.contains("8234"))
         // Nothing listens beyond this Mac.
         XCTAssertFalse(zakura.contains("0.0.0.0"))
         XCTAssertFalse(zakura.contains("[::]"))
@@ -778,6 +786,141 @@ final class ZeckyLockItTests: XCTestCase {
         // A stopped node stays stopped, whatever it is asked.
         XCTAssertEqual(GoMaxPhase.next(after: .expired, running: false, info: nil, wasEverReady: true), .expired)
         XCTAssertEqual(GoMaxWords.short(.expired, nil), "Needs an update")
+    }
+
+    func testGoMaxPausedOnBatteryStaysPausedUntilLockItResumesIt() {
+        XCTAssertEqual(GoMaxPhase.next(after: .paused, running: false, info: nil, wasEverReady: false), .paused)
+        XCTAssertEqual(GoMaxWords.short(.paused, nil), "Paused · plug in to sync")
+        XCTAssertEqual(GoMaxWords.status(.paused, nil), "Paused on battery · carries on when the charger is connected")
+    }
+
+    func testBeforeYouStartGoMax() {
+        let gib: UInt64 = 1_073_741_824
+        let roomy = GoMaxComputer(freeBytes: 112_000_000_000, memoryBytes: 16 * gib, hasBattery: true, onBattery: false)
+        XCTAssertTrue(roomy.enoughSpace)
+        XCTAssertEqual(roomy.lines(hasData: false, onlyPluggedIn: true).map(\.good), [true, true, true, true])
+        XCTAssertEqual(roomy.lines(hasData: false, onlyPluggedIn: true).map(\.text),
+                       ["Free space: 112 GB (Go Max needs about 38 GB)", "Memory: 16 GB",
+                        "Data: the first sync downloads about 350 GB. Use a connection without a data limit.", "Plugged in"])
+        // Low Data Mode or a hotspot: a warning, never a stop.
+        var limited = roomy
+        limited.limitedConnection = true
+        XCTAssertEqual(limited.lines(hasData: false, onlyPluggedIn: true)[2],
+                       GoMaxComputer.Line(good: false, text: "Data: this connection is limited. The first sync downloads about 350 GB; better to use one without a data limit."))
+        XCTAssertTrue(limited.enoughSpace)
+
+        // Too little space: the only thing that stops a start.
+        let full = GoMaxComputer(freeBytes: 12_000_000_000, memoryBytes: 8 * gib, hasBattery: false, onBattery: false)
+        XCTAssertFalse(full.enoughSpace)
+        let fullLines = full.lines(hasData: false, onlyPluggedIn: true)
+        XCTAssertEqual(fullLines.count, 3)   // a desktop Mac: no power line
+        XCTAssertFalse(fullLines[0].good)
+        XCTAssertTrue(fullLines[0].text.hasPrefix("Free space: 12 GB. Go Max needs about 38 GB: free up"))
+        XCTAssertTrue(fullLines[1].good)      // 8 GB is not warned
+        // A node that already has its data needs no new room.
+        XCTAssertTrue(full.lines(hasData: true, onlyPluggedIn: true)[0].good)
+
+        // Little memory and on battery: warned, not stopped.
+        let small = GoMaxComputer(freeBytes: 60_000_000_000, memoryBytes: 4 * gib, hasBattery: true, onBattery: true)
+        let smallLines = small.lines(hasData: false, onlyPluggedIn: true)
+        XCTAssertEqual(smallLines.map(\.good), [true, false, true, false])
+        XCTAssertEqual(smallLines[3].text, "Running on battery. Plug in to sync: the first check waits for the charger.")
+        // The first check done: no warning about it on battery.
+        XCTAssertEqual(small.lines(hasData: true, onlyPluggedIn: true)[3],
+                       GoMaxComputer.Line(good: true, text: "On battery. Catching up waits for the charger; up to date, the node keeps running."))
+        XCTAssertEqual(small.lines(hasData: false, onlyPluggedIn: false)[3].text,
+                       "Running on battery. The first check drains the battery quickly; plug in if you can.")
+    }
+
+    func testExpectedFinishCountsTheSpamYears() throws {
+        XCTAssertEqual(GoMaxPace.work(0), 0)
+        // A spam block is much more work than one before or after.
+        XCTAssertGreaterThan(GoMaxPace.work(GoMaxPace.spamStart + 1) - GoMaxPace.work(GoMaxPace.spamStart),
+                             4 * (GoMaxPace.work(GoMaxPace.spamEnd + 1) - GoMaxPace.work(GoMaxPace.spamEnd)))
+
+        let t = Date(timeIntervalSince1970: 1_763_200_000)
+        var samples = GoMaxPace.Samples()
+        samples.add(t, 1_855_000)
+        XCTAssertNil(samples.finish(tip: 3_560_000), "one sample is not a speed")
+        // 7,200 blocks an hour in the spam years, as on a tester's laptop.
+        samples.add(t.addingTimeInterval(3_600), 1_862_200)
+        let finish = try XCTUnwrap(samples.finish(tip: 3_560_000))
+        let hours = finish.timeIntervalSince(t.addingTimeInterval(3_600)) / 3_600
+        // At spam speed the rest would take (3,560,000 - 1,862,200) / 7,200
+        // = 236 hours; counted with the faster rest it is far less…
+        XCTAssertLessThan(hours, 236)
+        // …but more than the spam that is left alone: 237,800 blocks at 7,200 an hour.
+        XCTAssertGreaterThan(hours, Double(GoMaxPace.spamEnd - 1_862_200) / 7_200)
+
+        // Nothing moved, or the node started over: no estimate.
+        var still = GoMaxPace.Samples()
+        still.add(t, 100)
+        still.add(t.addingTimeInterval(1_000), 100)
+        XCTAssertNil(still.finish(tip: 200))
+        still.add(t.addingTimeInterval(2_000), 50)
+        XCTAssertNil(still.finish(tip: 200))
+        // Less than a quarter of an hour: no estimate yet.
+        var short = GoMaxPace.Samples()
+        short.add(t, 100)
+        short.add(t.addingTimeInterval(600), 200)
+        XCTAssertNil(short.finish(tip: 1_000))
+    }
+
+    func testTheSpamLineAndTheFinishWords() {
+        XCTAssertTrue(GoMaxPace.spamLine(height: 1_000_000).hasPrefix("Ahead: the spam years"))
+        XCTAssertTrue(GoMaxPace.spamLine(height: 1_905_000).contains(": 50% of this stretch done"))
+        XCTAssertTrue(GoMaxPace.spamLine(height: 2_200_000).hasPrefix("The spam years are done"))
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Amsterdam")!
+        let now = Date(timeIntervalSince1970: 1_763_200_000)   // Sat 15 Nov 2025, 10:46:40 in Amsterdam
+        XCTAssertEqual(GoMaxPace.finishText(nil, now: now, calendar: calendar), "Measuring speed…")
+        XCTAssertEqual(GoMaxPace.finishText(now.addingTimeInterval(300), now: now, calendar: calendar), "In a few minutes")
+        // More than 3 hours away: to the hour (10:46:40 + 5 h = 15:46:40 → 16:00).
+        // (Newer macOS puts a narrow space before PM.)
+        func text(_ at: Date) -> String {
+            GoMaxPace.finishText(at, now: now, calendar: calendar).replacingOccurrences(of: "\u{202F}", with: " ")
+        }
+        XCTAssertEqual(text(now.addingTimeInterval(5 * 3_600)), "About Sat, Nov 15 at 4:00 PM")
+        // Closer: to 10 minutes (10:46:40 + 1 h = 11:46:40 → 11:50).
+        XCTAssertEqual(text(now.addingTimeInterval(3_600)), "About Sat, Nov 15 at 11:50 AM")
+    }
+
+    @MainActor func testGenuineNodeAnswersOnThisMacOnlyBehindItsOnion() {
+        // The answering port is not the node's peer-to-peer port, and the
+        // node's own ports never listen beyond this Mac.
+        XCTAssertNotEqual(Int(AttestedStatementMaker.port), GoMaxConfig.p2pPort)
+        XCTAssertEqual(GoMaxConfig.host, "127.0.0.1")
+    }
+
+    func testTheDataOverviewKeepsCountingOverRestarts() {
+        let text = """
+        # TYPE zcash_net_in_bytes_total counter
+        zcash_net_in_bytes_total 1500
+        zcash_net_out_bytes_total{peer="a"} 20
+        zcash_net_out_bytes_total{peer="b"} 22
+        zcash_net_in_bytes_total_other 9
+        """
+        XCTAssertEqual(GoMaxData.counter(GoMaxData.inCounter, in: text), 1_500)
+        XCTAssertEqual(GoMaxData.counter(GoMaxData.outCounter, in: text), 42)
+        XCTAssertNil(GoMaxData.counter("missing", in: text))
+
+        var total = GoMaxData.Total()
+        total.read(1_000)
+        total.read(1_500)
+        XCTAssertEqual(total.total, 1_500)
+        // Lock it starts Zakura again: what it counted is kept.
+        total.restart()
+        total.read(200)
+        XCTAssertEqual(total.total, 1_700)
+        // Zakura restarted by itself: a lower reading than before.
+        total.read(50)
+        XCTAssertEqual(total.total, 1_750)
+
+        XCTAssertEqual(GoMaxData.removed(downloaded: 212.4e9, kept: 18.6e9), 193.8e9, accuracy: 1)
+        XCTAssertEqual(GoMaxData.removed(downloaded: 5e9, kept: 18e9), 0)
+        XCTAssertEqual(GoMaxData.format(212.4e9), "212.4 GB")
+        XCTAssertEqual(GoMaxData.format(980e6), "980 MB")
     }
 
     func testGoMaxPhases() {
@@ -1019,6 +1162,99 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertTrue(StatementClientData.validChallenge(String(repeating: "0f", count: 32)))
         XCTAssertFalse(StatementClientData.validChallenge(String(repeating: "AB", count: 32)))
         XCTAssertFalse(StatementClientData.validChallenge("abc"))
+    }
+
+    func testStatementClientDataV2SignsTheNodeState() throws {
+        let c = String(repeating: "ab", count: 32)
+        let syncing = StatementClientData.NodeState(state: "syncing", tip: 3_412_000, estimate: 3_576_300)
+        let json = try StatementClientData.jsonV2(fingerprintSHA256: "", challenge: c, node: syncing)
+        // Sorted keys, no spaces: the same bytes the verifier rebuilds.
+        XCTAssertEqual(String(decoding: json, as: UTF8.self),
+                       "{\"challenge\":\"\(c)\",\"fingerprintSHA256\":\"\",\"node\":{\"estimate\":3576300,\"state\":\"syncing\",\"tip\":3412000},\"purpose\":\"zecky-go-max-state\",\"v\":2}")
+        let stopped = StatementClientData.NodeState(state: "not-running", tip: nil, estimate: 3_576_300)
+        XCTAssertNil(stopped.dictionary["tip"])
+    }
+
+    func testStatementSummaryForTheLog() throws {
+        let syncing = try JSONSerialization.data(withJSONObject: [
+            "nodeState": ["state": "syncing", "tip": 3_412_000, "estimate": 3_576_300], "fingerprintNote": "syncing"])
+        XCTAssertEqual(AttestedStatementMaker.summary(of: syncing), " · syncing at block 3412000, no fingerprint (syncing)")
+        let upToDate = try JSONSerialization.data(withJSONObject: [
+            "nodeState": ["state": "up-to-date", "tip": 3_576_300, "estimate": 3_576_300],
+            "fingerprint": ["v": 0], "height": 3_576_200])
+        XCTAssertEqual(AttestedStatementMaker.summary(of: upToDate), " · up to date, fingerprint at 3576200")
+    }
+
+    /// A real statement from TestFlight build 8, asked from another machine
+    /// over Tor on 15 Nov 2026 and checked with tools/verify-statement.
+    /// A real answer kept on this Mac only, never in the repository (it
+    /// carries an App Attest key ID): the newest asked-*.json in GoMax/logs,
+    /// saved by "Check another node". Without one, these tests are skipped.
+    private func localStatement() throws -> (data: Data, challenge: String) {
+        let logs = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+            .appendingPathComponent("GoMax/logs", isDirectory: true)
+        let files = (try? FileManager.default.contentsOfDirectory(at: logs, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        let newest = files.filter { $0.lastPathComponent.hasPrefix("asked-") && $0.pathExtension == "json" }
+            .max { a, b in
+                let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return da < db
+            }
+        guard let newest else { throw XCTSkip("No asked-*.json in GoMax/logs yet: check a node first, then run the tests again.") }
+        let data = try Data(contentsOf: newest)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return (data, try XCTUnwrap(json["challenge"] as? String))
+    }
+
+    func testAKeyIsCheckedAtTheMomentAppleAttestedIt() throws {
+        // Apple's leaf certificate is valid for three days; the chain is
+        // checked when Apple attested the key, so older keys still pass.
+        let (data, challenge) = try localStatement()
+        let result = StatementCheck.check(data, expectedAppID: "W2F7RNV886.app.zecky.lockit", challenge: challenge)
+        XCTAssertTrue(result.genuine, result.reason)
+        let attested = try XCTUnwrap(result.attestedAt)
+        XCTAssertLessThan(attested, Date())
+        XCTAssertNotNil(result.keyId)
+        // Apple attests a build number for TestFlight and App Store builds
+        // only; an answer from an Xcode build carries none.
+    }
+
+    func testDiscoveryAcceptsOnlyV3OnionNames() {
+        let good = String(repeating: "a", count: 50) + "234567.onion"
+        XCTAssertTrue(GenuineNodes.validOnion(good))
+        XCTAssertFalse(GenuineNodes.validOnion(good.uppercased()))
+        XCTAssertFalse(GenuineNodes.validOnion(String(repeating: "a", count: 55) + ".onion"))
+        XCTAssertFalse(GenuineNodes.validOnion(String(repeating: "a", count: 50) + "234561.onion"))
+        XCTAssertFalse(GenuineNodes.validOnion(String(repeating: "a", count: 56) + ".onion/x"))
+        XCTAssertFalse(GenuineNodes.validOnion("http://" + good))
+    }
+
+    func testStatementCheckAcceptsAGenuineAnswerAndNothingElse() throws {
+        let app = "W2F7RNV886.app.zecky.lockit"
+        let (data, challenge) = try localStatement()
+        let genuine = StatementCheck.check(data, expectedAppID: app, challenge: challenge)
+        XCTAssertTrue(genuine.genuine, genuine.reason)
+
+        // Another challenge: not fresh for this asker.
+        XCTAssertFalse(StatementCheck.check(data, expectedAppID: app, challenge: String(repeating: "00", count: 32)).genuine)
+        // Another app.
+        XCTAssertFalse(StatementCheck.check(data, expectedAppID: "ABCDE12345.app.zecky.lockit", challenge: challenge).genuine)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        // A changed fingerprint, when the answer has one.
+        if let text = json["fingerprintJSON"] as? String {
+            json["fingerprintJSON"] = text + " "
+            let altered = try JSONSerialization.data(withJSONObject: json)
+            XCTAssertFalse(StatementCheck.check(altered, expectedAppID: app, challenge: challenge).genuine)
+            json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        // Client data the key did not sign.
+        var client = try XCTUnwrap(JSONSerialization.jsonObject(with: Data((json["clientDataJSON"] as? String ?? "").utf8)) as? [String: Any])
+        client["fingerprintSHA256"] = String(repeating: "0", count: 64)
+        json["fingerprintSHA256"] = client["fingerprintSHA256"]
+        json["clientDataJSON"] = String(decoding: try StateFingerprint.canonicalJSON(client), as: UTF8.self)
+        json.removeValue(forKey: "fingerprintJSON")
+        let swapped = try JSONSerialization.data(withJSONObject: json)
+        XCTAssertFalse(StatementCheck.check(swapped, expectedAppID: app, challenge: challenge).genuine)
     }
 
     func testStatementRequestsAreParsedStrictly() {

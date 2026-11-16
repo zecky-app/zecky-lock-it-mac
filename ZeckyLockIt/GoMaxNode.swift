@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import IOKit.ps
 import Network
 
 /// Go Max: runs the node and its light-wallet server inside Lock it.
@@ -22,6 +23,28 @@ final class GoMaxNode: ObservableObject {
     @Published private(set) var retention = GoMaxConfig.retentionSyncing
     /// The last thing that went wrong, in plain words.
     @Published private(set) var problem: String?
+    /// While the first check runs: when it should be done (nil while the
+    /// speed is still being measured), and where it stands against the
+    /// spam years. Both nil once the node is up to date.
+    @Published private(set) var finishAt: Date?
+    @Published private(set) var spamLine: String?
+    /// The node's height over the last hour, for the expected finish.
+    private var pace = GoMaxPace.Samples()
+
+    /// The data overview: bytes from and to other nodes over every run of
+    /// Zakura, and what Go Max's folder holds. Counted on this Mac only.
+    @Published private(set) var downloaded = GoMaxData.Total()
+    @Published private(set) var uploaded = GoMaxData.Total()
+    @Published private(set) var kept: Double?
+    /// macOS reports Low Data Mode or a costly connection (a phone's hotspot).
+    @Published private(set) var limitedConnection = false
+    private static let downloadedKey = "goMax.data.downloaded"
+    private static let uploadedKey = "goMax.data.uploaded"
+    private var lastCount = Date.distantPast
+    private var lastKept = Date.distantPast
+    private let pathMonitor = NWPathMonitor()
+    /// Whether this run of Zakura has its metrics endpoint.
+    private var metricsOn = true
 
     /// The wallet engine, to switch its server. Set when the wallet starts.
     weak var engine: WalletEngine?
@@ -29,6 +52,7 @@ final class GoMaxNode: ObservableObject {
     // MARK: Remembered settings
 
     private static let enabledKey = "goMax.enabled"
+    private static let onlyPluggedInKey = "goMax.onlyPluggedIn"
     private static let widenedKey = "goMax.widened"
     /// The server before Go Max, in the Keychain like the server itself.
     private static let previousService = "app.zecky.lockit.mac.gomax.previous"
@@ -36,6 +60,19 @@ final class GoMaxNode: ObservableObject {
     var enabled: Bool {
         get { UserDefaults.standard.bool(forKey: Self.enabledKey) }
         set { UserDefaults.standard.set(newValue, forKey: Self.enabledKey); objectWillChange.send() }
+    }
+    /// "Only sync while plugged in": on by default on a Mac with a battery.
+    /// On battery, the first check and catching up wait for the charger; a
+    /// node that is up to date keeps running (it needs little power then).
+    var onlyWhilePluggedIn: Bool {
+        get {
+            UserDefaults.standard.object(forKey: Self.onlyPluggedInKey) as? Bool ?? PowerSource.read().hasBattery
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Self.onlyPluggedInKey)
+            objectWillChange.send()
+            Task { await powerLook() }
+        }
     }
     private var widened: Bool {
         get { UserDefaults.standard.bool(forKey: Self.widenedKey) }
@@ -255,14 +292,29 @@ final class GoMaxNode: ObservableObject {
         self.engine = engine
         guard !loaded else { return }
         loaded = true
+        watchPower()
         if enabled && Self.isAvailable {
             wasEverReady = widened
-            Task { await start() }
+            Task { await startOrWait() }
         } else if Self.previousServer != nil {
             // Go Max is off, but Lock it was left on the node it had been
             // switched to (a quit while switching off): back to the server.
             Task { await restoreServer() }
         }
+    }
+
+    /// Free space where the node's data goes (this Mac's own disk).
+    var freeBytes: Int64 {
+        let values = try? URL(fileURLWithPath: NSHomeDirectory())
+            .resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage ?? 0
+    }
+
+    /// "Before you start Go Max" and "Check this computer".
+    func computerCheck() -> GoMaxComputer {
+        var computer = PowerSource.computer(freeBytes: freeBytes)
+        computer.limitedConnection = limitedConnection
+        return computer
     }
 
     /// What stands in the way of switching on, or nil.
@@ -285,7 +337,66 @@ final class GoMaxNode: ObservableObject {
         // A node that reached the tip before (its window was widened there)
         // is catching up, not checking history from the start.
         wasEverReady = wasEverReady || widened
+        await startOrWait()
+    }
+
+    /// Before the first check is done, a start on battery waits for the
+    /// charger when the owner wants that. A node that was up to date before
+    /// starts anyway: it may only need a few minutes to catch up, and is
+    /// paused at the next looks if it turns out to be far behind.
+    private func startOrWait() async {
+        if onlyWhilePluggedIn, !wasEverReady, PowerSource.read().onBattery {
+            problem = nil
+            phase = .paused
+            return
+        }
         await start()
+    }
+
+    // MARK: Power
+
+    private var powerTimer: Timer?
+    /// Looks in a row on battery while checking or catching up: two (about
+    /// a minute), so pulling the plug for a moment does not stop the node.
+    private var batteryLooks = 0
+
+    private func watchPower() {
+        guard powerTimer == nil else { return }
+        loadCounts()
+        pathMonitor.pathUpdateHandler = { path in
+            let limited = path.isConstrained || path.isExpensive
+            Task { @MainActor in GoMaxNode.shared.limitedConnection = limited }
+        }
+        pathMonitor.start(queue: .main)
+        powerTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
+            Task { @MainActor in await GoMaxNode.shared.powerLook() }
+        }
+    }
+
+    private func powerLook() async {
+        guard enabled, Self.isAvailable else { batteryLooks = 0; return }
+        let power = PowerSource.read()
+        if phase == .paused {
+            if !power.onBattery || !onlyWhilePluggedIn { await start() }
+            return
+        }
+        guard onlyWhilePluggedIn, power.onBattery, phase == .syncing || phase == .catchingUp else {
+            batteryLooks = 0
+            return
+        }
+        batteryLooks += 1
+        if batteryLooks >= 2 { await pause() }
+    }
+
+    /// On battery while checking or catching up: Lock it back on its server
+    /// first (as at Off), then both programs stop. The data stays.
+    private func pause() async {
+        batteryLooks = 0
+        stopPolling()
+        await restoreServer()
+        await stopPrograms()
+        problem = nil
+        phase = .paused
     }
 
     /// After "The node stopped while starting": stop what is left, give the
@@ -298,7 +409,7 @@ final class GoMaxNode: ObservableObject {
         try? await Task.sleep(nanoseconds: 30_000_000_000)
         retrying = false
         guard enabled else { return }
-        await start()
+        await startOrWait()
     }
 
     /// Off: both programs stop, the data stays, Lock it goes back to its server.
@@ -326,6 +437,12 @@ final class GoMaxNode: ObservableObject {
         widened = false
         Self.previousServer = nil
         wasEverReady = false
+        // The node and its data are gone: the overview starts again.
+        downloaded = GoMaxData.Total()
+        uploaded = GoMaxData.Total()
+        kept = nil
+        UserDefaults.standard.removeObject(forKey: Self.downloadedKey)
+        UserDefaults.standard.removeObject(forKey: Self.uploadedKey)
         info = nil
         retention = GoMaxConfig.retentionSyncing
         phase = .off
@@ -377,7 +494,11 @@ final class GoMaxNode: ObservableObject {
             }
             let r = GoMaxConfig.retention(widened: widened)
             retention = r
-            try GoMaxConfig.zakura(dataDir: p.zakuraData.path, retention: r).write(to: p.zakuraConfig, atomically: true, encoding: .utf8)
+            // The counters' port taken by something else: the node starts
+            // without them (the data overview pauses for this run).
+            metricsOn = !(await LocalRPC.portOpen(GoMaxConfig.metricsPort))
+            try GoMaxConfig.zakura(dataDir: p.zakuraData.path, retention: r, metrics: metricsOn)
+                .write(to: p.zakuraConfig, atomically: true, encoding: .utf8)
             try GoMaxConfig.zaino(dataDir: p.zainoData.path).write(to: p.zainoConfig, atomically: true, encoding: .utf8)
             startedOnFreePorts = true
             try startZakura(p)
@@ -402,6 +523,10 @@ final class GoMaxNode: ObservableObject {
     }
 
     private func startZakura(_ p: Paths) throws {
+        // A new run of Zakura counts from zero: keep what the last one counted.
+        downloaded.restart()
+        uploaded.restart()
+        saveCounts()
         // Info shows the sync in the log; it holds blocks and peers, never wallet data.
         zakura = try launch("zakurad", ["-c", p.zakuraConfig.path, "start"], log: p.zakuraLog, pidFile: p.zakuraPid,
                             environment: ["ZAKURA_TRACING__FILTER": "info"])
@@ -590,6 +715,8 @@ final class GoMaxNode: ObservableObject {
     private func stopPolling() {
         timer?.invalidate()
         timer = nil
+        // Off, paused or a problem: the measured speed starts over.
+        clearPace()
         looksWithoutPeers = 0
         disconnected = false
         peers = nil
@@ -634,7 +761,7 @@ final class GoMaxNode: ObservableObject {
 
     /// One look at the node: phase, Zaino restarts, widening, switching over.
     private func tick() async {
-        guard !busy, phase != .off, phase != .stopped, phase != .updating, phase != .expired else { return }
+        guard !busy, phase != .off, phase != .stopped, phase != .updating, phase != .expired, phase != .paused else { return }
         busy = true
         defer { busy = false }
         let nodeRunning = zakura?.isRunning == true
@@ -647,6 +774,8 @@ final class GoMaxNode: ObservableObject {
         }
         let next = GoMaxPhase.next(after: phase, running: nodeRunning, info: fresh, wasEverReady: wasEverReady)
         if let fresh { info = fresh }
+        updatePace(fresh, next)
+        if fresh != nil { await countData() }
         rememberHeight()
         // The network is past this node version's last block (the node has
         // stopped by itself, or is about to): not a problem, the stop.
@@ -721,6 +850,78 @@ final class GoMaxNode: ObservableObject {
         }
     }
 
+    /// The expected finish and the spam-years line: sampled at every look
+    /// (at most every 15 seconds), also while the Go Max page is closed.
+    /// The network's height is the server's as the wallet last heard it,
+    /// else the clock's estimate.
+    private func updatePace(_ fresh: GoMaxChainInfo?, _ next: GoMaxPhase) {
+        guard let fresh, next == .syncing || next == .catchingUp else { clearPace(); return }
+        let heard = engine?.networkHeight ?? 0
+        let tip = heard > 0 ? heard : Birthday.estimatedTip()
+        guard fresh.blocks + GoMaxPace.upToDateBlocks < tip else { clearPace(); return }
+        let now = Date()
+        if let last = pace.list.last?.at, now.timeIntervalSince(last) < GoMaxPace.every {
+            // Too soon for a new sample; the finish stays as it was.
+        } else {
+            pace.add(now, fresh.blocks)
+        }
+        finishAt = pace.finish(tip: tip)
+        spamLine = GoMaxPace.spamLine(height: fresh.blocks)
+    }
+
+    // MARK: Data overview
+
+    /// Zakura's byte counters once a minute, the folder's size every five.
+    private func countData() async {
+        let now = Date()
+        if metricsOn, now.timeIntervalSince(lastCount) >= 60 {
+            lastCount = now
+            if let raw = await LocalRPC.get("/metrics", port: GoMaxConfig.metricsPort) {
+                let text = String(decoding: raw, as: UTF8.self)
+                if let bytes = GoMaxData.counter(GoMaxData.inCounter, in: text) { downloaded.read(bytes) }
+                if let bytes = GoMaxData.counter(GoMaxData.outCounter, in: text) { uploaded.read(bytes) }
+                saveCounts()
+            }
+        }
+        if now.timeIntervalSince(lastKept) >= 300, let p = paths {
+            lastKept = now
+            let folders = [p.zakuraData, p.zainoData]
+            kept = await Task.detached { folders.reduce(0) { $0 + GoMaxNode.folderSize($1) } }.value
+        }
+    }
+
+    /// Bytes the files in a folder take on disk.
+    nonisolated static func folderSize(_ folder: URL) -> Double {
+        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .isRegularFileKey]
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys) else { return 0 }
+        var total = 0.0
+        for case let url as URL in walker {
+            guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
+            total += Double(values.totalFileAllocatedSize ?? 0)
+        }
+        return total
+    }
+
+    private func loadCounts() {
+        let decoder = JSONDecoder()
+        if let data = UserDefaults.standard.data(forKey: Self.downloadedKey),
+           let total = try? decoder.decode(GoMaxData.Total.self, from: data) { downloaded = total }
+        if let data = UserDefaults.standard.data(forKey: Self.uploadedKey),
+           let total = try? decoder.decode(GoMaxData.Total.self, from: data) { uploaded = total }
+    }
+
+    private func saveCounts() {
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(downloaded) { UserDefaults.standard.set(data, forKey: Self.downloadedKey) }
+        if let data = try? encoder.encode(uploaded) { UserDefaults.standard.set(data, forKey: Self.uploadedKey) }
+    }
+
+    private func clearPace() {
+        pace.clear()
+        finishAt = nil
+        spamLine = nil
+    }
+
     /// At the tip for the first time: keep about a month of blocks from now
     /// on. The node restarts once to take the setting; Zaino after it.
     private func widen() async {
@@ -730,7 +931,7 @@ final class GoMaxNode: ObservableObject {
             await stop(zaino)
             await stop(zakura)
             startedOnFreePorts = false
-            try GoMaxConfig.zakura(dataDir: p.zakuraData.path, retention: GoMaxConfig.retentionAtTip)
+            try GoMaxConfig.zakura(dataDir: p.zakuraData.path, retention: GoMaxConfig.retentionAtTip, metrics: metricsOn)
                 .write(to: p.zakuraConfig, atomically: true, encoding: .utf8)
             startedOnFreePorts = await LocalRPC.portOpen(GoMaxConfig.rpcPort) == false
             try startZakura(p)
@@ -852,6 +1053,13 @@ enum LocalRPC {
         return nil
     }
 
+    /// A plain GET on this Mac (Zakura's metrics); the body, or nil.
+    static func get(_ path: String, port: Int) async -> Data? {
+        let head = "GET \(path) HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nConnection: close\r\n\r\n"
+        guard let response = await exchange(Data(head.utf8), port: port, timeout: 5) else { return nil }
+        return body(of: response)
+    }
+
     /// Whether something on this Mac accepts connections on the port.
     static func portOpen(_ port: Int) async -> Bool {
         await exchange(Data(), port: port, timeout: 1) != nil
@@ -938,3 +1146,28 @@ enum LocalRPC {
         }
     }
 }
+
+/// The Mac's power, from IOKit, read on this Mac only.
+enum PowerSource {
+    /// `hasBattery`: a MacBook. `onBattery`: running on it right now.
+    static func read() -> (hasBattery: Bool, onBattery: Bool) {
+        guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue() else { return (false, false) }
+        // "Battery Power" is kIOPSBatteryPowerValue; "Type" and
+        // "InternalBattery" are kIOPSTypeKey and kIOPSInternalBatteryType.
+        let providing: String? = IOPSGetProvidingPowerSourceType(blob).map { $0.takeUnretainedValue() as String }
+        let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef] ?? []
+        let hasBattery = sources.contains { source in
+            let description = IOPSGetPowerSourceDescription(blob, source)?.takeUnretainedValue() as? [String: Any]
+            return description?["Type"] as? String == "InternalBattery"
+        }
+        return (hasBattery, hasBattery && providing == "Battery Power")
+    }
+
+    /// What "Before you start Go Max" shows.
+    static func computer(freeBytes: Int64) -> GoMaxComputer {
+        let power = read()
+        return GoMaxComputer(freeBytes: freeBytes, memoryBytes: ProcessInfo.processInfo.physicalMemory,
+                             hasBattery: power.hasBattery, onBattery: power.onBattery)
+    }
+}
+

@@ -9,6 +9,12 @@ struct GoMaxPage: View {
     @State private var working = false
     @State private var showMore = false
     @State private var showStillNot = false
+    @State private var showCheck = false
+    @State private var showWhyPrivate = false
+    @State private var computer: GoMaxComputer?
+    /// "Before you start Go Max" is shown at the first switch-on only;
+    /// afterwards from "Check this computer".
+    @AppStorage("goMax.checkShown") private var checkShown = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -25,6 +31,19 @@ struct GoMaxPage: View {
                     GoMaxSwitch(on: node.enabled, busy: working) { switchTo(!node.enabled) }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(GoMaxWords.privateLine)
+                            .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(showWhyPrivate ? "Less" : "What is this?") { showWhyPrivate.toggle() }
+                            .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                    }
+                    if showWhyPrivate {
+                        ForEach(GoMaxWords.whyPrivate, id: \.self) { part in
+                            Text(part).font(Theme.text(12)).foregroundStyle(Theme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                     if node.disconnected {
                         Text("Not connected to other Zcash nodes · check this Mac's internet connection. Some networks (office, hotel, guest Wi-Fi) block Zcash nodes. A second Zcash node on the same internet connection, such as Rock it, may also be taking the peers.")
                             .font(Theme.text(13)).foregroundStyle(Theme.gold)
@@ -37,6 +56,12 @@ struct GoMaxPage: View {
                         Text(GoMaxWords.status(node.phase, node.info))
                             .font(Theme.text(13)).foregroundStyle(node.phase == .ready && node.info?.shownUpToDate != false ? Theme.green : Theme.text)
                             .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if node.spamLine != nil {
+                        HStack(spacing: 8) {
+                            Text("Expected finish").font(Theme.text(12)).foregroundStyle(Theme.muted)
+                            Text(GoMaxPace.finishText(node.finishAt)).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.text)
+                        }
                     }
                     // Where the wallet reads from, when that is not simply this node.
                     Group {
@@ -59,6 +84,11 @@ struct GoMaxPage: View {
                                 .font(Theme.text(12)).foregroundStyle(Theme.gold)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+                        if node.phase == .paused {
+                            Text("Meanwhile Lock it reads the chain from \(Server.host).")
+                                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         if node.walletQuiet {
                             Text(GoMaxWords.walletQuiet)
                                 .font(Theme.text(12)).foregroundStyle(Theme.gold)
@@ -73,6 +103,13 @@ struct GoMaxPage: View {
                     if let info = node.info, node.phase != .off {
                         Text(GoMaxWords.storage(sizeOnDisk: info.sizeOnDisk, retention: node.retention))
                             .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    }
+                    if let spam = node.spamLine {
+                        Text(spam).font(Theme.text(12)).foregroundStyle(Theme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if node.hasData, node.downloaded.total > 0 {
+                        dataOverview
                     }
                     if node.stoppedWhileStarting || node.retrying {
                         // One calm line, one button; the rest only when asked for.
@@ -97,9 +134,25 @@ struct GoMaxPage: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if !node.enabled && !node.hasData {
-                        Text("15 GB of disk to start, about 22 GB after a month. The first check takes most of a day (about 14 hours on a MacBook Air) and downloads the whole chain once, about 250 GB, deleting older blocks as it goes. Keep Lock it open; the check pauses while the Mac sleeps and carries on after.")
+                        Text("15 GB of disk to start, about 22 GB after a month. The first check takes most of a day (about 14 hours on a MacBook Air) and downloads the whole chain once, about 350 GB, deleting older blocks as it goes. Keep Lock it open; the check pauses while the Mac sleeps and carries on after.")
                             .font(Theme.text(12)).foregroundStyle(Theme.muted)
                             .fixedSize(horizontal: false, vertical: true)
+                    }
+                    HStack(spacing: 18) {
+                        Button("Check this computer") { openCheck() }
+                            .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                        Spacer()
+                    }
+                    if PowerSource.read().hasBattery {
+                        Toggle(isOn: Binding(get: { node.onlyWhilePluggedIn }, set: { node.onlyWhilePluggedIn = $0 })) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Only sync while plugged in").font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.text)
+                                Text("On battery, the first check and catching up wait for the charger. Up to date, the node keeps running: it needs little power then.")
+                                    .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .toggleStyle(.switch).controlSize(.small).tint(Theme.gold)
                     }
                 } else {
                     Text("This build of Lock it has no node inside.")
@@ -143,6 +196,43 @@ struct GoMaxPage: View {
         } message: {
             Text("Go Max stops and its data (15 to 22 GB) is deleted from this Mac. Lock it goes back to its server. Your wallets are not touched. Switching Go Max on again starts the check from the beginning.")
         }
+        .sheet(isPresented: $showCheck) {
+            GoMaxCheckSheet(computer: computer ?? node.computerCheck(), hasData: node.hasData,
+                            onlyPluggedIn: node.onlyWhilePluggedIn, starting: !node.enabled) {
+                showCheck = false
+                checkShown = true
+                if !node.enabled { switchTo(true) }
+            } onCancel: {
+                showCheck = false
+            }
+        }
+    }
+
+    /// What the node downloaded, keeps, removed after checking, and uploaded.
+    private var dataOverview: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 2) {
+                dataRow("Downloaded", node.downloaded.total)
+                if let kept = node.kept {
+                    dataRow("Kept on this Mac", kept)
+                    dataRow("Removed after check", GoMaxData.removed(downloaded: node.downloaded.total, kept: kept))
+                }
+                dataRow("Uploaded", node.uploaded.total)
+            }
+            Text(GoMaxData.footnote)
+                .font(Theme.text(11)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 2)
+    }
+
+    private func dataRow(_ label: String, _ bytes: Double) -> some View {
+        GridRow {
+            Text(label).font(Theme.text(12)).foregroundStyle(Theme.muted)
+            Text(GoMaxData.format(bytes)).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.text)
+                .monospacedDigit()
+                .gridColumnAlignment(.trailing)
+        }
     }
 
     /// The node version's last block: a calm line two weeks ahead, and at
@@ -178,7 +268,14 @@ struct GoMaxPage: View {
         }
     }
 
+    private func openCheck() {
+        computer = node.computerCheck()
+        showCheck = true
+    }
+
     private func switchTo(_ on: Bool) {
+        // The first switch-on shows this Mac's check first.
+        if on, !checkShown, !node.hasData { openCheck(); return }
         run {
             if on { await node.switchOn() } else { await node.switchOff() }
         }
@@ -194,10 +291,11 @@ struct GoMaxPage: View {
 
     static let details = [
         "Until the node is up to date, Lock it keeps using your server. Then it switches to the node by itself. Switching Go Max off, or a problem with the node, switches back, and this page says so. The node keeps only recent blocks: when a wallet still has older blocks to check, after adding or restoring a wallet, Lock it reads those from your server and returns to the node afterwards.",
-        "The node connects to other Zcash nodes on the internet, like every node: they see this Mac's internet address, never your wallets, addresses or balance. Lock it talks to the node on this Mac only, and the node accepts no connections from outside.",
+        "The node connects to other Zcash nodes on the internet, like every node: they see this Mac's internet address, never your wallets, addresses or balance. Lock it talks to the node on this Mac only, and the node accepts no connections from outside: it passes new blocks and transactions on to the nodes it connects to, but your address is never announced as a Zcash node.",
+        "The first check downloads about 350 GB; afterwards a day of new blocks is small. The page counts what the node downloaded, keeps, removed after checking and uploaded, on this Mac only. Better on a connection without a data limit; Lock it says so when macOS reports Low Data Mode or a costly connection.",
         "Every block since the Canopy upgrade (2020) is checked here, proofs and all. Older blocks are accepted on checkpoints built into the node, as every Zcash node does.",
         "The node keeps about a month of recent blocks in full, and what every node needs to check new ones. Its files live in Lock it's own folder, left out of Time Machine.",
-        "It runs while Lock it is open. While it is checking or catching up, the Mac does not fall asleep on its own; up to date, it sleeps as usual.",
+        "It runs while Lock it is open. While it is checking or catching up, the Mac does not fall asleep on its own; up to date, it sleeps as usual. On a MacBook, \"Only sync while plugged in\" (on unless you switch it off) pauses checking and catching up on battery, and Lock it reads from your server meanwhile; up to date, the node keeps running on battery.",
         "Genuine node (experimental, off unless you switch it on): wallets and other nodes that ask over Tor can check that this node is genuine Lock it on a real Mac, signed with Apple's App Attest. Each answer also carries a fingerprint of the chain, which may later help new nodes start faster; nothing uses that yet. Only public chain data is shared. Switching it on contacts Apple once from this Mac's internet address to set up a key; the key is the same in every answer, so answers can be linked to each other.",
         "Each version of the node follows the chain up to a fixed block, about six weeks after it comes out; this one up to block \(GoMaxSupport.stopHeightText). Lock it says so two weeks ahead. At that block the node stops and Lock it asks you: a public server, or wait for the update.",
     ]
@@ -211,6 +309,11 @@ struct GoMaxPage: View {
 /// the price (disk, time, download) is read before anything starts.
 struct GoMaxButton: View {
     @ObservedObject var node: GoMaxNode
+    /// Genuine node: said on the button while the node is up to date and
+    /// answers checks. A status of what the node does, not a proof: the
+    /// proof is another device's check (an app cannot vouch for itself).
+    @ObservedObject private var attest = AttestedStatementMaker.shared
+    @ObservedObject private var onion = AttestOnion.shared
     let open: () -> Void
     @State private var hover = false
     @State private var breathe = false
@@ -242,7 +345,9 @@ struct GoMaxButton: View {
             guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) { breathe = true }
         }
-        .help("Go Max: your own Zcash node on this Mac")
+        .help(showsGenuine
+              ? "Go Max: your own Zcash node on this Mac. Genuine node is on: other wallets and nodes can check over Tor that it is genuine Lock it. The proof is their check, not this label."
+              : "Go Max: your own Zcash node on this Mac")
         .accessibilityLabel("Go Max, \(subtitle)")
     }
 
@@ -268,7 +373,15 @@ struct GoMaxButton: View {
                     .rotationEffect(.degrees(-90))
                     .frame(width: 52, height: 52)
             }
-            if let badge {
+            if showsGenuine {
+                // Up to date and answering checks over Tor: a small check
+                // instead of the green dot.
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.surface, Theme.green)
+                    .background(Circle().fill(Theme.surface).padding(-1.5))
+                    .offset(x: 16, y: 16)
+            } else if let badge {
                 Circle().fill(badge).frame(width: 12, height: 12)
                     .overlay(Circle().stroke(Theme.surface, lineWidth: 2))
                     .offset(x: 16, y: 16)
@@ -279,6 +392,15 @@ struct GoMaxButton: View {
     }
 
     private var inviting: Bool { node.phase == .off || node.phase == .stopped }
+    /// Genuine node is answering checks and reachable over Tor: only then
+    /// can anyone outside this Mac check it.
+    private var genuineOn: Bool { attest.serving && onion.address != nil }
+    /// Said on the button only when nothing else needs saying.
+    private var showsGenuine: Bool {
+        genuineOn && node.phase == .ready && node.info?.shownUpToDate != false
+            && !node.disconnected && node.quietMinutes == nil && updateBefore == nil
+            && !(node.olderFrom != nil && !node.readsFromNode)
+    }
     private var checking: Bool { [.starting, .syncing, .catchingUp, .updating].contains(node.phase) }
     private var glow: Double {
         if inviting { return hover ? 0.5 : (breathe ? 0.38 : 0.14) }
@@ -316,7 +438,9 @@ struct GoMaxButton: View {
         switch node.phase {
         case .off: return "Run your own node"
         case .stopped: return "Off · data kept"
-        case .ready: return node.info?.shownUpToDate == false ? "Catching up" : "Your own node"
+        case .ready:
+            if node.info?.shownUpToDate == false { return "Catching up" }
+            return showsGenuine ? "Your own genuine node" : "Your own node"
         case .problem: return "Stopped · open to see why"
         case .expired: return "Needs an update · open"
         default: return GoMaxWords.short(node.phase, node.info)
@@ -459,3 +583,49 @@ struct AdvancedBox<Content: View>: View {
         .animation(.easeOut(duration: 0.15), value: hover)
     }
 }
+
+/// "Before you start Go Max": free space, memory and power, read on this
+/// Mac only, and what to expect. Only too little space stops a start.
+struct GoMaxCheckSheet: View {
+    let computer: GoMaxComputer
+    let hasData: Bool
+    let onlyPluggedIn: Bool
+    /// From the switch (Start / Not now), or from "Check this computer" (Close).
+    let starting: Bool
+    let onStart: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        SheetScaffold(title: starting ? "Before you start Go Max" : "This computer",
+                      subtitle: "Read on this Mac only. Nothing is sent anywhere.",
+                      showsClose: false, width: 520, height: 470, onClose: onCancel) {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(computer.lines(hasData: hasData, onlyPluggedIn: onlyPluggedIn), id: \.text) { line in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Image(systemName: line.good ? "checkmark" : "exclamationmark.triangle")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(line.good ? Theme.green : Theme.gold)
+                                .frame(width: 14)
+                            Text(line.text).font(Theme.text(13)).foregroundStyle(Theme.text)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                Text(GoMaxComputer.expect)
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                HStack(spacing: 12) {
+                    if starting {
+                        SecondaryButton(title: "Not now", action: onCancel)
+                        PrimaryButton(title: "Start Go Max", enabled: hasData || computer.enoughSpace, action: onStart)
+                    } else {
+                        SecondaryButton(title: "Close", action: onCancel)
+                    }
+                }
+            }
+        }
+    }
+}
+
