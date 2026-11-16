@@ -263,9 +263,17 @@ def main():
             check(canonical == text, "fingerprint text is canonical (sorted keys, no spaces)")
             fingerprint = json.loads(text)
             print(f"  --  fingerprint (signed) at height {fingerprint.get('height')}")
+            cross = client_data.get("crossCheck") or {}
+            check(cross.get("result") == "agrees",
+                  f"the node's tree state agreed with an independent server ({cross.get('server') or 'none'}) before it was signed")
+            check((client_data.get("nodeCheck") or {}).get("dataUnchangedSinceLockIt") is True,
+                  "the node's data is as Lock it sealed it at its last clean stop")
         else:
             check(fingerprint_hash == "", "no fingerprint, and none signed")
             print(f"  --  no chain fingerprint ({data.get('fingerprintNote', 'none')}): this answer proves genuine only")
+            cross = client_data.get("crossCheck")
+            if cross:
+                print(f"  --  signed cross-check: {cross.get('result')} ({cross.get('server') or 'no server reached'})")
         if args.height is not None:
             check(has_fingerprint and fingerprint.get("height") == args.height,
                   f"it carries a fingerprint for exactly the height you asked ({args.height})")

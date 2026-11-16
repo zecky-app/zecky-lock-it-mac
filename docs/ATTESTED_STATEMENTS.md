@@ -76,7 +76,26 @@ fingerprint at this height.
 
 ## What it does not prove
 
-- **That the fingerprint is right.** A genuine app can read wrong data.
+- **That the fingerprint is right, on its own.** A genuine app can read
+  wrong data: whoever owns the Mac owns the node's folder (Andrew Miller's
+  review, issue #6). Since 16 Nov 2026 two checks narrow this. (1) A data
+  seal: at each clean stop Lock it records the database's index files and
+  every file's name and size in its own Keychain item; before each start it
+  compares, and signs `dataUnchangedSinceLockIt`. Data changed while Lock it
+  was closed, or after a crash, gets no fingerprint. (2) A cross-check:
+  before signing a fingerprint at height H, Lock it compares the node's
+  block hash and Sapling, Orchard and Ironwood tree states at H with a
+  built-in public server's, over a fresh Tor circuit, and signs the outcome
+  (`crossCheck`); only "agrees" gets a fingerprint. Wrong chain data,
+  however it got there, disagrees with the real chain. Still out of reach:
+  the pool totals (not in block headers, so not cross-checked), an owner who
+  points Lock it at their own fake public server (the server is named in the
+  answer), files changed while the node runs or rebuilt with identical names
+  and sizes (the cross-check still applies), and a port redirect by an
+  administrator. So an answer means "Lock it from the Zecky team ran on a
+  Mac with SIP on, its node's data was as Lock it left it, and its tree state
+  matched a public server at H", not an independent full check of the chain.
+  Chain confirmations from several nodes must count it that way.
 - **Which version or which source code made it.** App Attest identifies the
   team and bundle ID, not a build. Every build the team signs passes,
   including a modified one. Proving the code needs reproducible builds:

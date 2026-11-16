@@ -54,6 +54,29 @@ enum StateFingerprint {
                 "blockCommitments": commitments, "saplingRoot": sapling, "orchardRoot": orchard,
                 "ironwoodRoot": ironwood, "treeSizes": sizes, "poolsZat": poolZat, "chainSupplyZat": supply]
     }
+
+    /// Issue #6: before vouching for a fingerprint, the node's tree state at
+    /// that height is compared with an independent server's, exactly: the
+    /// block hash and the serialized Sapling, Orchard and Ironwood trees
+    /// (the same hex both sides take from z_gettreestate). The real chain
+    /// fixes these; wrong chain data, however it got there, disagrees.
+    /// "not-comparable" when the node does not give the tree state itself.
+    static func crossCheck(node treeState: [String: Any],
+                           server: (hash: String, saplingTree: String, orchardTree: String, ironwoodTree: String)) -> String {
+        func state(_ pool: String) -> String? {
+            guard let entry = treeState[pool] as? [String: Any] else { return "" }   // pool not there yet: empty
+            guard let commitments = entry["commitments"] as? [String: Any] else { return "" }
+            return commitments["finalState"] as? String
+        }
+        guard let hash = treeState["hash"] as? String,
+              let sapling = state("sapling"), let orchard = state("orchard"), let ironwood = state("ironwood")
+        else { return "not-comparable" }
+        let same = hash.lowercased() == server.hash.lowercased()
+            && sapling.lowercased() == server.saplingTree.lowercased()
+            && orchard.lowercased() == server.orchardTree.lowercased()
+            && ironwood.lowercased() == server.ironwoodTree.lowercased()
+        return same ? "agrees" : "disagrees"
+    }
 }
 
 /// What App Attest signs (v1): the fingerprint's hash together with a fresh
@@ -98,19 +121,27 @@ enum StatementClientData {
         let nodeBuild: String
         let nodeSubversion: String
         let ownNode: Bool
+        /// The node's data is as Lock it sealed it at its last clean stop.
+        var dataUnchangedSinceLockIt = false
+        /// When a fingerprint was attempted: which independent server the
+        /// node's tree state was compared with, and the outcome (issue #6).
+        var crossCheck: [String: String]? = nil
     }
 
     static func jsonV3(fingerprintSHA256: String, challenge: String, node: NodeState, from p: Provenance) throws -> Data {
         var nodeFields = node.dictionary
         nodeFields["build"] = p.nodeBuild
         nodeFields["subversion"] = p.nodeSubversion
-        return try StateFingerprint.canonicalJSON([
+        var fields: [String: Any] = [
             "v": 3, "purpose": purpose, "challenge": challenge, "fingerprintSHA256": fingerprintSHA256,
             "createdAt": p.createdAt, "appId": p.appId, "onion": p.onion,
             "lockIt": ["version": p.lockItVersion, "build": p.lockItBuild],
             "node": nodeFields,
-            "nodeCheck": ["ownNode": p.ownNode, "executableSignedBySameTeamAsLockIt": p.ownNode],
-        ])
+            "nodeCheck": ["ownNode": p.ownNode, "executableSignedBySameTeamAsLockIt": p.ownNode,
+                          "dataUnchangedSinceLockIt": p.dataUnchangedSinceLockIt],
+        ]
+        if let crossCheck = p.crossCheck { fields["crossCheck"] = crossCheck }
+        return try StateFingerprint.canonicalJSON(fields)
     }
 
     /// A challenge is 32 random bytes as 64 lowercase hex characters, or
@@ -217,6 +248,14 @@ struct StatementCheck {
         let fingerprintHash = client["fingerprintSHA256"] as? String ?? ""
         if let text = json["fingerprintJSON"] as? String {
             guard StateFingerprint.sha256Hex(Data(text.utf8)) == fingerprintHash else { return no("fingerprint altered") }
+            // Genuine Lock it only signs a fingerprint that an independent
+            // server's tree state agreed with (issue #6).
+            guard (client["crossCheck"] as? [String: Any])?["result"] as? String == "agrees" else {
+                return no("fingerprint not cross-checked with the network")
+            }
+            guard (client["nodeCheck"] as? [String: Any])?["dataUnchangedSinceLockIt"] as? Bool == true else {
+                return no("fingerprint from node data that changed outside Lock it")
+            }
         } else {
             guard fingerprintHash.isEmpty else { return no("signed fingerprint missing") }
         }
@@ -539,16 +578,28 @@ final class AttestedStatementMaker: ObservableObject {
 
         var fingerprint: [String: Any]?
         var fingerprintNote: String?
+        var crossChecked: [String: String]?
+        let sealed = own != nil && GoMaxNode.shared.dataUnchangedSinceLockIt
         let height: Int? = asked ?? (state == "up-to-date" ? tip.map { $0 - Self.settledDepth } : nil)
         if let tip, let height {
             if height > tip {
                 fingerprintNote = "behind"
             } else if height > tip - Self.settledDepth {
                 fingerprintNote = "unsettled"
+            } else if !sealed {
+                // Data changed while Lock it was closed, or not sealed yet (issue #6).
+                fingerprintNote = "data-not-sealed"
             } else if let block = await LocalRPC.call("getblock", params: [String(height), 1], port: port) as? [String: Any],
                       let tree = await LocalRPC.call("z_gettreestate", params: [String(height)], port: port) as? [String: Any],
                       let made = StateFingerprint.make(block: block, treeState: tree) {
-                fingerprint = made
+                // Only vouched for when an independent server agrees (issue #6).
+                let check = await crossCheck(height: height, tree: tree)
+                crossChecked = check
+                switch check["result"] {
+                case "agrees": fingerprint = made
+                case "disagrees": fingerprintNote = "disagrees-with-network"
+                default: fingerprintNote = "not-cross-checked"
+                }
             } else {
                 // Go Max keeps about four weeks of blocks; older ones are gone.
                 fingerprintNote = "not-kept"
@@ -575,7 +626,9 @@ final class AttestedStatementMaker: ObservableObject {
             onion: AttestOnion.shared.address?.lowercased() ?? "",
             nodeBuild: node?["build"] as? String ?? "unknown",
             nodeSubversion: node?["subversion"] as? String ?? "unknown",
-            ownNode: own != nil)
+            ownNode: own != nil,
+            dataUnchangedSinceLockIt: sealed,
+            crossCheck: crossChecked)
         let clientData = try StatementClientData.jsonV3(fingerprintSHA256: fingerprintHash, challenge: challenge,
                                                         node: nodeState, from: provenance)
         let digest = Data(SHA256.hash(data: clientData))
@@ -638,6 +691,31 @@ final class AttestedStatementMaker: ObservableObject {
         }
         if let lastError { throw lastError }
         return try JSONSerialization.data(withJSONObject: statement, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])
+    }
+
+    /// Recent cross-checks per height, for ten minutes: a burst of
+    /// challenges does not become a burst of requests to the server.
+    private var crossChecks: [Int: (check: [String: String], at: Date)] = [:]
+
+    /// The node's tree state at `height` against an independent public
+    /// server's, over Tor (issue #6). "not-checked" when Tor or the server
+    /// cannot be reached: then no fingerprint is vouched for.
+    private func crossCheck(height: Int, tree: [String: Any]) async -> [String: String] {
+        let now = Date()
+        crossChecks = crossChecks.filter { now.timeIntervalSince($0.value.at) < 600 }
+        if let cached = crossChecks[height] { return cached.check }
+        guard let engine = GoMaxNode.shared.engine,
+              let server = try? await engine.independentTreeState(height: height) else {
+            return ["server": "", "result": "not-checked"]
+        }
+        let result = StateFingerprint.crossCheck(
+            node: tree, server: (server.hash, server.saplingTree, server.orchardTree, server.ironwoodTree))
+        let check = ["server": server.server, "result": result]
+        if result == "disagrees" {
+            AttestLog.write("The node disagrees with \(server.server) at block \(height): no fingerprint signed.")
+        }
+        if result != "not-comparable" { crossChecks[height] = (check, now) }
+        return check
     }
 
     /// The button: a statement nobody asked for (empty challenge), saved

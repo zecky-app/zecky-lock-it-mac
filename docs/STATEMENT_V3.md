@@ -74,17 +74,27 @@ carries it too; the explanation says so.
   needs reproducible builds and depends on the signer (#2 correction); not
   in build 10.
 
-## 4. The node behind the port (#6, first part)
+## 4. The node's data (#6)
 
-- Before signing a node state or fingerprint, Lock it checks that the
-  socket listening on 127.0.0.1:8232 belongs to the zakurad process Lock it
-  started (its process id, read from the system on this Mac). If not:
-  `ownNode` false, state `not-running`, no fingerprint.
-- Not in reach, said plainly in the docs: whoever owns the Mac can give the
-  node different chain data (its folder), and a genuine Lock it then signs
-  what that node says. An answer means "Lock it from the Zecky team ran on a
-  Mac with SIP on and asked its own node", not an independent check of the
-  chain. Quorum ideas must count it that way.
+Built 16 Nov 2026 instead of the port check first planned: a sandboxed app
+cannot see which process listens on a port (tried earlier: EPERM), and while
+Lock it's zakurad runs it holds the port itself. The case a port check
+would catch (zakurad stopped, a fake service on the port) is already
+caught: tested live, the answer says not-running with no fingerprint.
+
+- Data seal: at each clean stop of a node Lock it ran, a SHA-256 over the
+  database's CURRENT, MANIFEST-* and OPTIONS-* contents and every file's
+  path and size (RocksDB's LOG files and LOCK left out), kept in Lock it's
+  data-protection Keychain item. Checked before each start, then removed.
+  Signed as `nodeCheck.dataUnchangedSinceLockIt`; no fingerprint while false.
+- Cross-check: before a fingerprint at H, the node's z_gettreestate at H
+  (block hash, Sapling, Orchard and Ironwood finalState) is compared exactly
+  with GetTreeState from a built-in public server over a fresh Tor circuit
+  (engine `treeStateOverTor`). Signed as `crossCheck: {server, result}`;
+  only "agrees" gets a fingerprint. Cached ten minutes per height.
+- Out of reach, in ATTESTED_STATEMENTS.md: pool totals, an owner's own fake
+  public server, files changed while running or rebuilt with identical
+  names and sizes, an administrator's port redirect.
 
 ## 5. Checkers (verify_statement.py and Lock it's StatementCheck)
 
@@ -101,6 +111,8 @@ Same rules in both, in this order:
 7. Key ID equals the attested key; credential ID equals the key ID.
 8. createdAt not before the key was attested.
 9. Apple's facts from the signed authData of this answer only.
+10. A fingerprint only with `crossCheck.result` "agrees" and
+    `nodeCheck.dataUnchangedSinceLockIt` true.
 
 Older answers (v1, v2) are shown as "older format, not fully checked" and
 never count in "Genuine nodes known".

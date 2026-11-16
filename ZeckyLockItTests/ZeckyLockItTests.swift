@@ -1188,7 +1188,7 @@ final class ZeckyLockItTests: XCTestCase {
                        "{\"appId\":\"W2F7RNV886.app.zecky.lockit\",\"challenge\":\"\(c)\",\"createdAt\":\"2026-11-16T16:00:00Z\","
                        + "\"fingerprintSHA256\":\"\",\"lockIt\":{\"build\":\"10\",\"version\":\"0.2.0\"},"
                        + "\"node\":{\"build\":\"v1.8.8\",\"estimate\":3579601,\"state\":\"up-to-date\",\"subversion\":\"/Zakura:1.8.8/\",\"tip\":3579600},"
-                       + "\"nodeCheck\":{\"executableSignedBySameTeamAsLockIt\":true,\"ownNode\":true},"
+                       + "\"nodeCheck\":{\"dataUnchangedSinceLockIt\":false,\"executableSignedBySameTeamAsLockIt\":true,\"ownNode\":true},"
                        + "\"onion\":\"abc.onion\",\"purpose\":\"zecky-go-max-state\",\"v\":3}")
     }
 
@@ -1313,6 +1313,61 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertTrue(StatementCheck.check(data, expectedAppID: app, challenge: challenge, onion: own).genuine)
         let relay = String(repeating: "r", count: 56) + ".onion"
         XCTAssertFalse(StatementCheck.check(data, expectedAppID: app, challenge: challenge, onion: relay).genuine)
+    }
+
+    /// #6: before a fingerprint is vouched for, the node's tree state must
+    /// equal an independent server's, exactly. Wrong chain data, however it
+    /// got onto the Mac, disagrees.
+    func testIssue6CrossCheckWithTheNetwork() {
+        func tree(hash: String, sapling: String, orchard: String, ironwood: String?) -> [String: Any] {
+            var t: [String: Any] = [
+                "hash": hash, "height": 3_579_600,
+                "sapling": ["commitments": ["finalRoot": "aa", "finalState": sapling]],
+                "orchard": ["commitments": ["finalRoot": "bb", "finalState": orchard]],
+            ]
+            if let ironwood { t["ironwood"] = ["commitments": ["finalRoot": "cc", "finalState": ironwood]] }
+            return t
+        }
+        let server = (hash: "00ab", saplingTree: "01ff", orchardTree: "02ee", ironwoodTree: "03dd")
+        XCTAssertEqual(StateFingerprint.crossCheck(node: tree(hash: "00AB", sapling: "01ff", orchard: "02ee", ironwood: "03dd"), server: server), "agrees")
+        // A different block, or one changed tree: disagrees.
+        XCTAssertEqual(StateFingerprint.crossCheck(node: tree(hash: "00ac", sapling: "01ff", orchard: "02ee", ironwood: "03dd"), server: server), "disagrees")
+        XCTAssertEqual(StateFingerprint.crossCheck(node: tree(hash: "00ab", sapling: "01ff", orchard: "02ef", ironwood: "03dd"), server: server), "disagrees")
+        // A pool the node does not have yet is an empty tree, as on the server.
+        XCTAssertEqual(StateFingerprint.crossCheck(node: tree(hash: "00ab", sapling: "01ff", orchard: "02ee", ironwood: nil),
+                                                   server: (hash: "00ab", saplingTree: "01ff", orchardTree: "02ee", ironwoodTree: "")), "agrees")
+        // Without the serialized tree, nothing can be compared: never "agrees".
+        var noState = tree(hash: "00ab", sapling: "01ff", orchard: "02ee", ironwood: "03dd")
+        noState["sapling"] = ["commitments": ["finalRoot": "aa"]]
+        XCTAssertEqual(StateFingerprint.crossCheck(node: noState, server: server), "not-comparable")
+    }
+
+    /// #6, layer 1: the seal changes when a data file is added, removed or
+    /// resized, or when the database's own index changes; RocksDB's text
+    /// logs do not count.
+    func testIssue6TheDataSealNoticesChanges() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("seal-\(UUID().uuidString)")
+        let db = folder.appendingPathComponent("state/mainnet", isDirectory: true)
+        try FileManager.default.createDirectory(at: db, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data("MANIFEST-000005\n".utf8).write(to: db.appendingPathComponent("CURRENT"))
+        try Data(repeating: 1, count: 100).write(to: db.appendingPathComponent("MANIFEST-000005"))
+        try Data(repeating: 2, count: 4096).write(to: db.appendingPathComponent("000007.sst"))
+        let sealed = try XCTUnwrap(GoMaxNode.dataSeal(folder))
+        XCTAssertEqual(GoMaxNode.dataSeal(folder), sealed, "the same data gives the same seal")
+        try Data("log line".utf8).write(to: db.appendingPathComponent("LOG"))
+        XCTAssertEqual(GoMaxNode.dataSeal(folder), sealed, "RocksDB's text log does not count")
+        // Andrew's case: data from elsewhere. A swapped data file…
+        try Data(repeating: 3, count: 4097).write(to: db.appendingPathComponent("000007.sst"))
+        XCTAssertNotEqual(GoMaxNode.dataSeal(folder), sealed)
+        try Data(repeating: 2, count: 4096).write(to: db.appendingPathComponent("000007.sst"))
+        XCTAssertEqual(GoMaxNode.dataSeal(folder), sealed)
+        // …an added one, or a changed index.
+        try Data(repeating: 4, count: 10).write(to: db.appendingPathComponent("000009.sst"))
+        XCTAssertNotEqual(GoMaxNode.dataSeal(folder), sealed)
+        try FileManager.default.removeItem(at: db.appendingPathComponent("000009.sst"))
+        try Data(repeating: 9, count: 100).write(to: db.appendingPathComponent("MANIFEST-000005"))
+        XCTAssertNotEqual(GoMaxNode.dataSeal(folder), sealed)
     }
 
     func testAKeyIsCheckedAtTheMomentAppleAttestedIt() throws {

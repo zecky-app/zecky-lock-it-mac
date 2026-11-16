@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import IOKit.ps
 import Network
@@ -38,6 +39,13 @@ final class GoMaxNode: ObservableObject {
     @Published private(set) var kept: Double?
     /// macOS reports Low Data Mode or a costly connection (a phone's hotspot).
     @Published private(set) var limitedConnection = false
+    /// Issue #6: the node's chain data is exactly as this Lock it left it
+    /// when it last stopped the node cleanly (the seal in Lock it's own
+    /// Keychain item matched before this start). False after a change made
+    /// while Lock it was closed, after a crash, and before the first clean
+    /// stop. Genuine node signs no chain fingerprint while it is false.
+    @Published private(set) var dataUnchangedSinceLockIt = false
+    private static let sealService = "app.zecky.lockit.mac.gomax.dataseal"
     private static let downloadedKey = "goMax.data.downloaded"
     private static let uploadedKey = "goMax.data.uploaded"
     private var lastCount = Date.distantPast
@@ -501,6 +509,7 @@ final class GoMaxNode: ObservableObject {
                 .write(to: p.zakuraConfig, atomically: true, encoding: .utf8)
             try GoMaxConfig.zaino(dataDir: p.zainoData.path).write(to: p.zainoConfig, atomically: true, encoding: .utf8)
             startedOnFreePorts = true
+            await checkSeal(p.zakuraData)
             try startZakura(p)
             holdAwake(true)
             try await waitForNode()
@@ -658,8 +667,18 @@ final class GoMaxNode: ObservableObject {
     }
 
     private func stopPrograms() async {
+        let nodeWasRunning = zakura?.isRunning == true
         await stop(zaino)
         await stop(zakura)
+        // Only a node this Lock it ran and stopped cleanly gets a seal: data
+        // changed while Go Max was off must not be sealed as Lock it's own.
+        if nodeWasRunning, zakura?.isRunning != true, let p = paths {
+            // Stopped cleanly: seal the data as it is now.
+            let folder = p.zakuraData
+            if let seal = await Task.detached(operation: { Self.dataSeal(folder) }).value {
+                try? KeyStore.save(seal, service: Self.sealService)
+            }
+        }
         zaino = nil
         zakura = nil
         startedOnFreePorts = false
@@ -675,11 +694,60 @@ final class GoMaxNode: ObservableObject {
     /// gets up to 20 seconds to close its database. If it needs longer it
     /// finishes on its own; the next start waits for it.
     private func stopAtQuit() {
+        let nodeRanAtQuit = zakura?.isRunning == true
         stopPolling()
         zaino?.interrupt()
         zakura?.interrupt()
         let until = Date().addingTimeInterval(20)
         while zakura?.isRunning == true && Date() < until { usleep(200_000) }
+        // Closed in time: seal the data. Otherwise the next start finds no
+        // matching seal and says so.
+        if nodeRanAtQuit, zakura?.isRunning != true, let p = paths, let seal = Self.dataSeal(p.zakuraData) {
+            try? KeyStore.save(seal, service: Self.sealService)
+        }
+    }
+
+    // MARK: Data seal (issue #6)
+
+    /// Before each start: is the node's data what Lock it sealed at the last
+    /// clean stop?
+    private func checkSeal(_ folder: URL) async {
+        let stored = (try? KeyStore.read(service: Self.sealService)) ?? nil
+        let now = await Task.detached(operation: { Self.dataSeal(folder) }).value
+        dataUnchangedSinceLockIt = stored != nil && stored == now
+        if !dataUnchangedSinceLockIt {
+            AttestLog.write(stored == nil
+                ? "The node's data has no seal yet (first start, or after a crash): no chain fingerprints until Lock it has stopped the node cleanly once."
+                : "The node's data changed since Lock it last stopped the node: no chain fingerprints until Lock it has stopped the node cleanly again.")
+        }
+        // Running changes the data; a fresh seal is made at the next clean stop.
+        try? KeyStore.delete(service: Self.sealService)
+    }
+
+    /// A fingerprint of the node's database: every file's path and size,
+    /// and the full contents of the files that say which data files belong
+    /// to the database (CURRENT, MANIFEST-*, OPTIONS-*). RocksDB's own text
+    /// logs (LOG*) and its lock file are left out. Read only; nothing is
+    /// changed. Nil when the folder cannot be read.
+    nonisolated static func dataSeal(_ folder: URL) -> Data? {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey]
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys) else { return nil }
+        let base = folder.standardizedFileURL.path
+        var lines: [String] = []
+        for case let url as URL in walker {
+            guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
+            let name = url.lastPathComponent
+            if name.hasPrefix("LOG") || name == "LOCK" { continue }
+            let path = String(url.standardizedFileURL.path.dropFirst(base.count))
+            var line = "\(path)\t\(values.fileSize ?? -1)"
+            if name == "CURRENT" || name.hasPrefix("MANIFEST-") || name.hasPrefix("OPTIONS-") {
+                guard let contents = try? Data(contentsOf: url) else { return nil }
+                line += "\t" + SHA256.hash(data: contents).map { String(format: "%02x", $0) }.joined()
+            }
+            lines.append(line)
+        }
+        guard !lines.isEmpty else { return nil }
+        return Data(SHA256.hash(data: Data(lines.sorted().joined(separator: "\n").utf8)))
     }
 
     /// While the node is checking history or catching up, the Mac does not

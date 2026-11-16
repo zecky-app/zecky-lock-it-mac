@@ -583,6 +583,18 @@ final class WalletEngine: ObservableObject {
     /// Per sealed wallet: (usable, total) in zatoshi.
     @Published private(set) var signerBalances: [AccountUUID: (spendable: Int64, total: Int64)] = [:]
 
+    /// Genuine node (issue #6): the tree state at a height from one of
+    /// the built-in public servers, never the wallet's own server or a home
+    /// node, over a fresh Tor circuit.
+    func independentTreeState(height: Int) async throws
+        -> (server: String, hash: String, saplingTree: String, orchardTree: String, ironwoodTree: String) {
+        guard let synchronizer else { throw EngineError.notReady }
+        let host = Server.isBuiltIn && Server.host != GoMaxConfig.host ? Server.host : Server.defaultHost
+        let endpoint = LightWalletEndpoint(address: host, port: 443, secure: true)
+        let state = try await synchronizer.treeStateOverTor(height: UInt64(height), from: endpoint)
+        return (host, state.hash, state.saplingTree, state.orchardTree, state.ironwoodTree)
+    }
+
     enum EngineError: Error, CustomStringConvertible {
         case notReady
         case notConnected
