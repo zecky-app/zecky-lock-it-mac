@@ -8,9 +8,10 @@ import Security
 
 /// Experiment (14 Nov 2026): an attested Go Max state confirmation.
 /// A caught-up Go Max node on this Mac says "at height H the chain state
-/// fingerprint is X", and App Attest adds "genuine, unmodified Lock it on a
-/// real Apple device said so". Prototype only: debug builds, behind a
-/// developer switch, nothing on-chain and no Zecky server.
+/// fingerprint is X", and App Attest adds "Lock it, signed by the Zecky team,
+/// on a real Mac with SIP on, said so" (not yet which exact code: see
+/// docs/ATTESTED_STATEMENTS.md). In every build, off until the owner
+/// switches it on; nothing on-chain and no Zecky server.
 ///
 /// Fingerprint v0 is what the node can answer deterministically at one
 /// height: the block hash, the block commitments (which commit to the chain
@@ -750,7 +751,7 @@ final class AttestedStatementMaker: ObservableObject {
     // MARK: The local endpoint
 
     func startIfEnabled() {
-        // Switched on before the explanation existed (debug builds): off
+        // Switched on before the explanation existed (early test builds): off
         // again until it has been read once.
         if Self.enabled && !AttestSupport.agreed { Self.enabled = false; AttestOnion.wanted = false }
         guard Self.enabled, AttestSupport.unavailableReason == nil else { return }
@@ -945,7 +946,7 @@ enum AttestLog {
 
 /// The challenge endpoint as a Tor onion service, so other nodes and wallets
 /// can ask from anywhere without learning this Mac's address. Arti (the Tor
-/// Project's Tor in Rust, inside debug builds only) runs in Lock it's sandbox
+/// Project's Tor in Rust, inside every build, started only when switched on) runs in Lock it's sandbox
 /// and forwards the onion's port 80 to 127.0.0.1:8139. The onion key is made
 /// on the first start and kept in Lock it's own folder, so the address stays
 /// the same across restarts.
@@ -973,7 +974,7 @@ final class AttestOnion: ObservableObject {
 
     private func config(_ root: URL) -> String {
         """
-        # Written by Lock it (debug builds, attested-statement experiment).
+        # Written by Lock it (Genuine node over Tor).
         [storage]
         cache_dir = "\(root.appendingPathComponent("cache").path)"
         state_dir = "\(root.appendingPathComponent("state").path)"
@@ -1300,7 +1301,7 @@ struct AttestConsentSheet: View {
     }
 }
 
-/// Settings › Go Max, debug builds only: the attested-statement experiment
+/// Settings › Go Max, Advanced box: Genuine node, experimental,
 /// as its own card under the node, since every statement comes from it.
 struct GoMaxAttestCard: View {
     @ObservedObject private var maker = AttestedStatementMaker.shared
@@ -1323,7 +1324,7 @@ struct GoMaxAttestCard: View {
         ("Where it leads", "First your iPhone checking it talks to your own genuine node, then a verified mark other wallets can adopt. While this is tested it is off unless you switch it on; once proven, Go Max will do it by itself."),
         ("What it proves, and what not", "That the answer comes from the Zecky team's app on a real Mac with its security on. Not yet which version or which source code: that needs builds anyone can reproduce, which is still to come."),
         ("The switches", "Answer checks: this Mac answers such questions. Also over Tor: wallets and nodes can reach it through a private onion address, without learning where this Mac is. Check another node: you ask a node yourself."),
-        ("What it does not do", "Nothing about your wallet is shared, and your node and your Zcash are not changed. Genuine node answers on its onion address only, never on the node's peer-to-peer port or this Mac's home internet address, so nobody can link your home address to an attested node."),
+        ("What it does not do", "Nothing about your wallet is shared, and your node and your Zcash are not changed. Genuine node answers on its onion address only, never on the node's peer-to-peer port or this Mac's home internet address, so no one who asks can link your home address to it. Apple can: the key is set up from this Mac's internet address once, and the same key is in every answer. New address makes a new key."),
     ]
 
     var body: some View {

@@ -10,10 +10,10 @@
 #   zainod   ~/rockit-proto/release/bin/zainod   Zaino feat/nu7 aaf8122 + the two Rock it patches
 # Override with ZAKURAD=/path ZAINOD=/path.
 #
-# Optional, for the attested-statement experiment only (debug builds):
+# For Genuine node (experimental, off until switched on):
 #   arti     ~/rockit-proto/arti/bin/arti        Arti 2.8.0 with onion services
 # Override with ARTI=/path; skipped when it is not there. The build puts it
-# into debug builds only, never into an archive.
+# into every build (gomax-embed.sh); it only runs when switched on.
 #
 # Both were built with the home folder remapped to /build. What the linker
 # still leaves behind (paths to the Rust toolchain in the debug symbol

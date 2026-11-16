@@ -125,12 +125,20 @@ certificate) and on the Zecky team's signing key.
 - **A lasting identifier.** Every statement carries the installation's key.
   Whoever collects statements can link them to one installation over time,
   and to an IP address if they are shared without Tor.
+- **Apple can link the onion address to the home IP (review issue #7).**
+  The two facts above together: the key is attested from the Mac's own IP
+  address, and the same key ID is in every answer the node gives over its
+  onion address. Apple sees the first; anyone who asks sees the second. So
+  Apple can link that onion address to the home IP address. A new key (New
+  address) breaks the link for the future and costs one more contact with
+  Apple from the same IP.
 - **Nothing about the wallet.** Only public chain data is in a statement.
 - **The onion address only (rule, 16 Nov 2026).** Genuine node answers on
   127.0.0.1 behind its onion service, never on the node's peer-to-peer port
   (which listens on 127.0.0.1 too and accepts no outside connections) and
-  never on the home IP address, so nobody can link a home address to an
-  attested node. Asking another node also goes over Tor only.
+  never on the home IP address, so no one who asks can link a home address
+  to an attested node; Apple can (see above). Asking another node, and the
+  cross-check with a public server, go over Tor only.
 
 Therefore, if this ever ships: opt-in only (an explicit choice when Go Max
 is switched on, never on by default), statements shared over Tor only, a new
@@ -148,7 +156,13 @@ Apple), and the Apple contact named plainly in How Go Max works.
    example 10 of 12) and none disagrees; any disagreement means it checks
    from the start instead.
 4. Independence matters more than the count: one person with many Macs is
-   still one party. App Attest limits fake keys per device, not per person.
+   still one party. App Attest does not limit keys per device: an app can
+   make as many as it likes, and every new install makes a new one. Apple's
+   only signal is an approximate count of attested keys per device over 30
+   days ("Assessing fraud risk"), and it is only given to a server that
+   refreshes the receipt with a team-signed request. Lock it has no such
+   server, so distinct keys do not mean distinct Macs, and new keys for
+   privacy make this harder still (review issue #7).
 
 Even with a quorum, a new node should keep checking the chain from the
 agreed point onwards and, in the background, verify the history it skipped.
@@ -166,8 +180,8 @@ trusting each other.
 
 From v1 App Attest signs client data, not the fingerprint alone: sorted
 compact JSON of the fingerprint hash, a 32-byte challenge from whoever asks,
-the purpose `zecky-go-max-state` and the version. With the developer switch on,
-a debug build answers `GET /statement?challenge=<64 hex>` on 127.0.0.1:8139,
+the purpose `zecky-go-max-state` and the version. With Answer checks on,
+Lock it answers `GET /statement?challenge=<64 hex>` on 127.0.0.1:8139,
 this Mac only, one at a time; `verify_statement.py --challenge` checks the
 answer is for exactly that challenge. Tested on 14 Nov 2026: the answer to a
 fresh challenge passed (assertion, counter 4); the same statement against
@@ -176,7 +190,8 @@ key's signature.
 
 ## Over Tor
 
-With "Answer over Tor too" on (Technical details, debug builds only), Lock
+With "Also over Tor" on (Go Max › Advanced; in every build since d39b6d6,
+off until switched on), Lock
 it starts Arti 2.8.0 (the Tor Project's Tor in Rust) inside its sandbox and
 publishes an onion service whose port 80 forwards to the challenge endpoint
 on 127.0.0.1:8139. The onion key is made on the first start and kept in
@@ -307,9 +322,10 @@ The verifier now shows these and can require them (`--build 9`). No code
 fingerprint (CDHash) is present. dsmack's evidence on macOS 27 does carry it
 (`apple_cd_hash_hash_01`), after the app opts in with the entitlement
 `com.apple.developer.devicecheck.app-attest-opt-in` = `[CDhash]`. Build 9
-tries that entitlement in debug builds first; whether it is allowed and kept
-in TestFlight and App Store builds, which Apple signs again, is not known
-yet. With a CDHash, a check can say which exact build answered; tying that
+asks for it in debug and release builds; App Store Connect accepted it (16
+Nov 2026), and an Xcode build's later answers carry the CDHash in their own
+signed data. Whether TestFlight builds, which Apple signs again, carry it is
+checked with build 10. With a CDHash, a check can say which exact build answered; tying that
 build to the published source still needs reproducible builds.
 
 ## Built for build 9
