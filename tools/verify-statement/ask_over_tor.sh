@@ -40,4 +40,4 @@ while :; do
   try=$((try + 1)); sleep 30
 done
 echo "Saved $OUT"
-exec python3 "$HERE/verify_statement.py" "$OUT" --app-id "$APP_ID" --challenge "$CHALLENGE" ${HEIGHT:+--height "$HEIGHT"}
+exec python3 "$HERE/verify_statement.py" "$OUT" --app-id "$APP_ID" --challenge "$CHALLENGE" --onion "$ONION" ${HEIGHT:+--height "$HEIGHT"}

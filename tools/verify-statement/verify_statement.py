@@ -203,8 +203,8 @@ def verify_assertion(blob, client_hash, public, app_id):
     try:
         public.verify(obj["signature"], nonce, ec.ECDSA(hashes.SHA256()))
     except InvalidSignature:
-        raise Failure("the key's signature does not cover this fingerprint")
-    print("  ok  the attested key signed this fingerprint")
+        raise Failure("the key's signature does not cover this answer (its signed data was changed)")
+    print("  ok  the attested key signed this answer")
     check(auth[:32] == hashlib.sha256(app_id.encode()).digest(), f"app is {app_id}")
     counter = int.from_bytes(auth[33:37], "big")
     check(counter > 0, f"counter is {counter} (a later statement by the same key)")
@@ -212,7 +212,7 @@ def verify_assertion(blob, client_hash, public, app_id):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Verify a Zecky attested Go Max statement (v0, v1 or v2).")
+    parser = argparse.ArgumentParser(description="Verify a Zecky attested Go Max statement (v3; older formats are refused).")
     parser.add_argument("statement", help="the statement file (.json)")
     parser.add_argument("--challenge", default=None,
                         help="the 64-hex challenge you sent: the statement must answer exactly this")
@@ -220,6 +220,8 @@ def main():
                         help="the block height you asked for (&height=H): the fingerprint must be for exactly this height")
     parser.add_argument("--app-id", required=True,
                         help='the app you expect, "<team id>.<bundle id>", e.g. ABCDE12345.app.zecky.lockit')
+    parser.add_argument("--onion", default=None,
+                        help="the onion address you asked: the signed answer must name exactly it (not relayed)")
     parser.add_argument("--build", default=None,
                         help="the build number you expect, as Apple attests it (e.g. 9)")
     parser.add_argument("--cdhash", default=None,
@@ -229,68 +231,59 @@ def main():
     print(f"Statement: {args.statement}")
     try:
         version = data.get("format")
-        check(version in ("zecky-attested-statement/v0", "zecky-attested-statement/v1",
-                          "zecky-attested-statement/v2"), f"format {version}")
+        if version in ("zecky-attested-statement/v0", "zecky-attested-statement/v1", "zecky-attested-statement/v2"):
+            raise Failure(f"older answer format ({version.rsplit('/', 1)[1]}): where it came from is not signed (issue #3)")
+        check(version == "zecky-attested-statement/v3", f"format {version}")
+        # Everything below is read from the signed client data only.
+        client = data["clientDataJSON"].encode()
+        client_data = json.loads(client)
+        canonical_client = json.dumps(client_data, sort_keys=True, separators=(",", ":")).encode()
+        check(canonical_client == client, "client data is canonical (sorted keys, no spaces)")
+        check(client_data.get("v") == 3 and client_data.get("purpose") == "zecky-go-max-state",
+              "client data is for a Go Max state statement (v3)")
+        check(client_data.get("challenge") == data.get("challenge", ""), "client data carries the statement's challenge")
+        if args.challenge is not None:
+            check(client_data.get("challenge") == args.challenge.lower(), "it answers exactly your challenge (fresh)")
+        elif client_data.get("challenge"):
+            print("  --  a challenge is present; pass --challenge to check it was yours")
+        else:
+            print("  --  no challenge: nobody asked for this statement, so it may not be fresh")
+        if args.onion is not None:
+            check(client_data.get("onion") == args.onion.lower(),
+                  f"it names the onion address you asked ({args.onion[:12]}…), so it is not relayed")
+        else:
+            print(f"  --  signed onion address: {client_data.get('onion') or '(none)'}; pass --onion to check it is the one you asked")
+        check(client_data.get("appId") == args.app_id, f"signed app is the expected app {args.app_id}")
+        fingerprint_hash = client_data.get("fingerprintSHA256", "")
         has_fingerprint = bool(data.get("fingerprintJSON"))
-        if version.endswith("/v2"):
-            if has_fingerprint:
-                text = data["fingerprintJSON"].encode()
-                fingerprint_hash = hashlib.sha256(text).digest()
-                check(fingerprint_hash.hex() == data["fingerprintSHA256"], "fingerprint hash matches the fingerprint text")
-            else:
-                check(data.get("fingerprintSHA256") == "", "no fingerprint, and none signed")
-        else:
-            text = data["fingerprintJSON"].encode()
-            fingerprint_hash = hashlib.sha256(text).digest()
-            check(fingerprint_hash.hex() == data["fingerprintSHA256"], "fingerprint hash matches the fingerprint text")
-        if version.endswith("/v0"):
-            if args.challenge:
-                raise Failure("a v0 statement carries no challenge")
-            client_hash = fingerprint_hash
-        else:
-            client = data["clientDataJSON"].encode()
-            client_data = json.loads(client)
-            canonical_client = json.dumps(client_data, sort_keys=True, separators=(",", ":")).encode()
-            check(canonical_client == client, "client data is canonical (sorted keys, no spaces)")
-            v = 2 if version.endswith("/v2") else 1
-            check(client_data.get("v") == v and client_data.get("purpose") == "zecky-go-max-state",
-                  f"client data is for a Go Max state statement (v{v})")
-            check(client_data.get("fingerprintSHA256") == data["fingerprintSHA256"],
-                  "client data names this fingerprint" if data["fingerprintSHA256"] else "client data names no fingerprint")
-            check(client_data.get("challenge") == data.get("challenge", ""), "client data carries the statement's challenge")
-            if args.challenge is not None:
-                check(client_data.get("challenge") == args.challenge.lower(), "it answers exactly your challenge (fresh)")
-            elif client_data.get("challenge"):
-                print("  --  a challenge is present; pass --challenge to check it was yours")
-            else:
-                print("  --  no challenge: nobody asked for this statement, so it may not be fresh")
-            if v == 2:
-                node = client_data.get("node") or {}
-                check(node == data.get("nodeState"), "the node's state is signed with the answer")
-                state = node.get("state")
-                if state == "up-to-date":
-                    print(f"  --  node state (signed): up to date at block {node.get('tip')}")
-                elif state == "syncing":
-                    print(f"  --  node state (signed): syncing, at block {node.get('tip')} of about {node.get('estimate')}")
-                else:
-                    print(f"  --  node state (signed): {state}")
-                if not has_fingerprint:
-                    print(f"  --  no chain fingerprint ({data.get('fingerprintNote', 'none')}): this answer proves genuine only")
-            check_check = data.get("nodeCheck", {})
-            if check_check.get("ownNode"):
-                print("  --  Lock it reported it checked the node was its own (not provable from outside)")
-            client_hash = hashlib.sha256(client).digest()
         if has_fingerprint:
+            text = data["fingerprintJSON"].encode()
+            check(hashlib.sha256(text).hexdigest() == fingerprint_hash, "fingerprint text matches the signed hash")
             canonical = json.dumps(json.loads(text), sort_keys=True, separators=(",", ":")).encode()
             check(canonical == text, "fingerprint text is canonical (sorted keys, no spaces)")
             fingerprint = json.loads(text)
-            check(fingerprint.get("height") == data.get("height"), f"fingerprint at height {data.get('height')}")
+            print(f"  --  fingerprint (signed) at height {fingerprint.get('height')}")
+        else:
+            check(fingerprint_hash == "", "no fingerprint, and none signed")
+            print(f"  --  no chain fingerprint ({data.get('fingerprintNote', 'none')}): this answer proves genuine only")
         if args.height is not None:
             check(has_fingerprint and fingerprint.get("height") == args.height,
                   f"it carries a fingerprint for exactly the height you asked ({args.height})")
-        check(data.get("appId") == args.app_id, f"statement names the expected app {args.app_id}")
+        node = client_data.get("node") or {}
+        state = node.get("state")
+        if state == "up-to-date":
+            print(f"  --  node state (signed): up to date at block {node.get('tip')}")
+        elif state == "syncing":
+            print(f"  --  node state (signed): syncing, at block {node.get('tip')} of about {node.get('estimate')}")
+        else:
+            print(f"  --  node state (signed): {state}")
+        lock_it = client_data.get("lockIt") or {}
+        print(f"  --  signed: Lock it {lock_it.get('version')} ({lock_it.get('build')}), node {node.get('build')} {node.get('subversion')}")
+        if (client_data.get("nodeCheck") or {}).get("ownNode"):
+            print("  --  signed: Lock it checked the node was its own (Lock it's own check, see issue #6 for limits)")
+        client_hash = hashlib.sha256(client).digest()
         key_id = base64.b64decode(data["keyId"])
-        when = datetime.datetime.fromisoformat(data["createdAt"].replace("Z", "+00:00"))
+        when = datetime.datetime.fromisoformat(client_data["createdAt"].replace("Z", "+00:00"))
         root = load_root()
         if data.get("kind") == "attestation":
             _, auth = verify_attestation(base64.b64decode(data["attestation"]), client_hash, key_id, args.app_id, when, root)

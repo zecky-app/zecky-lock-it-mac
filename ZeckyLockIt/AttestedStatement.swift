@@ -85,6 +85,34 @@ enum StatementClientData {
                                             "challenge": challenge, "node": node.dictionary])
     }
 
+    /// v3 (build 10, issue #3): everything a checker relies on is signed.
+    /// Where the answer came from (app, Lock it's version, the node's
+    /// version, the own-node check), when, and the onion address it answers
+    /// on (a relay elsewhere is refused: issue #8, point 1).
+    struct Provenance {
+        let createdAt: String
+        let appId: String
+        let lockItVersion: String
+        let lockItBuild: String
+        let onion: String          // this node's onion address, or "" without Tor
+        let nodeBuild: String
+        let nodeSubversion: String
+        let ownNode: Bool
+    }
+
+    static func jsonV3(fingerprintSHA256: String, challenge: String, node: NodeState, from p: Provenance) throws -> Data {
+        var nodeFields = node.dictionary
+        nodeFields["build"] = p.nodeBuild
+        nodeFields["subversion"] = p.nodeSubversion
+        return try StateFingerprint.canonicalJSON([
+            "v": 3, "purpose": purpose, "challenge": challenge, "fingerprintSHA256": fingerprintSHA256,
+            "createdAt": p.createdAt, "appId": p.appId, "onion": p.onion,
+            "lockIt": ["version": p.lockItVersion, "build": p.lockItBuild],
+            "node": nodeFields,
+            "nodeCheck": ["ownNode": p.ownNode, "executableSignedBySameTeamAsLockIt": p.ownNode],
+        ])
+    }
+
     /// A challenge is 32 random bytes as 64 lowercase hex characters, or
     /// empty for a statement nobody asked for.
     static func validChallenge(_ text: String) -> Bool {
@@ -161,26 +189,39 @@ struct StatementCheck {
     static let appleRootSHA256 = "1cb9823ba28ba6ad2d33a006941de2ae4f513ef1d4e831b9f7e0fa7b6242c932"
 
     /// The app every genuine node must be: this app's own identifier.
-    static func check(_ data: Data, expectedAppID: String, challenge: String) -> Result {
+    /// `onion`: the address the answer was asked at. The signed answer must
+    /// name exactly that address (a relay elsewhere is refused). Nil only
+    /// for a statement read from a file.
+    static func check(_ data: Data, expectedAppID: String, challenge: String, onion: String? = nil) -> Result {
         func no(_ why: String) -> Result {
             Result(genuine: false, reason: why, build: nil, cdhash: nil, nodeState: nil, height: nil, hasFingerprint: false)
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return no("not a statement") }
         let format = json["format"] as? String
-        guard format == "zecky-attested-statement/v1" || format == "zecky-attested-statement/v2" else { return no("unknown format") }
-        guard json["appId"] as? String == expectedAppID else { return no("another app") }
+        // v1 and v2 left where the answer came from unsigned (issue #3).
+        guard format == "zecky-attested-statement/v3" else {
+            return no(format?.hasPrefix("zecky-attested-statement/") == true ? "older answer format, not fully checked" : "unknown format")
+        }
+        // Everything below is read from the signed client data only.
         guard let clientText = json["clientDataJSON"] as? String,
               let client = try? JSONSerialization.jsonObject(with: Data(clientText.utf8)) as? [String: Any],
-              client["challenge"] as? String == challenge, json["challenge"] as? String == challenge,
-              client["purpose"] as? String == StatementClientData.purpose else { return no("not an answer to this challenge") }
-        let fingerprintHash = json["fingerprintSHA256"] as? String ?? ""
-        guard client["fingerprintSHA256"] as? String == fingerprintHash else { return no("fingerprint not signed") }
+              client["v"] as? Int == 3, client["purpose"] as? String == StatementClientData.purpose,
+              client["challenge"] as? String == challenge, json["challenge"] as? String == challenge
+        else { return no("not an answer to this challenge") }
+        guard client["appId"] as? String == expectedAppID else { return no("another app") }
+        if let onion {
+            guard client["onion"] as? String == onion.lowercased() else {
+                return no("the answer names another onion address than the one asked (a relay?)")
+            }
+        }
+        let fingerprintHash = client["fingerprintSHA256"] as? String ?? ""
         if let text = json["fingerprintJSON"] as? String {
             guard StateFingerprint.sha256Hex(Data(text.utf8)) == fingerprintHash else { return no("fingerprint altered") }
+        } else {
+            guard fingerprintHash.isEmpty else { return no("signed fingerprint missing") }
         }
-        if format == "zecky-attested-statement/v2" {
-            guard NSDictionary(dictionary: client["node"] as? [String: Any] ?? [:])
-                    .isEqual(to: json["nodeState"] as? [String: Any] ?? [:]) else { return no("node state not signed") }
+        guard let made = (client["createdAt"] as? String).flatMap({ ISO8601DateFormatter().date(from: $0) }) else {
+            return no("no signed time")
         }
         let clientHash = Data(SHA256.hash(data: Data(clientText.utf8)))
 
@@ -218,9 +259,7 @@ struct StatementCheck {
         SecTrustSetVerifyDate(trust, attestedAt as CFDate)
         guard SecTrustEvaluateWithError(trust, nil) else { return no("not signed by Apple's App Attest") }
         guard interEnds > Date() else { return no("Apple's intermediate certificate has ended") }
-        if let made = (json["createdAt"] as? String).flatMap({ ISO8601DateFormatter().date(from: $0) }) {
-            guard attestedAt <= made.addingTimeInterval(300) else { return no("key attested after the answer") }
-        }
+        guard attestedAt <= made.addingTimeInterval(300) else { return no("key attested after the answer") }
         guard leafPolicy(SecCertificateCopyData(leaf) as Data) == macSecurePolicy else {
             return no("the Mac did not have System Integrity Protection and full security on")
         }
@@ -282,7 +321,9 @@ struct StatementCheck {
         return Result(genuine: true, reason: "genuine",
                       build: facts["apple_bundle_version_01"]?.textValue,
                       cdhash: facts["apple_cd_hash_hash_01"]?.bytesValue.map { $0.map { String(format: "%02x", $0) }.joined() },
-                      nodeState: json["nodeState"] as? [String: Any], height: json["height"] as? Int,
+                      nodeState: client["node"] as? [String: Any],
+                      height: (json["fingerprintJSON"] as? String).flatMap {
+                          (try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])?["height"] as? Int },
                       hasFingerprint: json["fingerprintJSON"] != nil,
                       attestedAt: attestedAt, keyId: keyIdText, counter: counter)
     }
@@ -522,36 +563,37 @@ final class AttestedStatementMaker: ObservableObject {
         if let fingerprint { json = try StateFingerprint.canonicalJSON(fingerprint) }
         let fingerprintHash = json.map { StateFingerprint.sha256Hex($0) } ?? ""
         let nodeState = StatementClientData.NodeState(state: state, tip: tip, estimate: estimate)
-        let clientData = try StatementClientData.jsonV2(fingerprintSHA256: fingerprintHash, challenge: challenge, node: nodeState)
-        let digest = Data(SHA256.hash(data: clientData))
         var node: [String: Any]?
         if own != nil { node = await LocalRPC.call("getinfo", port: port) as? [String: Any] }
-        var nodeCheck: [String: Any] = ["ownNode": false]
-        if let own {
-            nodeCheck = ["ownNode": true, "startedByThisLockItOnFreePorts": true, "executable": own.executable,
-                         "executableSignedBySameTeamAsLockIt": true, "rpc": "127.0.0.1:\(port)"]
-        }
+        // v3: where the answer came from is signed with it (issue #3), and
+        // the answer names the onion address it is served on.
+        let provenance = StatementClientData.Provenance(
+            createdAt: ISO8601DateFormatter().string(from: Date()),
+            appId: Self.applicationIdentifier() ?? "unknown",
+            lockItVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+            lockItBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
+            onion: AttestOnion.shared.address?.lowercased() ?? "",
+            nodeBuild: node?["build"] as? String ?? "unknown",
+            nodeSubversion: node?["subversion"] as? String ?? "unknown",
+            ownNode: own != nil)
+        let clientData = try StatementClientData.jsonV3(fingerprintSHA256: fingerprintHash, challenge: challenge,
+                                                        node: nodeState, from: provenance)
+        let digest = Data(SHA256.hash(data: clientData))
         let service = DCAppAttestService.shared
+        // Only what the signature covers, plus the evidence: no unsigned
+        // copies of signed fields for anyone to read by mistake.
         var statement: [String: Any] = [
-            "format": "zecky-attested-statement/v2",
+            "format": "zecky-attested-statement/v3",
             "fingerprintSHA256": fingerprintHash,
             "clientDataJSON": String(decoding: clientData, as: UTF8.self),
             "challenge": challenge,
-            "nodeState": nodeState.dictionary,
-            "node": ["build": node?["build"] ?? "unknown", "subversion": node?["subversion"] ?? "unknown"],
-            "nodeCheck": nodeCheck,
-            "lockIt": ["version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "",
-                       "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? ""],
-            "appId": Self.applicationIdentifier() ?? "unknown",
-            "createdAt": ISO8601DateFormatter().string(from: Date()),
         ]
-        if let fingerprint, let json, let height {
-            statement["fingerprint"] = fingerprint
+        if fingerprint != nil, let json {
+            // The text the signed hash covers (it names its height).
             statement["fingerprintJSON"] = String(decoding: json, as: UTF8.self)
-            statement["height"] = height
         } else {
+            // Why there is none: a note for people, not used by checkers.
             statement["fingerprintNote"] = fingerprintNote ?? "none"
-            if let height { statement["height"] = height }
         }
         // A stored key that no longer signs (made by another build, or lost
         // from the security chip) is forgotten, and a new one made once.
@@ -784,11 +826,17 @@ final class AttestedStatementMaker: ObservableObject {
 
     /// " · up to date, fingerprint at 3,576,912" and the like, for the log.
     nonisolated static func summary(of statement: Data) -> String {
-        guard let json = try? JSONSerialization.jsonObject(with: statement) as? [String: Any],
-              let node = json["nodeState"] as? [String: Any], let state = node["state"] as? String else { return "" }
+        guard let json = try? JSONSerialization.jsonObject(with: statement) as? [String: Any] else { return "" }
+        let client = (json["clientDataJSON"] as? String).flatMap {
+            try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
+        }
+        guard let node = (client?["node"] ?? json["nodeState"]) as? [String: Any],
+              let state = node["state"] as? String else { return "" }
         var text = " · " + (state == "syncing" ? "syncing at block \((node["tip"] as? Int).map(String.init) ?? "?")"
                                               : state == "up-to-date" ? "up to date" : "node not running")
-        if let height = json["height"] as? Int, json["fingerprint"] != nil { text += ", fingerprint at \(height)" }
+        let fingerprintHeight = (json["fingerprintJSON"] as? String).flatMap {
+            (try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])?["height"] as? Int }
+        if let height = fingerprintHeight { text += ", fingerprint at \(height)" }
         else if let note = json["fingerprintNote"] as? String { text += ", no fingerprint (\(note))" }
         return text
     }
@@ -1008,14 +1056,17 @@ final class AttestAsker: ObservableObject {
                 throw AskFailure("The node said: \(error)\(tip)")
             }
             let format = json["format"] as? String
-            guard format == "zecky-attested-statement/v1" || format == "zecky-attested-statement/v2",
+            guard format?.hasPrefix("zecky-attested-statement/") == true,
                   json["challenge"] as? String == challenge,
                   let client = json["clientDataJSON"] as? String,
                   client.contains("\"challenge\":\"\(challenge)\"") else {
                 throw AskFailure("The answer is not a statement for this challenge.")
             }
             // A v2 node always answers; a fingerprint only for a height it can vouch for.
-            if let height, json["fingerprint"] != nil, json["height"] as? Int != height {
+            // The height from the fingerprint text, which the signature covers.
+            let signedHeight = (json["fingerprintJSON"] as? String).flatMap {
+                (try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])?["height"] as? Int }
+            if let height, json["fingerprintJSON"] != nil, signedHeight != height {
                 throw AskFailure("The answer is for another height than \(height).")
             }
             let summary = AttestedStatementMaker.summary(of: body)
@@ -1024,7 +1075,8 @@ final class AttestAsker: ObservableObject {
             // Full check here, on this Mac: Apple's chain, the key, the
             // signature over this challenge, and the same app. The other
             // node's screen can say anything; this check is done by us.
-            let check = StatementCheck.check(body, expectedAppID: AttestedStatementMaker.applicationIdentifier() ?? "", challenge: challenge)
+            let check = StatementCheck.check(body, expectedAppID: AttestedStatementMaker.applicationIdentifier() ?? "",
+                                             challenge: challenge, onion: onion)
             GenuineNodes.shared.noteManualCheck(onion, check)
             if check.genuine {
                 let build = check.build.map { " build \($0)" } ?? ""
@@ -1615,7 +1667,8 @@ final class GenuineNodes: ObservableObject {
         guard let body = try? await AttestAsker.get(host: onion, path: "/statement?challenge=\(challenge)"),
               let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
               json["error"] == nil else { return nil }
-        return StatementCheck.check(body, expectedAppID: AttestedStatementMaker.applicationIdentifier() ?? "", challenge: challenge)
+        return StatementCheck.check(body, expectedAppID: AttestedStatementMaker.applicationIdentifier() ?? "",
+                                    challenge: challenge, onion: onion)
     }
 
     private func askPeers(_ onion: String) async {

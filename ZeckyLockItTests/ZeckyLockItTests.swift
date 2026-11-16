@@ -1175,18 +1175,33 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertNil(stopped.dictionary["tip"])
     }
 
+    /// v3 (issue #3): where the answer came from is signed, in the bytes the
+    /// verifier rebuilds.
+    func testStatementClientDataV3SignsWhereTheAnswerCameFrom() throws {
+        let c = String(repeating: "ab", count: 32)
+        let node = StatementClientData.NodeState(state: "up-to-date", tip: 3_579_600, estimate: 3_579_601)
+        let from = StatementClientData.Provenance(
+            createdAt: "2026-11-16T16:00:00Z", appId: "W2F7RNV886.app.zecky.lockit", lockItVersion: "0.2.0",
+            lockItBuild: "10", onion: "abc.onion", nodeBuild: "v1.8.8", nodeSubversion: "/Zakura:1.8.8/", ownNode: true)
+        let json = try StatementClientData.jsonV3(fingerprintSHA256: "", challenge: c, node: node, from: from)
+        XCTAssertEqual(String(decoding: json, as: UTF8.self),
+                       "{\"appId\":\"W2F7RNV886.app.zecky.lockit\",\"challenge\":\"\(c)\",\"createdAt\":\"2026-11-16T16:00:00Z\","
+                       + "\"fingerprintSHA256\":\"\",\"lockIt\":{\"build\":\"10\",\"version\":\"0.2.0\"},"
+                       + "\"node\":{\"build\":\"v1.8.8\",\"estimate\":3579601,\"state\":\"up-to-date\",\"subversion\":\"/Zakura:1.8.8/\",\"tip\":3579600},"
+                       + "\"nodeCheck\":{\"executableSignedBySameTeamAsLockIt\":true,\"ownNode\":true},"
+                       + "\"onion\":\"abc.onion\",\"purpose\":\"zecky-go-max-state\",\"v\":3}")
+    }
+
     func testStatementSummaryForTheLog() throws {
         let syncing = try JSONSerialization.data(withJSONObject: [
             "nodeState": ["state": "syncing", "tip": 3_412_000, "estimate": 3_576_300], "fingerprintNote": "syncing"])
         XCTAssertEqual(AttestedStatementMaker.summary(of: syncing), " · syncing at block 3412000, no fingerprint (syncing)")
         let upToDate = try JSONSerialization.data(withJSONObject: [
             "nodeState": ["state": "up-to-date", "tip": 3_576_300, "estimate": 3_576_300],
-            "fingerprint": ["v": 0], "height": 3_576_200])
+            "fingerprintJSON": #"{"height":3576200,"v":0}"#])
         XCTAssertEqual(AttestedStatementMaker.summary(of: upToDate), " · up to date, fingerprint at 3576200")
     }
 
-    /// A real statement from TestFlight build 8, asked from another machine
-    /// over Tor on 15 Nov 2026 and checked with tools/verify-statement.
     /// A real answer kept on this Mac only, never in the repository (it
     /// carries an App Attest key ID): the newest asked-*.json in GoMax/logs,
     /// saved by "Check another node". Without one, these tests are skipped.
@@ -1219,13 +1234,14 @@ final class ZeckyLockItTests: XCTestCase {
     /// must not count as genuine in "Check another node".
     func testIssue5AHandWrittenAnswerIsNotGenuine() throws {
         let challenge = String(repeating: "ab", count: 32)
-        let client = String(decoding: try StatementClientData.jsonV2(
+        let client = String(decoding: try StatementClientData.jsonV3(
             fingerprintSHA256: "", challenge: challenge,
-            node: .init(state: "up-to-date", tip: 3_579_000, estimate: 3_579_000)), as: UTF8.self)
+            node: .init(state: "up-to-date", tip: 3_579_000, estimate: 3_579_000),
+            from: .init(createdAt: "2026-11-16T15:00:00Z", appId: "W2F7RNV886.app.zecky.lockit", lockItVersion: "0.2.0",
+                        lockItBuild: "10", onion: "", nodeBuild: "v1.8.8", nodeSubversion: "", ownNode: true)), as: UTF8.self)
         let fake: [String: Any] = [
-            "format": "zecky-attested-statement/v2", "challenge": challenge, "clientDataJSON": client,
-            "appId": "W2F7RNV886.app.zecky.lockit", "fingerprintSHA256": "", "kind": "assertion",
-            "nodeState": ["state": "up-to-date", "tip": 3_579_000, "estimate": 3_579_000],
+            "format": "zecky-attested-statement/v3", "challenge": challenge, "clientDataJSON": client,
+            "fingerprintSHA256": "", "kind": "assertion", "keyAttestationClientDataJSON": client,
             "keyId": Data(repeating: 1, count: 32).base64EncodedString(),
             "assertion": Data("not a signature".utf8).base64EncodedString(),
             "keyAttestation": Data("not an attestation".utf8).base64EncodedString(),
@@ -1257,6 +1273,46 @@ final class ZeckyLockItTests: XCTestCase {
         let edited = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
         let result = StatementCheck.check(edited, expectedAppID: "W2F7RNV886.app.zecky.lockit", challenge: challenge)
         XCTAssertFalse(result.genuine, "an edited key attestation passed")
+    }
+
+    /// #3: the fields that say where an answer came from are signed. Andrew's
+    /// edit (lockIt.build "999-evil", node.build "my-own-fork") must fail.
+    func testIssue3EditedProvenanceIsNotGenuine() throws {
+        let (data, challenge) = try localStatement()
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var client = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(try XCTUnwrap(json["clientDataJSON"] as? String).utf8)) as? [String: Any])
+        var lockIt = try XCTUnwrap(client["lockIt"] as? [String: Any])
+        lockIt["build"] = "999-evil"
+        client["lockIt"] = lockIt
+        var node = try XCTUnwrap(client["node"] as? [String: Any])
+        node["build"] = "my-own-fork"
+        client["node"] = node
+        json["clientDataJSON"] = String(decoding: try StateFingerprint.canonicalJSON(client), as: UTF8.self)
+        let edited = try JSONSerialization.data(withJSONObject: json)
+        XCTAssertFalse(StatementCheck.check(edited, expectedAppID: "W2F7RNV886.app.zecky.lockit", challenge: challenge).genuine)
+        // Unsigned copies next to the signed data are not read at all.
+        var withCopies = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        withCopies["lockIt"] = ["build": "999-evil"]
+        let copies = try JSONSerialization.data(withJSONObject: withCopies)
+        let result = StatementCheck.check(copies, expectedAppID: "W2F7RNV886.app.zecky.lockit", challenge: challenge)
+        XCTAssertTrue(result.genuine, result.reason)
+    }
+
+    /// #8 point 1, in "Finding other nodes": an answer relayed through
+    /// another onion address names the genuine node's address, not the one
+    /// asked, and is refused.
+    func testIssue8ARelayedAnswerIsNotGenuine() throws {
+        let (data, challenge) = try localStatement()
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let client = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(try XCTUnwrap(json["clientDataJSON"] as? String).utf8)) as? [String: Any])
+        let own = try XCTUnwrap(client["onion"] as? String)
+        guard !own.isEmpty else { throw XCTSkip("The saved answer was made without Tor.") }
+        let app = "W2F7RNV886.app.zecky.lockit"
+        XCTAssertTrue(StatementCheck.check(data, expectedAppID: app, challenge: challenge, onion: own).genuine)
+        let relay = String(repeating: "r", count: 56) + ".onion"
+        XCTAssertFalse(StatementCheck.check(data, expectedAppID: app, challenge: challenge, onion: relay).genuine)
     }
 
     func testAKeyIsCheckedAtTheMomentAppleAttestedIt() throws {

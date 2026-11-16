@@ -87,3 +87,12 @@ openssl x509 -in Apple_App_Attestation_Root_CA.pem -noout -fingerprint -sha256
    security chip), and Apple's intermediate must be valid today. On macOS
    the key's access policy must show System Integrity Protection and full
    security on, as Apple asks.
+8. Format v3 (build 10, after Andrew Miller's review): everything the
+   checks rely on is read from the signed client data only: the app, when
+   it was made, Lock it's version and build, the node's version, Lock it's
+   own-node check, and the onion address that answered. `--onion` checks
+   that the answer names the address you asked, so an answer relayed
+   through another onion address is refused. In later answers the key
+   attestation is bound by its own client data
+   (`keyAttestationClientDataJSON`), and Apple's facts are read from the
+   answer's own signed data only. Older formats (v0 to v2) are refused.
