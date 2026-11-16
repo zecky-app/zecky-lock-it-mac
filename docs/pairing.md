@@ -117,6 +117,51 @@ they are genuine:
 - Both need nothing new in the QR: the `1` version leaves room for a field
   later, and the checks run over the channel the pairing already makes.
 
+### What an attested Zaino needs (Andrew Miller's review, issue #8)
+
+A light-wallet server never sees keys, but it sees the phone's sync ranges,
+timing, transparent lookups and submitted transactions, and decides which
+chain data the phone gets. "Genuine node" on the pairing screen only means
+something for the phone if these three hold. Requirements before pairing
+shows it:
+
+1. **Bind the channel to the attestation.** A statement must name the
+   address that served it, or anyone can run their own onion, forward
+   `/statement` to a genuine node and serve their own Zaino. Done for Genuine
+   node answers in format v3 (16 Nov 2026, commit ad5548a): the signed client
+   data names the node's onion address and checkers require it to equal the
+   address they asked. For pairing: the wallet onion (`zecky-wallet`) is a
+   second address, so its address (or the TLS key Zaino serves, see 3) goes
+   into the signed data too, and the phone checks it equals the address in
+   the QR it scanned. Statements asked over the paired channel only.
+2. **Measure the helpers, not just the app.** App Attest (with the CDHash)
+   measures only Lock it's main binary; zainod and zakurad are separate
+   programs, and today Lock it only checks they carry the same team ID. Per
+   Andrew's correction, a CDHash pinned per helper breaks with every signer
+   (TestFlight re-signing, self-builds). Instead: a signer-independent digest
+   of each nested Mach-O (zakurad, zainod, arti, libswiftCompatibilitySpan
+   .dylib), compiled into Lock it and checked against the file on disk
+   before every start; Lock it refuses a helper that does not match. Lock
+   it's own CDHash, attested, then covers that check. Next code item after
+   the review fixes; needed before pairing ships.
+3. **Close the plain loopback hop.** Arti hands onion traffic to a port on
+   127.0.0.1 in plain TCP (today 8139; for pairing, the read-only filter in
+   front of Zaino). An administrator on the Mac could record lo0 and read
+   every request without touching any process. Options: TLS between Arti
+   and the filter (a key made and kept by Lock it, its public half in the
+   signed statement, so the phone can pin it), or a Unix socket inside Lock
+   it's container if Arti can forward to one. To decide when building; one
+   of the two before pairing ships.
+4. **Logs.** zainod and zakurad write logs into Lock it's folder. What they
+   log is part of the audited code: no wallet addresses, transaction IDs or
+   phone-identifying data at the log level Go Max runs them at. To check per
+   release.
+
+With these, #2 (CDHash) and reproducible builds, the trust model for a paired
+phone becomes Apple's root, the published source and macOS with SIP on; the
+Mac's owner is mostly excluded, except for the node's chain data (issue #6:
+the data seal and the cross-check narrow that).
+
 ## 7. Test matrix
 
 | Phone | Node | Pair | Sync at home (Wi-Fi) | Sync away (mobile data) | Remove | Lost-phone path | Attestation |
@@ -134,8 +179,9 @@ phone a clear message and a choice.
 
 ## Build order (after approval)
 
-1. Mac: the `zecky-wallet` onion service with client authorization, the
-   read-only filter, the QR, the paired phones list.
+1. Mac: the helper digests (section 6, point 2); then the `zecky-wallet`
+   onion service with client authorization, the read-only filter behind TLS
+   or a Unix socket (point 3), the QR, the paired phones list.
 2. iPhone: Arti, scanning the QR, syncing through the paired node.
 3. Test row 1, then Windows (row 2), then Android.
 
