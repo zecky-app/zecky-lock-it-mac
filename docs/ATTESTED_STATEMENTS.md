@@ -107,6 +107,11 @@ certificate) and on the Zecky team's signing key.
   Whoever collects statements can link them to one installation over time,
   and to an IP address if they are shared without Tor.
 - **Nothing about the wallet.** Only public chain data is in a statement.
+- **The onion address only (rule, 16 Nov 2026).** Genuine node answers on
+  127.0.0.1 behind its onion service, never on the node's peer-to-peer port
+  (which listens on 127.0.0.1 too and accepts no outside connections) and
+  never on the home IP address, so nobody can link a home address to an
+  attested node. Asking another node also goes over Tor only.
 
 Therefore, if this ever ships: opt-in only (an explicit choice when Go Max
 is switched on, never on by default), statements shared over Tor only, a new
@@ -220,9 +225,25 @@ attest.log at most. Tested on 14 Nov 2026: eight requests in a row gave six
 answers and two 429s, and an idle connection was closed after 10 seconds.
 
 Seen: Apple's certificate for the key is valid for three days only (here
-13–16 Nov). Assertions after that still verify with the key, but a verifier
-that also wants the certificate valid "now" must keep an attestation it
-checked in time, or the node makes a new key. To decide before a quorum.
+13–16 Nov; the TestFlight build 8 key from 14 Nov 07:04 to 17 Nov 07:04
+UTC).
+
+Decided 16 Nov 2026: the chain is checked at the moment Apple attested the
+key (the leaf's start plus 60 seconds), and Apple's intermediate must still
+be valid today (it ends 2030-03-13). This is Apple's own model (verify the
+attestation once, then trust the key's signatures) and what other projects
+using App Attest without a central server settled on. The node contacts
+Apple once per key: at the first answer, and after "New address". The key
+never leaves the Mac's security chip, and every answer is still a fresh
+signature over the asker's challenge. Given up: Apple does not judge the Mac
+again every few days. A maximum key age can be added later if needed.
+
+Also from Apple's guidance for macOS: the leaf carries the key's access
+policy (extension 1.2.840.113635.100.8.6), and a Mac's key is to be trusted
+only when it shows System Integrity Protection and full security on. Both
+verifiers check it. Every statement made so far (13–15 Nov) shows it on.
+Lock it in "Finding other nodes" also keeps each node's key and answer
+count, and drops a node whose count does not go up.
 
 ## In TestFlight
 
@@ -235,10 +256,63 @@ error 0: it tried to sign with the key a development (Xcode) build had made.
 Keys are now kept per App Attest environment, and a key that does not sign
 is replaced once.
 
+## Two owners, two Macs (15 Nov 2026)
+
+Andrew Miller checked this node with build 8 three ways: with the verifier
+over Tor, with a named height (3,576,000), and from his own Go Max with
+"Check another node". All three answered (counter 2 to 4 in attest.log).
+Checking his node back answered "not caught up": his Go Max was still on its
+first sync. That showed a flaw: being genuine should not depend on being
+synced.
+
+## Genuine always (format v2, build 9, not yet tested)
+
+A v2 answer always proves genuine Lock it, and signs the node's state with
+it: up to date at block T, syncing at block T of about E (the clock's
+estimate), or node not running. The chain fingerprint is added only for a
+height the node has checked, settled (100 blocks below its tip) and still
+keeps; otherwise the answer says why there is none (`fingerprintNote`:
+syncing, behind, unsettled, not-kept, not-running). A height below a syncing
+node's tip is answered with its fingerprint. The client data App Attest signs
+is `{"challenge","fingerprintSHA256" (empty when none),"node":{state,tip,
+estimate},"purpose","v":2}`. Requests that are refused (malformed or over the
+limit) are counted and logged as one line a minute, with counts only; answers
+are logged with the first characters of the challenge and the node's state.
+
+## What Apple attests besides the key
+
+The authenticator data that App Attest signs carries facts the system
+service writes, not the app. In TestFlight build 8 the assertion carries the
+app's build number (`apple_bundle_version_01` = 8) and a validation category.
+The verifier now shows these and can require them (`--build 9`). No code
+fingerprint (CDHash) is present. dsmack's evidence on macOS 27 does carry it
+(`apple_cd_hash_hash_01`), after the app opts in with the entitlement
+`com.apple.developer.devicecheck.app-attest-opt-in` = `[CDhash]`. Build 9
+tries that entitlement in debug builds first; whether it is allowed and kept
+in TestFlight and App Store builds, which Apple signs again, is not known
+yet. With a CDHash, a check can say which exact build answered; tying that
+build to the published source still needs reproducible builds.
+
+## Built for build 9
+
+Tested on 16 Nov 2026 (Xcode build, macOS 27): 102 unit tests pass,
+including the full in-app check on a real saved answer; "Check another node"
+on this Mac's own onion address over Tor answered "Genuine, key attested 15
+Nov 2026, up to date, fingerprint at 3,579,290". Not yet tested: finding
+other nodes between two Macs (needs a second node with build 9).
+
+
+- Full verification inside Lock it (`StatementCheck`): Apple's chain to the
+  pinned root, the key, the signature over a fresh challenge, the app ID,
+  the build Apple attests. "Check another node" shows its verdict; the
+  Python verifier stays as a second opinion.
+- Go Max nodes finding each other (see docs/discovery.md).
+- Apple's three-day certificate: checked at the moment Apple attested the
+  key; Apple's macOS security policy (SIP, full security) checked too.
+
 ## Not done
 
-- Asking between two Go Max nodes.
-- Full verification inside Lock it (today only the challenge and height are
-  checked there; the rest is the Python verifier).
-- What to do about Apple's three-day key certificate before a quorum.
+- The CDHash opt-in in a TestFlight build.
+- Moving the answering code into a separate helper program before Genuine
+  node is on by default.
 - Reproducible builds.

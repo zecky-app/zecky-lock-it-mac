@@ -39,6 +39,12 @@ own-node check passed on the re-signed build. Build 7 had failed at the last
 step, because it tried to sign with a key made by a development build; keys
 are now kept per App Attest environment.
 
+Independent check (15 Nov): Andrew Miller checked this node over Tor with the
+verifier, with a named height, and from his own Go Max with "Check another
+node": 3/3 answered and verified. His node, still on its first sync, showed
+that being genuine should not depend on being synced; build 9 answers
+genuine always and signs the node's state with it.
+
 What it does not prove: which version or source code made the answer; that
 needs reproducible builds. Both nodes in the comparison run the same Zakura
 version, so it shows agreement, not independent software. Design note:

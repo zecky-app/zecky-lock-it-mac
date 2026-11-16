@@ -150,3 +150,29 @@ phone a clear message and a choice.
 - Port 443 on the onion.
 - The phone syncs through the node while the app is open first; background
   sync over Tor is tested before it is promised.
+
+## Findings before building (16 Nov 2026)
+
+- Arti 2.8.0 as bundled with Lock it already has restricted discovery
+  (Tor's new name for client authorization) compiled in: the config
+  section `restricted_discovery` with `enabled`, `static_keys` and
+  `key_dirs`. No new Arti build and no change to the Arti pin needed.
+- One file per phone in a key directory, `<phone id>.auth`, holding
+  `descriptor:x25519:<public key, base32>`. With `watch_configuration` on,
+  Arti picks up an added or removed file by itself: no restart. Each change
+  publishes a new descriptor, so changes are batched.
+- Ten phones is far below the limit (the descriptor size caps it).
+- **Correction to section 4.** Tor says removing a client "doesn't
+  guarantee" its access ends: a removed phone may still reach the service
+  through introduction points it already knows, for a while. And: restricted
+  discovery is protection against being found and flooded, "not a
+  substitute for conventional access control". So removal needs a second
+  lock that works at once:
+  - Proposed: the QR also carries a per-phone secret (`token=`, 32 random
+    bytes), sent by the phone with every request (a gRPC header). The
+    read-only filter refuses any request without a known token. Remove
+    deletes the token (instant) and the `.auth` file (Tor side).
+  - The Tor key keeps the service hidden from everyone without a QR; the
+    token decides who may read. "Remove all and change address" stays for
+    when the owner is unsure who has seen a QR.
+  - Decided 16 Nov 2026: yes, the per-phone secret is part of pairing.
