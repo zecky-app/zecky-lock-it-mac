@@ -25,6 +25,14 @@
 	     person chooses. -->
 	<key>com.apple.developer.devicecheck.appattest-environment</key>
 	<string>production</string>
+	<!-- Ask App Attest to include this app's code fingerprint (CDHash) in
+	     its evidence, as dsmack does: the first step towards admitting the
+	     code, not the signer. Tried in build 9; removed again if TestFlight
+	     refuses it. -->
+	<key>com.apple.developer.devicecheck.app-attest-opt-in</key>
+	<array>
+		<string>CDhash</string>
+	</array>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
 </dict>
