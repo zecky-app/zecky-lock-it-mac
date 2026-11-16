@@ -6,7 +6,7 @@
 #   scripts/gomax-helpers.sh
 #
 # Defaults are the builds with neutral paths (11 Nov 2026, see docs/GO_MAX.md):
-#   zakurad  ~/rockit-proto/release/bin/zakurad  Zakura v1.8.5 (fe180bc)
+#   zakurad  ~/rockit-proto/release/bin/zakurad  Zakura v1.8.8 (009b60b)
 #   zainod   ~/rockit-proto/release/bin/zainod   Zaino feat/nu7 aaf8122 + the two Rock it patches
 # Override with ZAKURAD=/path ZAINOD=/path.
 #

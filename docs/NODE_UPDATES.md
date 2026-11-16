@@ -12,16 +12,19 @@ updated before that height halts. So a new node version is due roughly every
 six weeks.
 
 **Next stop: height 3,643,309, about 5 Dec 2026.** Read from the code of both
-v1.8.5 and v1.8.6; the comment there says the date is fixed even for later
-release preparation, so only a release after 1.8.6 can move it.
+v1.8.5, v1.8.6 and v1.8.8 (checked 16 Nov 2026: v1.8.8 moved its
+`ESTIMATED_RELEASE_HEIGHT` to 3,575,919 but kept `MAINNET_EOS_HEIGHT` at
+3,643,309). The comment there says the date is fixed even when release
+preparation advances, so only a release that changes `MAINNET_EOS_HEIGHT`
+buys time. Warnings start three days before.
 
 Not checked: whether Zaino has a stop date of its own.
 
 ## Versions (the one place they are written down)
 
-| | Shipped now | Newest seen (11 Nov 2026) |
+| | Shipped now | Newest seen (16 Nov 2026) |
 |---|---|---|
-| Zakura | v1.8.5, commit `fe180bc` | v1.8.6, commit `eabee4d`, released 10 Nov 2026 |
+| Zakura | Lock it Mac: v1.8.8, commit `009b60b` (from build 9). Rock it: v1.8.5, commit `fe180bc` | v1.8.8, commit `009b60b`, released 14 Nov 2026 (v1.8.6 `eabee4d` 10 Nov, v1.8.7 `1b2418c` 12 Nov); same stop height |
 | Zaino | branch `feat/nu7`, commit `aaf8122` (2 Nov 2026) + the two Rock it patches | `feat/nu7` still at `aaf8122`. Tag `zainod-0.10.2` (11 Oct 2026) predates NU7; not checked whether it follows the chain after NU7 |
 
 Sources: github.com/zakura-core/zakura, github.com/zingolabs/zaino.
@@ -35,7 +38,7 @@ Where each product pins them:
 | Lock it Mac without Go Max, Lock it iPhone, Pocket | no | nothing to update; they only lose a server if they point at a node that stopped |
 | Rock it iPhone | not looked at when this was written | |
 
-Rock it and Lock it Mac ship the same two commits. When this table changes,
+Rock it and Lock it Mac ship the same two commits (exception, 16 Nov 2026: Lock it Mac build 9 took Zakura 1.8.8 before Rock it, on the owner's call; 1.8.8 changes no data format, and Rock it follows). When this table changes,
 both change, Rock it first.
 
 ## What 1.8.6 changes (from its CHANGELOG, not yet run by us)

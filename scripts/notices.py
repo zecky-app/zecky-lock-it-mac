@@ -27,8 +27,8 @@ def read(name):
 
 def go_max():
     """The two programs Go Max ships inside the app (Contents/MacOS)."""
-    return ["## Go Max: Zakura (zakurad) 1.8.5", "",
-            "The Zcash node inside Go Max is Zakura 1.8.5 (github.com/zakura-core/zakura), a fork of the Zcash Foundation's Zebra, "
+    return ["## Go Max: Zakura (zakurad) 1.8.8", "",
+            "The Zcash node inside Go Max is Zakura 1.8.8 (github.com/zakura-core/zakura), a fork of the Zcash Foundation's Zebra, "
             "built from source and unchanged. Licensed under MIT OR Apache-2.0, at your option:", "",
             "```", read("zakura-LICENSE-MIT").strip(), "```", "", "```", read("zakura-LICENSE-APACHE").strip(), "```", "",
             "## Go Max: Zaino (zainod)", "",
