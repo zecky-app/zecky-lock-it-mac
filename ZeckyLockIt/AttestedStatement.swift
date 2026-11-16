@@ -145,7 +145,7 @@ struct StatementCheck {
         let nodeState: [String: Any]?
         let height: Int?
         let hasFingerprint: Bool
-        var attestedAt: Date? = nil   // when Apple attested the key
+        var attestedAt: Date? = nil   // start of Apple's key certificate (+60 s); Apple dates it about a day before the attestation
         var keyId: String? = nil
         var counter: Int? = nil       // how many answers the key has signed
     }
@@ -237,15 +237,27 @@ struct StatementCheck {
             return no("unknown App Attest environment")
         }
 
-        var facts = appleFacts(attAuth, attested: true)
+        var facts: [String: ZCBOR] = [:]
         var counter = 0
         if json["kind"] as? String == "attestation" {
+            facts = appleFacts(attAuth, attested: true)
             // Apple's nonce in the leaf covers exactly this client data.
             let nonce = Data(SHA256.hash(data: attAuth + clientHash))
             guard let inLeaf = leafNonce(SecCertificateCopyData(leaf) as Data), inLeaf == nonce else {
                 return no("Apple's nonce does not cover this answer")
             }
         } else {
+            // The key attestation's own data (environment, credential) is only
+            // trusted once its nonce, over the client data it was made for, is
+            // in Apple's certificate (issue #4). Older answers do not carry
+            // that client data and are refused.
+            guard let keyClientText = json["keyAttestationClientDataJSON"] as? String else {
+                return no("older answer format: key attestation not bound")
+            }
+            let keyNonce = Data(SHA256.hash(data: attAuth + Data(SHA256.hash(data: Data(keyClientText.utf8)))))
+            guard let inLeaf = leafNonce(SecCertificateCopyData(leaf) as Data), inLeaf == keyNonce else {
+                return no("the key attestation does not match Apple's certificate")
+            }
             guard let assertText = json["assertion"] as? String, let assertData = Data(base64Encoded: assertText),
                   let assertion = try? ZCBORReader.decode(assertData),
                   let signatureData = assertion.value(forText: "signature")?.bytesValue,
@@ -257,7 +269,15 @@ struct StatementCheck {
             let count = auth[auth.startIndex + 33 ..< auth.startIndex + 37].reduce(0) { $0 << 8 | Int($1) }
             guard count > 0 else { return no("assertion counter") }
             counter = count
-            facts.merge(appleFacts(auth, attested: false)) { $1 }
+            // Apple's facts from this answer's signed data only: a key
+            // attested by one build can be used by another (issue #2).
+            facts = appleFacts(auth, attested: false)
+        }
+        // The credential in the (now bound) attestation is this key.
+        let credentialLength = Int(attAuth[attAuth.startIndex + 53]) << 8 | Int(attAuth[attAuth.startIndex + 54])
+        guard attAuth.count >= 55 + credentialLength,
+              attAuth[attAuth.startIndex + 55 ..< attAuth.startIndex + 55 + credentialLength] == keyId else {
+            return no("the attestation is for another key")
         }
         return Result(genuine: true, reason: "genuine",
                       build: facts["apple_bundle_version_01"]?.textValue,
@@ -406,6 +426,10 @@ final class AttestedStatementMaker: ObservableObject {
     }
     private static var keyIdKey: String { "attest.\(environment).keyId" }
     private static var attestationKey: String { "attest.\(environment).attestation" }
+    /// The client data the key's attestation was made over. Sent with every
+    /// later answer, so a checker can recompute the attestation's nonce and
+    /// bind its data to Apple's certificate (issue #4).
+    private static var attestationClientDataKey: String { "attest.\(environment).attestationClientData" }
 
     /// "New address": also a new App Attest key, so answers from the new
     /// address cannot be linked to the old one by their key.
@@ -414,6 +438,7 @@ final class AttestedStatementMaker: ObservableObject {
     private static func forgetKey() {
         UserDefaults.standard.removeObject(forKey: keyIdKey)
         UserDefaults.standard.removeObject(forKey: attestationKey)
+        UserDefaults.standard.removeObject(forKey: attestationClientDataKey)
     }
     /// The local endpoint: GET /statement?challenge=<64 hex> on this Mac only.
     static let port: UInt16 = 8139
@@ -531,6 +556,13 @@ final class AttestedStatementMaker: ObservableObject {
         // A stored key that no longer signs (made by another build, or lost
         // from the security chip) is forgotten, and a new one made once.
         var lastError: Error?
+        // A key attested before its client data was kept (builds 8 and 9)
+        // cannot be bound in later answers: replaced once.
+        if UserDefaults.standard.data(forKey: Self.attestationKey) != nil,
+           UserDefaults.standard.string(forKey: Self.attestationClientDataKey) == nil {
+            AttestLog.write("This key's attestation cannot be bound in later answers; making a new key (one contact with Apple).")
+            Self.forgetKey()
+        }
         for attempt in 0..<2 {
             do {
                 var keyId = UserDefaults.standard.string(forKey: Self.keyIdKey)
@@ -539,14 +571,17 @@ final class AttestedStatementMaker: ObservableObject {
                     UserDefaults.standard.set(keyId, forKey: Self.keyIdKey)
                 }
                 guard let keyId else { throw Failure(message: "No App Attest key.") }
-                if let saved = UserDefaults.standard.data(forKey: Self.attestationKey) {
+                if let saved = UserDefaults.standard.data(forKey: Self.attestationKey),
+                   let savedClient = UserDefaults.standard.string(forKey: Self.attestationClientDataKey) {
                     let assertion = try await service.generateAssertion(keyId, clientDataHash: digest)
                     statement["kind"] = "assertion"
                     statement["assertion"] = assertion.base64EncodedString()
                     statement["keyAttestation"] = saved.base64EncodedString()
+                    statement["keyAttestationClientDataJSON"] = savedClient
                 } else {
                     let attestation = try await service.attestKey(keyId, clientDataHash: digest)
                     UserDefaults.standard.set(attestation, forKey: Self.attestationKey)
+                    UserDefaults.standard.set(String(decoding: clientData, as: UTF8.self), forKey: Self.attestationClientDataKey)
                     statement["kind"] = "attestation"
                     statement["attestation"] = attestation.base64EncodedString()
                 }
@@ -993,7 +1028,9 @@ final class AttestAsker: ObservableObject {
             GenuineNodes.shared.noteManualCheck(onion, check)
             if check.genuine {
                 let build = check.build.map { " build \($0)" } ?? ""
-                let since = check.attestedAt.map { " · key attested \($0.formatted(date: .abbreviated, time: .omitted))" } ?? ""
+                // No date: Apple dates its key certificates about a day back
+                // (seen 16 Nov 2026), so a date here would mislead.
+                let since = ""
                 status = "Genuine ✓ Zecky Lock it\(build)\(since)\(summary). Saved \(name) in the logs folder; verify_statement.py --challenge \(challenge)\(height.map { " --height \($0)" } ?? "") gives a second opinion."
             } else {
                 status = "Not genuine: \(check.reason). Saved \(name) in the logs folder."
@@ -1152,7 +1189,7 @@ struct GoMaxAttestCard: View {
     @State private var confirmNewAddress = false
 
     static let explanation: [(title: String, text: String)] = [
-        ("Why", "Go Max is open source, so anyone can build a changed copy that looks the same from outside: one that hides a payment, gives a wrong chain, or logs which wallets ask about what. A wallet connecting to a node cannot tell the difference. With this on, your node can prove it is genuine Lock it on a real Mac: Apple's App Attest, the security chip in this Mac, signs its answers. A changed copy cannot. Each question carries a fresh random code, so an old answer cannot be passed off as new, and anyone can check an answer with the free, open-source verifier in Lock it's code, without asking Zecky."),
+        ("Why", "Go Max is open source, so anyone can build a changed copy that looks the same from outside: one that hides a payment, gives a wrong chain, or logs which wallets ask about what. A wallet connecting to a node cannot tell the difference. With this on, your node can show it is Lock it, signed by the Zecky team, on a real Mac with System Integrity Protection on: Apple's App Attest, the security chip in this Mac, signs its answers. It does not yet prove which exact code runs, or what chain data the node was given; that is being worked on in the open. Each question carries a fresh random code, so an old answer cannot be passed off as new, and anyone can check an answer with the free, open-source verifier in Lock it's code, without asking Zecky."),
         ("Where it leads", "First your iPhone checking it talks to your own genuine node, then a verified mark other wallets can adopt. While this is tested it is off unless you switch it on; once proven, Go Max will do it by itself."),
         ("What it proves, and what not", "That the answer comes from the Zecky team's app on a real Mac with its security on. Not yet which version or which source code: that needs builds anyone can reproduce, which is still to come."),
         ("The switches", "Answer checks: this Mac answers such questions. Also over Tor: wallets and nodes can reach it through a private onion address, without learning where this Mac is. Check another node: you ask a node yourself."),

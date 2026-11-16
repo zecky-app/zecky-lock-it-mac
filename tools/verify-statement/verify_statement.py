@@ -296,23 +296,33 @@ def main():
             _, auth = verify_attestation(base64.b64decode(data["attestation"]), client_hash, key_id, args.app_id, when, root)
             report_facts(apple_facts(auth, True), args)
         elif data.get("kind") == "assertion":
-            # The key's own attestation was made over an earlier answer, so its
-            # nonce is not checked here; the chain, the app, the key ID and the
-            # environment are.
+            # The key's own attestation was made over an earlier answer. Its
+            # data (environment, credential) only counts once its nonce, over
+            # the client data it was made for, is in Apple's certificate
+            # (issue #4). Older answers do not carry that client data.
+            key_client = data.get("keyAttestationClientDataJSON")
+            if key_client is None:
+                raise Failure("older answer format: the key attestation is not bound (no keyAttestationClientDataJSON)")
             att, _ = cbor(base64.b64decode(data["keyAttestation"]))
             leaf = x509.load_der_x509_certificate(att["attStmt"]["x5c"][0])
             intermediate = x509.load_der_x509_certificate(att["attStmt"]["x5c"][1])
             check_key_certificates(leaf, intermediate, root, when)
+            key_nonce = hashlib.sha256(att["authData"] + hashlib.sha256(key_client.encode()).digest()).digest()
+            ext = leaf.extensions.get_extension_for_oid(NONCE_OID).value.value
+            check(ext[:6] == bytes.fromhex("3024a1220420") and ext[6:] == key_nonce,
+                  "the key attestation is bound: Apple's nonce covers its data and the client data it was made for")
             public = leaf.public_key()
             point = public.public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
             check(hashlib.sha256(point).digest() == key_id, "key ID is the SHA-256 of the attested public key")
             check(att["authData"][:32] == hashlib.sha256(args.app_id.encode()).digest(), f"key belongs to {args.app_id}")
             check(AAGUID.get(att["authData"][37:53]) is not None,
                   f"App Attest environment: {AAGUID.get(att['authData'][37:53])}")
+            cred_len = int.from_bytes(att["authData"][53:55], "big")
+            check(att["authData"][55:55 + cred_len] == key_id, "credential ID is the key ID")
             auth = verify_assertion(base64.b64decode(data["assertion"]), client_hash, public, args.app_id)
-            facts = apple_facts(att["authData"], True)
-            facts.update(apple_facts(auth, False))
-            report_facts(facts, args)
+            # Apple's facts from this answer's signed data only: a key attested
+            # by one build can be used by another (issue #2).
+            report_facts(apple_facts(auth, False), args)
         else:
             raise Failure("unknown statement kind")
     except (Failure, KeyError, ValueError) as error:

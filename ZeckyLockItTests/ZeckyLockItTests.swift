@@ -1194,16 +1194,69 @@ final class ZeckyLockItTests: XCTestCase {
         let logs = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
             .appendingPathComponent("GoMax/logs", isDirectory: true)
         let files = (try? FileManager.default.contentsOfDirectory(at: logs, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
-        let newest = files.filter { $0.lastPathComponent.hasPrefix("asked-") && $0.pathExtension == "json" }
-            .max { a, b in
+        // The newest answer a genuine node gave (a fake node's answer, saved
+        // by the issue #5 test, is passed over).
+        let byDate = files.filter { $0.lastPathComponent.hasPrefix("asked-") && $0.pathExtension == "json" }
+            .sorted { a, b in
                 let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                 let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return da < db
+                return da > db
             }
-        guard let newest else { throw XCTSkip("No asked-*.json in GoMax/logs yet: check a node first, then run the tests again.") }
-        let data = try Data(contentsOf: newest)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        return (data, try XCTUnwrap(json["challenge"] as? String))
+        for url in byDate {
+            guard let data = try? Data(contentsOf: url),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let challenge = json["challenge"] as? String,
+                  StatementCheck.check(data, expectedAppID: "W2F7RNV886.app.zecky.lockit", challenge: challenge).genuine
+            else { continue }
+            return (data, challenge)
+        }
+        throw XCTSkip("No answer from a genuine node in GoMax/logs yet (older formats no longer count): check a node first.")
+    }
+
+    // MARK: Andrew Miller's review (issues #4, #5), reproduced
+
+    /// #5: a node that answers with hand-written JSON echoing the challenge
+    /// must not count as genuine in "Check another node".
+    func testIssue5AHandWrittenAnswerIsNotGenuine() throws {
+        let challenge = String(repeating: "ab", count: 32)
+        let client = String(decoding: try StatementClientData.jsonV2(
+            fingerprintSHA256: "", challenge: challenge,
+            node: .init(state: "up-to-date", tip: 3_579_000, estimate: 3_579_000)), as: UTF8.self)
+        let fake: [String: Any] = [
+            "format": "zecky-attested-statement/v2", "challenge": challenge, "clientDataJSON": client,
+            "appId": "W2F7RNV886.app.zecky.lockit", "fingerprintSHA256": "", "kind": "assertion",
+            "nodeState": ["state": "up-to-date", "tip": 3_579_000, "estimate": 3_579_000],
+            "keyId": Data(repeating: 1, count: 32).base64EncodedString(),
+            "assertion": Data("not a signature".utf8).base64EncodedString(),
+            "keyAttestation": Data("not an attestation".utf8).base64EncodedString(),
+            "createdAt": "2026-11-16T15:00:00Z",
+        ]
+        let data = try JSONSerialization.data(withJSONObject: fake, options: [.sortedKeys])
+        let result = StatementCheck.check(data, expectedAppID: "W2F7RNV886.app.zecky.lockit", challenge: challenge)
+        XCTAssertFalse(result.genuine, "a hand-written answer passed: \(result.reason)")
+    }
+
+    /// #4: in an assertion answer, the key attestation's authData must be
+    /// bound to Apple's certificate. Swapping the 16-byte environment
+    /// (AAGUID) inside it must make the answer fail.
+    func testIssue4AnEditedKeyAttestationIsNotGenuine() throws {
+        let (data, challenge) = try localStatement()
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        guard json["kind"] as? String == "assertion" else { throw XCTSkip("The saved answer is not an assertion.") }
+        var attestation = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(json["keyAttestation"] as? String)))
+        let production = Data("appattest".utf8) + Data(repeating: 0, count: 7)
+        let development = Data("appattestdevelop".utf8)
+        if let range = attestation.range(of: production) {
+            attestation.replaceSubrange(range, with: development)
+        } else if let range = attestation.range(of: development) {
+            attestation.replaceSubrange(range, with: production)
+        } else {
+            return XCTFail("No App Attest environment found in the key attestation.")
+        }
+        json["keyAttestation"] = attestation.base64EncodedString()
+        let edited = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
+        let result = StatementCheck.check(edited, expectedAppID: "W2F7RNV886.app.zecky.lockit", challenge: challenge)
+        XCTAssertFalse(result.genuine, "an edited key attestation passed")
     }
 
     func testAKeyIsCheckedAtTheMomentAppleAttestedIt() throws {
