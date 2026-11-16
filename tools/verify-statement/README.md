@@ -8,7 +8,7 @@ pip install cryptography
 python3 verify_statement.py statement.json --app-id <team id>.app.zecky.lockit
 ```
 
-## Asking a node for a fresh statement (v1)
+## Asking a node for a fresh statement
 
 A Lock it debug build with the developer switch on answers challenges on its
 own Mac only (127.0.0.1:8139). Send 32 random bytes and check the answer is
@@ -51,6 +51,14 @@ as the app that made it.
    signature (later statements) covers exactly that hash.
 4. The key: its ID is the SHA-256 of the attested public key.
 
+5. From v2: the node's state (up to date, syncing at block T of about E, or
+   not running) is signed with the answer. A v2 answer always proves the app
+   is genuine; it carries a chain fingerprint only when the node can vouch
+   for that height, and otherwise says why not.
+6. What Apple's App Attest service writes into the signed data itself, not
+   the app: the app's build number and, when the app opted in, its code
+   fingerprint (CDHash). `--build 9` and `--cdhash <hex>` require them.
+
 It also says which App Attest environment made it: development or production.
 
 ## What a pass means, and what it does not
@@ -73,3 +81,9 @@ download it from Apple and compare:
 curl -sO https://www.apple.com/certificateauthority/Apple_App_Attestation_Root_CA.pem
 openssl x509 -in Apple_App_Attestation_Root_CA.pem -noout -fingerprint -sha256
 ```
+
+7. Apple's chain is checked at the moment Apple attested the key (its
+   certificate is valid for three days; the key lives on in the Mac's
+   security chip), and Apple's intermediate must be valid today. On macOS
+   the key's access policy must show System Integrity Protection and full
+   security on, as Apple asks.

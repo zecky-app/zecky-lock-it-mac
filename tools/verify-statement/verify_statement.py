@@ -39,6 +39,11 @@ ROOT_PEM = pathlib.Path(__file__).with_name("apple_app_attestation_root_ca.pem")
 # SHA-256 of Apple App Attestation Root CA (valid 2020-03-18 to 2045-03-15).
 ROOT_SHA256 = "1cb9823ba28ba6ad2d33a006941de2ae4f513ef1d4e831b9f7e0fa7b6242c932"
 NONCE_OID = x509.ObjectIdentifier("1.2.840.113635.100.8.2")
+# macOS: the access policy of the attested key in the security chip. Apple:
+# trust a Mac's key only with exactly this value (SIP and full security on).
+ACL_OID = x509.ObjectIdentifier("1.2.840.113635.100.8.6")
+ACL_MAC_SECURE = base64.b64decode(
+    "MEAMAjExMDowCQwCb2uhAwEB/zAJDAJvYaEDAQH/MAsMBG9kZWyhAwEB/zAVDARvc2duoAYMBHJzZWMwBaYDAgEB")
 AAGUID = {
     b"appattestdevelop": "development",
     b"appattest" + b"\x00" * 7: "production",
@@ -64,6 +69,8 @@ def cbor(data, i=0):
         raise Failure("unsupported CBOR length")
     if major == 0:
         return value, i
+    if major == 1:
+        return -1 - value, i
     if major == 2:
         return data[i:i + value], i + value
     if major == 3:
@@ -89,6 +96,41 @@ def check(condition, message):
     print(f"  ok  {message}")
 
 
+def apple_facts(auth, attested):
+    """What Apple's App Attest service put in the signed authenticator data:
+    the app's build number, its validation category and, when the app opted
+    in, the CDHash (the fingerprint of its exact code). Lock it cannot write
+    these; the system service does."""
+    if not auth[32] & 0x80:
+        return {}
+    offset = 37
+    if attested:
+        size = int.from_bytes(auth[53:55], "big")
+        _, offset = cbor(auth, 55 + size)
+    facts, _ = cbor(auth, offset)
+    return facts if isinstance(facts, dict) else {}
+
+
+def report_facts(facts, args):
+    build = facts.get("apple_bundle_version_01")
+    category = facts.get("apple_validation_category_01")
+    cdhash = facts.get("apple_cd_hash_hash_01")
+    if build is not None:
+        print(f"  ok  Apple attests the app's build number: {build}")
+    else:
+        print("  --  no build number attested by Apple in this evidence")
+    if isinstance(category, bytes) and len(category) == 4:
+        print(f"  --  Apple validation category {int.from_bytes(category, 'little')}")
+    if isinstance(cdhash, bytes):
+        print(f"  ok  Apple attests the app's code fingerprint (CDHash): {cdhash.hex()}")
+    else:
+        print("  --  no code fingerprint (CDHash) attested: which exact code is not proven")
+    if args.build is not None:
+        check(str(build) == str(args.build), f"it is exactly build {args.build}")
+    if args.cdhash is not None:
+        check(isinstance(cdhash, bytes) and cdhash.hex() == args.cdhash.lower(), "it runs exactly the code you expect (CDHash)")
+
+
 def load_root():
     pem = ROOT_PEM.read_bytes()
     root = x509.load_pem_x509_certificate(pem)
@@ -101,6 +143,32 @@ def within(cert, when):
     return cert.not_valid_before_utc <= when <= cert.not_valid_after_utc
 
 
+def check_key_certificates(leaf, intermediate, root, when):
+    """Apple's chain for the key, checked the way Apple intends: once, at the
+    moment Apple attested the key. The leaf is valid for three days only; the
+    key itself lives on in this Mac's security chip, and every later answer
+    is signed by it. The intermediate must still be valid now (to 2030)."""
+    try:
+        intermediate.verify_directly_issued_by(root)
+        leaf.verify_directly_issued_by(intermediate)
+    except (InvalidSignature, ValueError, TypeError) as error:
+        raise Failure(f"the key's certificate chain does not verify: {error}")
+    print("  ok  the key's certificate chain: leaf <- intermediate <- Apple root (signatures)")
+    attested = leaf.not_valid_before_utc + datetime.timedelta(seconds=60)
+    check(within(leaf, attested) and within(intermediate, attested),
+          f"Apple attested the key on {attested:%Y-%m-%d %H:%M} UTC, with valid certificates")
+    check(attested <= when + datetime.timedelta(minutes=5), "the key was attested before the statement was made")
+    now = datetime.datetime.now(datetime.timezone.utc)
+    check(within(intermediate, now), f"Apple's intermediate certificate is still valid (until {intermediate.not_valid_after_utc:%Y-%m-%d})")
+    try:
+        raw = leaf.extensions.get_extension_for_oid(ACL_OID).value.value
+    except x509.ExtensionNotFound:
+        raise Failure("no macOS key access policy in Apple's certificate")
+    # SEQUENCE { [3] { OCTET STRING { policy } } }
+    check(raw == bytes.fromhex("3046a3440442") + ACL_MAC_SECURE,
+          "the Mac had System Integrity Protection and full security on (Apple's key policy)")
+
+
 def verify_attestation(blob, client_hash, key_id, app_id, when, root):
     """Apple's steps for an attestation object. Returns the attested public key."""
     obj, _ = cbor(blob)
@@ -109,14 +177,7 @@ def verify_attestation(blob, client_hash, key_id, app_id, when, root):
     check(len(chain) == 2, "two certificates: leaf and intermediate")
     leaf = x509.load_der_x509_certificate(chain[0])
     intermediate = x509.load_der_x509_certificate(chain[1])
-    try:
-        intermediate.verify_directly_issued_by(root)
-        leaf.verify_directly_issued_by(intermediate)
-    except (InvalidSignature, ValueError, TypeError) as error:
-        raise Failure(f"certificate chain does not verify: {error}")
-    print("  ok  certificate chain: leaf <- intermediate <- Apple root (signatures)")
-    check(within(intermediate, when) and within(leaf, when),
-          f"certificates were valid when the statement was made ({when:%Y-%m-%d %H:%M} UTC)")
+    check_key_certificates(leaf, intermediate, root, when)
     auth = obj["authData"]
     nonce = hashlib.sha256(auth + client_hash).digest()
     ext = leaf.extensions.get_extension_for_oid(NONCE_OID).value.value
@@ -132,7 +193,7 @@ def verify_attestation(blob, client_hash, key_id, app_id, when, root):
     check(environment is not None, f"App Attest environment: {environment}")
     cred_len = int.from_bytes(auth[53:55], "big")
     check(auth[55:55 + cred_len] == key_id, "credential ID is the key ID")
-    return public
+    return public, auth
 
 
 def verify_assertion(blob, client_hash, public, app_id):
@@ -147,26 +208,41 @@ def verify_assertion(blob, client_hash, public, app_id):
     check(auth[:32] == hashlib.sha256(app_id.encode()).digest(), f"app is {app_id}")
     counter = int.from_bytes(auth[33:37], "big")
     check(counter > 0, f"counter is {counter} (a later statement by the same key)")
+    return auth
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Verify a Zecky attested Go Max statement (v0 or v1).")
+    parser = argparse.ArgumentParser(description="Verify a Zecky attested Go Max statement (v0, v1 or v2).")
     parser.add_argument("statement", help="the statement file (.json)")
     parser.add_argument("--challenge", default=None,
-                        help="the 64-hex challenge you sent (v1): the statement must answer exactly this")
+                        help="the 64-hex challenge you sent: the statement must answer exactly this")
     parser.add_argument("--height", type=int, default=None,
-                        help="the block height you asked for (&height=H): the statement must be for exactly this height")
+                        help="the block height you asked for (&height=H): the fingerprint must be for exactly this height")
     parser.add_argument("--app-id", required=True,
                         help='the app you expect, "<team id>.<bundle id>", e.g. ABCDE12345.app.zecky.lockit')
+    parser.add_argument("--build", default=None,
+                        help="the build number you expect, as Apple attests it (e.g. 9)")
+    parser.add_argument("--cdhash", default=None,
+                        help="the code fingerprint (CDHash, hex) you expect, as Apple attests it")
     args = parser.parse_args()
     data = json.loads(pathlib.Path(args.statement).read_text())
     print(f"Statement: {args.statement}")
     try:
         version = data.get("format")
-        check(version in ("zecky-attested-statement/v0", "zecky-attested-statement/v1"), f"format {version}")
-        text = data["fingerprintJSON"].encode()
-        fingerprint_hash = hashlib.sha256(text).digest()
-        check(fingerprint_hash.hex() == data["fingerprintSHA256"], "fingerprint hash matches the fingerprint text")
+        check(version in ("zecky-attested-statement/v0", "zecky-attested-statement/v1",
+                          "zecky-attested-statement/v2"), f"format {version}")
+        has_fingerprint = bool(data.get("fingerprintJSON"))
+        if version.endswith("/v2"):
+            if has_fingerprint:
+                text = data["fingerprintJSON"].encode()
+                fingerprint_hash = hashlib.sha256(text).digest()
+                check(fingerprint_hash.hex() == data["fingerprintSHA256"], "fingerprint hash matches the fingerprint text")
+            else:
+                check(data.get("fingerprintSHA256") == "", "no fingerprint, and none signed")
+        else:
+            text = data["fingerprintJSON"].encode()
+            fingerprint_hash = hashlib.sha256(text).digest()
+            check(fingerprint_hash.hex() == data["fingerprintSHA256"], "fingerprint hash matches the fingerprint text")
         if version.endswith("/v0"):
             if args.challenge:
                 raise Failure("a v0 statement carries no challenge")
@@ -176,10 +252,11 @@ def main():
             client_data = json.loads(client)
             canonical_client = json.dumps(client_data, sort_keys=True, separators=(",", ":")).encode()
             check(canonical_client == client, "client data is canonical (sorted keys, no spaces)")
-            check(client_data.get("v") == 1 and client_data.get("purpose") == "zecky-go-max-state",
-                  "client data is for a Go Max state statement (v1)")
+            v = 2 if version.endswith("/v2") else 1
+            check(client_data.get("v") == v and client_data.get("purpose") == "zecky-go-max-state",
+                  f"client data is for a Go Max state statement (v{v})")
             check(client_data.get("fingerprintSHA256") == data["fingerprintSHA256"],
-                  "client data names this fingerprint")
+                  "client data names this fingerprint" if data["fingerprintSHA256"] else "client data names no fingerprint")
             check(client_data.get("challenge") == data.get("challenge", ""), "client data carries the statement's challenge")
             if args.challenge is not None:
                 check(client_data.get("challenge") == args.challenge.lower(), "it answers exactly your challenge (fresh)")
@@ -187,50 +264,65 @@ def main():
                 print("  --  a challenge is present; pass --challenge to check it was yours")
             else:
                 print("  --  no challenge: nobody asked for this statement, so it may not be fresh")
+            if v == 2:
+                node = client_data.get("node") or {}
+                check(node == data.get("nodeState"), "the node's state is signed with the answer")
+                state = node.get("state")
+                if state == "up-to-date":
+                    print(f"  --  node state (signed): up to date at block {node.get('tip')}")
+                elif state == "syncing":
+                    print(f"  --  node state (signed): syncing, at block {node.get('tip')} of about {node.get('estimate')}")
+                else:
+                    print(f"  --  node state (signed): {state}")
+                if not has_fingerprint:
+                    print(f"  --  no chain fingerprint ({data.get('fingerprintNote', 'none')}): this answer proves genuine only")
             check_check = data.get("nodeCheck", {})
             if check_check.get("ownNode"):
                 print("  --  Lock it reported it checked the node was its own (not provable from outside)")
             client_hash = hashlib.sha256(client).digest()
-        canonical = json.dumps(json.loads(text), sort_keys=True, separators=(",", ":")).encode()
-        check(canonical == text, "fingerprint text is canonical (sorted keys, no spaces)")
-        fingerprint = json.loads(text)
-        check(fingerprint.get("height") == data.get("height"), f"height {data.get('height')}")
+        if has_fingerprint:
+            canonical = json.dumps(json.loads(text), sort_keys=True, separators=(",", ":")).encode()
+            check(canonical == text, "fingerprint text is canonical (sorted keys, no spaces)")
+            fingerprint = json.loads(text)
+            check(fingerprint.get("height") == data.get("height"), f"fingerprint at height {data.get('height')}")
         if args.height is not None:
-            check(fingerprint.get("height") == args.height, f"it is for exactly the height you asked ({args.height})")
+            check(has_fingerprint and fingerprint.get("height") == args.height,
+                  f"it carries a fingerprint for exactly the height you asked ({args.height})")
         check(data.get("appId") == args.app_id, f"statement names the expected app {args.app_id}")
         key_id = base64.b64decode(data["keyId"])
         when = datetime.datetime.fromisoformat(data["createdAt"].replace("Z", "+00:00"))
         root = load_root()
         if data.get("kind") == "attestation":
-            verify_attestation(base64.b64decode(data["attestation"]), client_hash, key_id, args.app_id, when, root)
+            _, auth = verify_attestation(base64.b64decode(data["attestation"]), client_hash, key_id, args.app_id, when, root)
+            report_facts(apple_facts(auth, True), args)
         elif data.get("kind") == "assertion":
-            # The key's own attestation was made over an earlier fingerprint,
-            # so its nonce is not checked here; the chain, the app, the key ID
-            # and the environment are.
+            # The key's own attestation was made over an earlier answer, so its
+            # nonce is not checked here; the chain, the app, the key ID and the
+            # environment are.
             att, _ = cbor(base64.b64decode(data["keyAttestation"]))
             leaf = x509.load_der_x509_certificate(att["attStmt"]["x5c"][0])
             intermediate = x509.load_der_x509_certificate(att["attStmt"]["x5c"][1])
-            try:
-                intermediate.verify_directly_issued_by(root)
-                leaf.verify_directly_issued_by(intermediate)
-            except (InvalidSignature, ValueError, TypeError) as error:
-                raise Failure(f"the key's certificate chain does not verify: {error}")
-            print("  ok  the key's certificate chain: leaf <- intermediate <- Apple root")
+            check_key_certificates(leaf, intermediate, root, when)
             public = leaf.public_key()
             point = public.public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
             check(hashlib.sha256(point).digest() == key_id, "key ID is the SHA-256 of the attested public key")
             check(att["authData"][:32] == hashlib.sha256(args.app_id.encode()).digest(), f"key belongs to {args.app_id}")
             check(AAGUID.get(att["authData"][37:53]) is not None,
                   f"App Attest environment: {AAGUID.get(att['authData'][37:53])}")
-            verify_assertion(base64.b64decode(data["assertion"]), client_hash, public, args.app_id)
+            auth = verify_assertion(base64.b64decode(data["assertion"]), client_hash, public, args.app_id)
+            facts = apple_facts(att["authData"], True)
+            facts.update(apple_facts(auth, False))
+            report_facts(facts, args)
         else:
             raise Failure("unknown statement kind")
     except (Failure, KeyError, ValueError) as error:
         print(f"FAIL  {error}")
         return 1
-    print("PASS  genuine app, this fingerprint. (Not: that the fingerprint is right, or which code made it.)")
+    if has_fingerprint:
+        print("PASS  genuine app, this fingerprint. (Not: that the fingerprint is right, or which code made it unless a CDHash was checked.)")
+    else:
+        print("PASS  genuine app. (No chain fingerprint in this answer.)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
