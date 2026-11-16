@@ -4,9 +4,11 @@
 # Genuine node: App Attest for p2p Go Max nodes
 
 Go Max is open source and reachable over Tor, so a changed copy can look the
-same from outside. With Genuine node on, a node proves it is genuine Lock it
-on a real Mac: it answers a fresh challenge with a statement signed by an App
-Attest key, and anyone can check it with `tools/verify-statement`, without a
+same from outside. With Genuine node on, a node shows it is Lock it, signed
+by the Zecky team, on a real Mac with System Integrity Protection on. Not yet
+proven: which exact code runs, and what data the node was given (issues #2,
+#3 and #6). The node answers a fresh challenge with a statement signed by an
+App Attest key, and anyone can check it with `tools/verify-statement`, without a
 Zecky server. Experimental and off by default.
 
 How it works
