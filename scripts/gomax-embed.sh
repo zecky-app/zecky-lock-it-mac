@@ -24,6 +24,7 @@ fi
 [ -f "$PINS" ] || { echo "error: Go Max: GoMax/bin.sha256 is missing." >&2; exit 1; }
 ( cd "$SRC" && /usr/bin/shasum -a 256 -c "$PINS" >/dev/null ) || {
   echo "error: Go Max: the programs in GoMax/bin do not match GoMax/bin.sha256. Refused." >&2; exit 1; }
+"$ROOT/scripts/check-sprout.sh" "$SRC/zakurad"
 
 PROGRAMS="zakurad zainod"
 # Arti (Tor) for attested statements (experimental, off by default): in

@@ -168,7 +168,7 @@ enum GoMaxConfig {
 /// together with it (docs/NODE_UPDATES.md). Lock it says so two weeks ahead,
 /// and at the stop it asks: a public server, or wait. Never by itself.
 enum GoMaxSupport {
-    /// `MAINNET_EOS_HEIGHT` of Zakura v1.8.5 to v1.8.8: about Dec 5, 2026.
+    /// `MAINNET_EOS_HEIGHT` of Zakura v1.8.5 to v1.8.9: about Dec 5, 2026.
     static let releaseStopHeight = 3_643_309
     /// The height Lock it goes by. In a debug build only, it can be moved to
     /// see the notice and the stop before the real date:

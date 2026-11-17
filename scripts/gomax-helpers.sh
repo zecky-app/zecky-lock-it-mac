@@ -6,7 +6,7 @@
 #   scripts/gomax-helpers.sh
 #
 # Defaults are the builds with neutral paths (11 Nov 2026, see docs/GO_MAX.md):
-#   zakurad  ~/rockit-proto/release/bin/zakurad  Zakura v1.8.8 (009b60b)
+#   zakurad  ~/rockit-proto/release/bin/zakurad  Zakura v1.8.9 (23b79de), --features sprout
 #   zainod   ~/rockit-proto/release/bin/zainod   Zaino feat/nu7 aaf8122 + the two Rock it patches
 # Override with ZAKURAD=/path ZAINOD=/path.
 #
@@ -67,6 +67,8 @@ for f in $PROGRAMS; do
     exit 1
   fi
 done
+# A node without Sprout verification stops for good on a first sync.
+"$ROOT/scripts/check-sprout.sh" "$BIN/zakurad" || { rm -f "$BIN/zakurad" "$BIN/zainod" "$BIN/arti"; exit 1; }
 ( cd "$BIN" && shasum -a 256 zakurad zainod ) > "$ROOT/GoMax/bin.sha256"
 # Arti's fingerprint apart, so a build without Arti still checks the two.
 if [ -x "$BIN/arti" ]; then ( cd "$BIN" && shasum -a 256 arti ) > "$ROOT/GoMax/arti.sha256"; fi
