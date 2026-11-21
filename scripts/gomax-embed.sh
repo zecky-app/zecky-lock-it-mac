@@ -42,5 +42,9 @@ for f in $PROGRAMS; do
     --identifier "${PRODUCT_BUNDLE_IDENTIFIER:-app.zecky.lockit}.$f" \
     --entitlements "$ROOT/GoMax/Helpers.entitlements" \
     --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" "$DEST/$f"
+  # Signed now: it must still match the fingerprint built into Lock it, or
+  # Lock it would refuse to start it.
+  /usr/bin/python3 -I "$ROOT/scripts/nested-code-pins.py" --check "$f" "$DEST/$f" >/dev/null || {
+    echo "error: Go Max: $f does not match its fingerprint in GoMaxNode.swift. Run scripts/gomax-helpers.sh. Refused." >&2; exit 1; }
 done
 echo "Go Max: $PROGRAMS in the app."

@@ -98,12 +98,20 @@ final class GoMaxNode: ObservableObject {
 
     /// The two programs, next to Lock it's own in Contents/MacOS. A build
     /// without them (no GoMax/bin on the Mac that built it) has no Go Max.
-    static func helper(_ name: String) -> URL? {
+    nonisolated static func helper(_ name: String) -> URL? {
         guard let url = Bundle.main.url(forAuxiliaryExecutable: name),
               FileManager.default.isExecutableFile(atPath: url.path) else { return nil }
         return url
     }
     static var isAvailable: Bool { helper("zakurad") != nil && helper("zainod") != nil }
+
+    /// A helper that is there and matches the fingerprint built into Lock it
+    /// (`NestedCode`); otherwise the reason it is refused. Called right
+    /// before every start, so a program changed after installing is not run.
+    nonisolated static func verifiedHelper(_ name: String) -> Result<URL, NestedCode.Refusal> {
+        guard let url = helper(name) else { return .failure(.missing(name)) }
+        return NestedCode.check(name, at: url).map { _ in url }
+    }
 
     /// Lock it's own folder (the sandbox container), left out of Time Machine.
     static var folder: URL? {
@@ -552,7 +560,11 @@ final class GoMaxNode: ObservableObject {
     }
 
     private func launch(_ name: String, _ arguments: [String], log: URL, pidFile: URL, environment: [String: String]) throws -> Process {
-        guard let url = Self.helper(name) else { throw Failure("This build of Lock it has no node inside.") }
+        let url: URL
+        switch Self.verifiedHelper(name) {
+        case .success(let found): url = found
+        case .failure(let refusal): throw Failure(refusal.message)
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", Self.keeper, url.path] + arguments
@@ -1239,3 +1251,126 @@ enum PowerSource {
     }
 }
 
+/// Fingerprints of the code inside Lock it that App Attest does not measure:
+/// the three helper programs and the two libraries in Frameworks. App
+/// Attest's CDHash covers only Lock it's own program (issue #2), and a
+/// helper's CDHash changes with whoever signs it, so it cannot be pinned for
+/// self-builds or TestFlight, which signs the app again (Andrew Miller's
+/// correction on issues #3 and #8).
+///
+/// This fingerprint does not depend on the signer: for each architecture in
+/// the file, SHA-256 of the bytes up to the code signature, with the three
+/// fields a signature changes set to zero (the signature's size and the
+/// `__LINKEDIT` segment's two sizes). The same in scripts/nested-code-pins.py,
+/// which writes the pins below from a built app. Checked 21 Nov 2026: one
+/// fingerprint per helper whether the linker, Xcode (Debug) or Apple
+/// Distribution signed it.
+///
+/// Helpers are checked right before every start and refused if they do not
+/// match. The two libraries are loaded by macOS before any of Lock it's code
+/// runs, so Lock it checks their files when it makes a Genuine node answer
+/// and makes none if they do not match. Limits: a check of the file just
+/// before it runs, not of the running program; and Lock it's own program is
+/// covered by App Attest's CDHash, not by this.
+enum NestedCode {
+    enum Refusal: Error, Equatable {
+        case missing(String), unreadable(String), changed(String)
+        var message: String {
+            switch self {
+            case .missing(let name): return name == "arti" ? "No Arti in this build." : "This build of Lock it has no node inside."
+            case .unreadable(let name): return "Lock it could not read \(name) inside the app to check it. Refused."
+            case .changed(let name): return "\(name) inside Lock it is not the one this build was made with. Refused."
+            }
+        }
+    }
+
+    /// The helpers, by name, and the libraries, by their path in Contents.
+    static let libraries = [("libswiftCompatibilitySpan.dylib", "Frameworks/libswiftCompatibilitySpan.dylib"),
+                            ("libzcashlc", "Frameworks/libzcashlc.framework/Versions/A/libzcashlc")]
+
+    static func check(_ name: String, at url: URL) -> Result<Void, Refusal> {
+        guard let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return .failure(.unreadable(name)) }
+        return matches(digests(of: data), pins: pins[name]) ? .success(()) : .failure(.changed(name))
+    }
+
+    /// Both libraries in Frameworks match their pins.
+    static func checkLibraries(in bundle: Bundle = .main) -> Result<Void, Refusal> {
+        for (name, path) in libraries {
+            let url = bundle.bundleURL.appendingPathComponent("Contents/" + path)
+            if case .failure(let refusal) = check(name, at: url) { return .failure(refusal) }
+        }
+        return .success(())
+    }
+
+    /// Every architecture in the file is pinned with the same fingerprint,
+    /// and Apple silicon's is there (a Debug build holds only that one).
+    static func matches(_ found: [String: String]?, pins: [String: String]?) -> Bool {
+        guard let found, let pins, !found.isEmpty else { return false }
+        return found.allSatisfy { pins[$0.key] == $0.value } && found.keys.contains { $0.hasPrefix("16777228.") }
+    }
+
+    /// "cputype.cpusubtype" → fingerprint (hex), per architecture; nil when
+    /// the file is not a signed 64-bit Mach-O program or library.
+    static func digests(of data: Data) -> [String: String]? {
+        let bytes = [UInt8](data)
+        func be32(_ i: Int) -> UInt32 { UInt32(bytes[i]) << 24 | UInt32(bytes[i + 1]) << 16 | UInt32(bytes[i + 2]) << 8 | UInt32(bytes[i + 3]) }
+        func be64(_ i: Int) -> UInt64 { UInt64(be32(i)) << 32 | UInt64(be32(i + 4)) }
+        guard bytes.count >= 8 else { return nil }
+        var ranges: [Range<Int>] = []
+        switch be32(0) {
+        case 0xCAFE_BABE, 0xCAFE_BABF:
+            let wide = be32(0) == 0xCAFE_BABF
+            let count = Int(be32(4))
+            for i in 0..<count {
+                let entry = 8 + i * (wide ? 32 : 20)
+                guard entry + (wide ? 32 : 20) <= bytes.count else { return nil }
+                let offset = wide ? Int(be64(entry + 8)) : Int(be32(entry + 8))
+                let size = wide ? Int(be64(entry + 16)) : Int(be32(entry + 12))
+                guard offset >= 0, size > 0, offset + size <= bytes.count else { return nil }
+                ranges.append(offset..<offset + size)
+            }
+        default:
+            ranges = [0..<bytes.count]
+        }
+        var out: [String: String] = [:]
+        for range in ranges {
+            guard let (key, digest) = sliceDigest(Array(bytes[range])) else { return nil }
+            out[key] = digest
+        }
+        return out
+    }
+
+    private static func sliceDigest(_ m: [UInt8]) -> (String, String)? {
+        func le32(_ i: Int) -> UInt32 { UInt32(m[i]) | UInt32(m[i + 1]) << 8 | UInt32(m[i + 2]) << 16 | UInt32(m[i + 3]) << 24 }
+        guard m.count >= 32, le32(0) == 0xFEED_FACF else { return nil }
+        let cputype = le32(4), subtype = le32(8), ncmds = Int(le32(16))
+        var b = m, offset = 32, limit: Int?
+        for _ in 0..<ncmds {
+            guard offset + 8 <= m.count else { return nil }
+            let cmd = le32(offset), size = Int(le32(offset + 4))
+            guard size >= 8, offset + size <= m.count else { return nil }
+            if cmd == 0x1D, size >= 16 {                       // LC_CODE_SIGNATURE
+                limit = Int(le32(offset + 8))
+                for i in offset + 12..<offset + 16 { b[i] = 0 }   // datasize
+            } else if cmd == 0x19, size >= 56,                 // LC_SEGMENT_64
+                      m[offset + 8..<offset + 24].prefix(while: { $0 != 0 }).elementsEqual("__LINKEDIT".utf8) {
+                for i in offset + 32..<offset + 40 { b[i] = 0 }   // vmsize
+                for i in offset + 48..<offset + 56 { b[i] = 0 }   // filesize
+            }
+            offset += size
+        }
+        guard let limit, limit > 0, limit <= b.count else { return nil }
+        let hash = SHA256.hash(data: b[0..<limit]).map { String(format: "%02x", $0) }.joined()
+        return ("\(cputype).\(subtype)", hash)
+    }
+
+    // BEGIN PINS (written by scripts/nested-code-pins.py; do not edit by hand)
+    static let pins: [String: [String: String]] = [
+        "zakurad": ["16777228.0": "67f8ef92dcfc1b1ee9ea36bf5a6db4b8aa30ffc85ec909bdeac7030372219b56"],
+        "zainod": ["16777228.0": "0ef22f1b34801de85104331f450b17d9dde88f13dff53c5da6f3d03eb5c72a3a"],
+        "arti": ["16777228.0": "1b11c8159babaee5e7510b655157f60a1b85d301d18875b17daa80df823b35e3"],
+        "libswiftCompatibilitySpan.dylib": ["16777223.3": "caf0463800549bc81a701e630bcf142b13cb48e8bf68de473ec1a2aeaa066ba8", "16777228.0": "2c56698ead38721029ec5fe479e2887c3c0ae3a1b4d9e7ccd1c74cf83f3a28b9", "16777228.2147483650": "7d3987a13a2058d94c768e2b93e75fea8695d5bdaba38ad92403a84875634958"],
+        "libzcashlc": ["16777223.3": "471d393c93622d0c2cf762a487ffa7f2816c186d72989022ae7e61a5c16cfa13", "16777228.0": "fadf5bb17be9fa700beab3615b329e9fd245b05ace1dd5b194d0a5a676566b71"],
+    ]
+    // END PINS
+}

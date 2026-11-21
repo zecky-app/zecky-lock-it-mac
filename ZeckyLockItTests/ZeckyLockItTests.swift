@@ -1474,3 +1474,119 @@ final class ZeckyLockItTests: XCTestCase {
                                                   verificationProgress: 1, walletNetwork: 0, now: now), 3_643_400)
     }
 }
+
+/// Andrew Miller's correction on issues #3 and #8: Lock it checks a
+/// signer-independent fingerprint of every helper before starting it, and
+/// of its two libraries before making a Genuine node answer.
+final class NestedCodeTests: XCTestCase {
+    private func helperData(_ name: String) throws -> (URL, Data) {
+        guard let url = GoMaxNode.helper(name) else { throw XCTSkip("this build has no \(name) inside") }
+        return (url, try Data(contentsOf: url))
+    }
+
+    private func refusal(_ result: Result<Void, NestedCode.Refusal>) -> NestedCode.Refusal? {
+        if case .failure(let refusal) = result { return refusal }
+        return nil
+    }
+
+    /// Where the signature starts (LC_CODE_SIGNATURE dataoff) in a thin file.
+    private func signatureStart(_ d: Data) -> Int? {
+        let b = [UInt8](d)
+        func le32(_ i: Int) -> Int { Int(b[i]) | Int(b[i + 1]) << 8 | Int(b[i + 2]) << 16 | Int(b[i + 3]) << 24 }
+        var offset = 32
+        for _ in 0..<le32(16) {
+            if le32(offset) == 0x1D { return le32(offset + 8) }
+            offset += le32(offset + 4)
+        }
+        return nil
+    }
+
+    func testEverythingInsideThisBuildMatchesItsFingerprint() throws {
+        var checked = 0
+        for name in ["zakurad", "zainod", "arti"] {
+            guard let url = GoMaxNode.helper(name) else { continue }
+            XCTAssertEqual(GoMaxNode.verifiedHelper(name).map { $0.lastPathComponent }, .success(name))
+            XCTAssertNoThrow(try NestedCode.check(name, at: url).get())
+            checked += 1
+        }
+        if checked == 0 { throw XCTSkip("this build has no helpers inside") }
+        XCTAssertNoThrow(try NestedCode.checkLibraries().get(),
+                         "Frameworks changed: run scripts/nested-code-pins.py on the built app")
+    }
+
+    func testAChangedHelperIsRefused() throws {
+        let (_, original) = try helperData("zakurad")
+        let start = try XCTUnwrap(signatureStart(original))
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("nested-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let copy = folder.appendingPathComponent("zakurad")
+
+        // The same program, signed by someone else: only the signature
+        // (after `start`) and its size fields differ. Still accepted.
+        var resigned = original
+        resigned.replaceSubrange(start..<resigned.count, with: Data(repeating: 0xAB, count: 1234))
+        try resigned.write(to: copy)
+        XCTAssertNoThrow(try NestedCode.check("zakurad", at: copy).get(), "a new signature alone must not matter")
+
+        // One byte of the program changed: refused, before it can start.
+        var changed = original
+        changed[start / 2] ^= 0x01
+        try changed.write(to: copy)
+        XCTAssertEqual(refusal(NestedCode.check("zakurad", at: copy)), .changed("zakurad"))
+
+        // Another helper in its place: refused.
+        if let zainod = GoMaxNode.helper("zainod") {
+            try FileManager.default.removeItem(at: copy)
+            try FileManager.default.copyItem(at: zainod, to: copy)
+            XCTAssertEqual(refusal(NestedCode.check("zakurad", at: copy)), .changed("zakurad"))
+        }
+
+        // Not a program at all, or a name Lock it has no fingerprint for.
+        try Data("#!/bin/sh\necho fake node\n".utf8).write(to: copy)
+        XCTAssertEqual(refusal(NestedCode.check("zakurad", at: copy)), .changed("zakurad"))
+        XCTAssertEqual(refusal(NestedCode.check("other", at: copy)), .changed("other"))
+    }
+}
+
+/// Issue #2 with Andrew Miller's correction: each answer shows the code
+/// identity of the running program, bound to the CDHash Apple attests.
+final class CodeIdentityTests: XCTestCase {
+    private func mine() throws -> (CodeIdentity.Parts, [String: Any], Data, String) {
+        let parts = try XCTUnwrap(CodeIdentity.current(), "Lock it's own program has no readable code signature")
+        let appID = try XCTUnwrap(CodeIdentity.applicationIdentifier(XCTUnwrap(CodeIdentity.entitlements(parts.entitlements))))
+        return (parts, CodeIdentity.json(parts), Data(SHA256.hash(data: parts.codeDirectory)), appID)
+    }
+
+    func testItsOwnCodeIdentityChecksOut() throws {
+        let (parts, fields, cdhash, appID) = try mine()
+        let directory = try XCTUnwrap(CodeIdentity.directory(parts.codeDirectory))
+        XCTAssertEqual(parts.page0.count, directory.pageSize)
+        XCTAssertTrue(appID.hasSuffix(".app.zecky.lockit"), "the app ID in its entitlements is Lock it's")
+        XCTAssertEqual(try CodeIdentity.check(fields, cdhash: cdhash, appID: appID).get(), parts)
+        XCTAssertTrue(CodeIdentity.sameCode(parts, parts))
+    }
+
+    func testAShownCodeThatIsNotTheAttestedOneIsRefused() throws {
+        let (parts, fields, cdhash, appID) = try mine()
+        func reason(_ f: [String: Any], _ hash: Data = cdhash, _ app: String? = nil) -> String? {
+            if case .failure(let p) = CodeIdentity.check(f, cdhash: hash, appID: app ?? appID) { return p.reason }
+            return nil
+        }
+        // Apple attests other code than the answer shows.
+        XCTAssertEqual(reason(fields, Data(repeating: 7, count: 32)), "the code it shows is not the code Apple attests (CDHash)")
+        // A changed first page.
+        var page = parts.page0; page[page.startIndex + 100] ^= 1
+        var f = fields; f["page0"] = page.base64EncodedString()
+        XCTAssertEqual(reason(f), "its first page is not the one its code hashes")
+        // Other entitlements than the signature holds.
+        var ent = parts.entitlements; ent[ent.count - 1] ^= 1
+        f = fields; f["entitlements"] = ent.base64EncodedString()
+        XCTAssertEqual(reason(f), "its entitlements are not the ones its code signature holds")
+        // Entitlements of another app.
+        XCTAssertEqual(reason(fields, cdhash, "ABCDE12345.other.app"), "its entitlements name another app")
+        // Another code limit is other code, whoever signed it.
+        var other = parts.codeDirectory; other[other.startIndex + 35] ^= 1
+        XCTAssertFalse(CodeIdentity.sameCode(CodeIdentity.Parts(codeDirectory: other, page0: parts.page0, entitlements: parts.entitlements), parts))
+    }
+}

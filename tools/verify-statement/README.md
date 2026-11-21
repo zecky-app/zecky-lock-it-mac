@@ -96,3 +96,15 @@ openssl x509 -in Apple_App_Attestation_Root_CA.pem -noout -fingerprint -sha256
    attestation is bound by its own client data
    (`keyAttestationClientDataJSON`), and Apple's facts are read from the
    answer's own signed data only. Older formats (v0 to v2) are refused.
+9. Which code (build 12, issue #2): answers carry `codeIdentity`, the
+   running program's CodeDirectory, first page and entitlements. The
+   verifier requires the CodeDirectory's SHA-256 to be the CDHash Apple
+   attests in the answer, the first page and the entitlements to be the
+   ones it hashes, and Apple's rpIdHash to be SHA-256 of the app ID in those
+   entitlements. `--app-id` is then optional (team and bundle ID are free).
+   With `--reference "<your build>.app"` it checks the answer runs exactly
+   the code of your own build of the published source, whoever signed each
+   (every page hash but the first, the code limit, the flags, the first
+   page without its signer fields, the entitlements without team and app
+   ID). `--compare-apps A.app B.app` compares two builds directly. How to
+   rebuild: docs/ATTESTED_STATEMENTS.md, "Rebuild and compare".

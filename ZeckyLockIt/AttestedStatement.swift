@@ -208,6 +208,8 @@ struct StatementCheck {
         var attestedAt: Date? = nil   // start of Apple's key certificate (+60 s); Apple dates it about a day before the attestation
         var keyId: String? = nil
         var counter: Int? = nil       // how many answers the key has signed
+        var codeShown = false         // the answer carries its code identity, bound to Apple's CDHash (issue #2)
+        var sameCode: Bool? = nil     // that code is this Lock it's own code (any signer)
     }
 
     /// macOS: the access policy of the key in the security chip, in the leaf's
@@ -358,6 +360,20 @@ struct StatementCheck {
               attAuth[attAuth.startIndex + 55 ..< attAuth.startIndex + 55 + credentialLength] == keyId else {
             return no("the attestation is for another key")
         }
+        // The code identity, when shown, must be the code Apple attests in
+        // this answer (issue #2). Answers from build 11 and older carry none.
+        var codeShown = false, sameCode: Bool?
+        if let fields = json["codeIdentity"] as? [String: Any] {
+            guard let attested = facts["apple_cd_hash_hash_01"]?.bytesValue else {
+                return no("it shows its code, but Apple attests no CDHash")
+            }
+            switch CodeIdentity.check(fields, cdhash: Data(attested), appID: expectedAppID) {
+            case .failure(let problem): return no(problem.reason)
+            case .success(let parts):
+                codeShown = true
+                sameCode = CodeIdentity.current().map { CodeIdentity.sameCode(parts, $0) }
+            }
+        }
         return Result(genuine: true, reason: "genuine",
                       build: facts["apple_bundle_version_01"]?.textValue,
                       cdhash: facts["apple_cd_hash_hash_01"]?.bytesValue.map { $0.map { String(format: "%02x", $0) }.joined() },
@@ -365,7 +381,8 @@ struct StatementCheck {
                       height: (json["fingerprintJSON"] as? String).flatMap {
                           (try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])?["height"] as? Int },
                       hasFingerprint: json["fingerprintJSON"] != nil,
-                      attestedAt: attestedAt, keyId: keyIdText, counter: counter)
+                      attestedAt: attestedAt, keyId: keyIdText, counter: counter,
+                      codeShown: codeShown, sameCode: sameCode)
     }
 
     /// The policy in the leaf's extension 1.2.840.113635.100.8.6:
@@ -439,7 +456,8 @@ struct RequestLimit {
 /// Lock it on them, and that node is still running (its keeper lives exactly
 /// as long as the node), so nothing else can hold the port. The `zakurad`
 /// file inside Lock it is checked to be validly signed by the same team as
-/// Lock it. macOS does not let a sandboxed app inspect other processes, not
+/// Lock it, and every helper and library against the fingerprints built into
+/// Lock it (`NestedCode`). macOS does not let a sandboxed app inspect other processes, not
 /// even its own children (seen 14 Nov 2026: EPERM), so this is as far as Lock
 /// it can check. Fails closed: when something cannot be checked, no statement.
 enum OwnNodeCheck {
@@ -455,6 +473,13 @@ enum OwnNodeCheck {
         guard fileSignedBy(team: team, url: url) else {
             return (nil, "The node inside Lock it is not validly signed by the same team as Lock it.")
         }
+        // The signature only names the team. The fingerprints built into
+        // Lock it name the exact programs and libraries (NestedCode).
+        for name in ["zakurad", "zainod", "arti"] {
+            guard let helper = GoMaxNode.helper(name) else { continue }
+            if case .failure(let refusal) = NestedCode.check(name, at: helper) { return (nil, refusal.message) }
+        }
+        if case .failure(let refusal) = NestedCode.checkLibraries() { return (nil, refusal.message) }
         let relative = url.resolvingSymlinksInPath().path.components(separatedBy: "/").suffix(3).joined(separator: "/")
         return (Result(executable: relative), "Lock it's own node")
     }
@@ -642,6 +667,8 @@ final class AttestedStatementMaker: ObservableObject {
             "clientDataJSON": String(decoding: clientData, as: UTF8.self),
             "challenge": challenge,
         ]
+        // Lock it's own code identity, bound by Apple's CDHash (issue #2).
+        if let parts = CodeIdentity.current() { statement["codeIdentity"] = CodeIdentity.json(parts) }
         if fingerprint != nil, let json {
             // The text the signed hash covers (it names its height).
             statement["fingerprintJSON"] = String(decoding: json, as: UTF8.self)
@@ -989,7 +1016,12 @@ final class AttestOnion: ObservableObject {
 
     func start() {
         guard process == nil else { return }
-        guard let arti = GoMaxNode.helper("arti"), let root else { state = "No Arti in this build."; return }
+        guard let root else { state = "No Arti in this build."; return }
+        let arti: URL
+        switch GoMaxNode.verifiedHelper("arti") {
+        case .success(let found): arti = found
+        case .failure(let refusal): state = refusal.message; return
+        }
         do {
             let fm = FileManager.default
             for dir in ["cache", "state"] {
@@ -1073,7 +1105,8 @@ final class AttestOnion: ObservableObject {
     }
 
     private static func run(_ program: URL, _ arguments: [String]) async -> String? {
-        await withCheckedContinuation { continuation in
+        guard case .success = NestedCode.check(program.lastPathComponent, at: program) else { return nil }
+        return await withCheckedContinuation { continuation in
             let process = Process()
             process.executableURL = program
             process.arguments = arguments
@@ -1162,7 +1195,9 @@ final class AttestAsker: ObservableObject {
                 // No date: Apple dates its key certificates about a day back
                 // (seen 16 Nov 2026), so a date here would mislead.
                 let since = ""
-                status = "Genuine ✓ Zecky Lock it\(build)\(since)\(summary). Saved \(name) in the logs folder; verify_statement.py --challenge \(challenge)\(height.map { " --height \($0)" } ?? "") gives a second opinion."
+                let code = check.sameCode == true ? " · same code as this Lock it"
+                    : check.sameCode == false ? " · other code than this Lock it" : ""
+                status = "Genuine ✓ Zecky Lock it\(build)\(code)\(since)\(summary). Saved \(name) in the logs folder; verify_statement.py --challenge \(challenge)\(height.map { " --height \($0)" } ?? "") gives a second opinion."
             } else {
                 status = "Not genuine: \(check.reason). Saved \(name) in the logs folder."
             }
@@ -1772,5 +1807,211 @@ final class GenuineNodes: ObservableObject {
                               keyId: result.keyId, counter: result.counter))
             AttestLog.write("Found a genuine node \(peer.prefix(8))… (build \(result.build ?? "?")) via \(onion.prefix(8))…")
         }
+    }
+}
+
+/// Issue #2, with Andrew Miller's correction: App Attest's CDHash names the
+/// exact code that made an answer, but only a verifier who can see that
+/// code's identity can use it. So every answer carries, for the running
+/// Apple silicon slice of Lock it's own program: the SHA-256 CodeDirectory,
+/// the first page of the program, and the signed entitlements (DER).
+///
+/// A checker then requires: SHA-256 of the CodeDirectory is the CDHash Apple
+/// attests in this answer's own signed data; the first page is the one the
+/// CodeDirectory hashes (slot 0); the entitlements are the ones it hashes
+/// (special slot 7); and their application identifier is the app Apple
+/// attests (rpIdHash). To know *which* code, compare with a build of the
+/// published source: every page hash but the first, the code limit, the
+/// flags, the first page with the three signer-dependent fields zeroed, and
+/// the entitlements except the identity keys (team and app ID).
+enum CodeIdentity {
+    struct Parts: Equatable { let codeDirectory: Data; let page0: Data; let entitlements: Data }
+    struct Problem: Error { let reason: String }
+
+    /// Entitlements that name who signed, not what the code is.
+    static let identityKeys: Set<String> = ["application-identifier", "com.apple.application-identifier",
+                                             "com.apple.developer.team-identifier", "keychain-access-groups"]
+    static let slice = "16777228.0"   // arm64, the slice App Attest runs on Apple silicon
+
+    /// Lock it's own running program.
+    static func current() -> Parts? {
+        guard let url = Bundle.main.executableURL,
+              let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return nil }
+        return parts(of: data)
+    }
+
+    static func json(_ p: Parts) -> [String: Any] {
+        ["slice": slice, "codeDirectory": p.codeDirectory.base64EncodedString(),
+         "page0": p.page0.base64EncodedString(), "entitlements": p.entitlements.base64EncodedString()]
+    }
+
+    static func parts(fromJSON fields: [String: Any]) -> Parts? {
+        guard fields["slice"] as? String == slice,
+              let cd = (fields["codeDirectory"] as? String).flatMap({ Data(base64Encoded: $0) }),
+              let page = (fields["page0"] as? String).flatMap({ Data(base64Encoded: $0) }),
+              let ent = (fields["entitlements"] as? String).flatMap({ Data(base64Encoded: $0) }) else { return nil }
+        return Parts(codeDirectory: cd, page0: page, entitlements: ent)
+    }
+
+    // MARK: Reading a signed program
+
+    static func parts(of data: Data) -> Parts? {
+        let b = [UInt8](data)
+        func be32(_ i: Int) -> Int { Int(b[i]) << 24 | Int(b[i + 1]) << 16 | Int(b[i + 2]) << 8 | Int(b[i + 3]) }
+        func be64(_ i: Int) -> Int { be32(i) << 32 | be32(i + 4) }
+        func le32(_ i: Int) -> Int { Int(b[i]) | Int(b[i + 1]) << 8 | Int(b[i + 2]) << 16 | Int(b[i + 3]) << 24 }
+        guard b.count >= 32 else { return nil }
+        var ranges: [Range<Int>] = []
+        if be32(0) == 0xCAFE_BABE || be32(0) == 0xCAFE_BABF {
+            let wide = be32(0) == 0xCAFE_BABF
+            for i in 0..<be32(4) {
+                let e = 8 + i * (wide ? 32 : 20)
+                guard e + (wide ? 32 : 20) <= b.count else { return nil }
+                let off = wide ? be64(e + 8) : be32(e + 8), size = wide ? be64(e + 16) : be32(e + 12)
+                guard off >= 0, size > 0, off + size <= b.count else { return nil }
+                ranges.append(off..<off + size)
+            }
+        } else { ranges = [0..<b.count] }
+        for r in ranges {
+            let s = r.lowerBound
+            guard le32(s) == 0xFEED_FACF, le32(s + 4) == 16_777_228, le32(s + 8) & 0x00FF_FFFF == 0 else { continue }
+            var offset = s + 32, signature: (Int, Int)?
+            for _ in 0..<le32(s + 16) {
+                guard offset + 16 <= r.upperBound else { return nil }
+                if le32(offset) == 0x1D { signature = (le32(offset + 8), le32(offset + 12)) }
+                offset += le32(offset + 4)
+            }
+            guard let signature, s + signature.0 + signature.1 <= r.upperBound else { return nil }
+            let sigOff = signature.0, sigLen = signature.1
+            let sb = s + sigOff
+            guard be32(sb) == 0xFADE_0CC0 else { return nil }
+            var cd: Data?, ent: Data?
+            for i in 0..<be32(sb + 8) {
+                let blob = sb + be32(sb + 12 + i * 8 + 4)
+                guard blob + 8 <= sb + sigLen else { return nil }
+                let magic = be32(blob), length = be32(blob + 4)
+                guard length >= 8, blob + length <= sb + sigLen else { return nil }
+                if magic == 0xFADE_0C02, length > 40, b[blob + 37] == 2 { cd = Data(b[blob..<blob + length]) }   // SHA-256
+                if magic == 0xFADE_7172 { ent = Data(b[blob..<blob + length]) }
+            }
+            guard let cd, let ent else { return nil }
+            let page = 1 << Int(cd[cd.startIndex + 39])
+            guard s + page <= r.upperBound else { return nil }
+            return Parts(codeDirectory: cd, page0: Data(b[s..<s + page]), entitlements: ent)
+        }
+        return nil
+    }
+
+    struct Directory { let flags: Int; let codeLimit: Int; let pageSize: Int; let slots: [Data]; let special: [Int: Data] }
+
+    static func directory(_ cd: Data) -> Directory? {
+        let b = [UInt8](cd)
+        func be32(_ i: Int) -> Int { Int(b[i]) << 24 | Int(b[i + 1]) << 16 | Int(b[i + 2]) << 8 | Int(b[i + 3]) }
+        guard b.count >= 40, be32(0) == 0xFADE_0C02, be32(4) == b.count, b[36] == 32, b[37] == 2 else { return nil }
+        let hashOffset = be32(16), nSpecial = be32(24), nCode = be32(28)
+        guard hashOffset - nSpecial * 32 >= 40, hashOffset + nCode * 32 <= b.count else { return nil }
+        let slots = (0..<nCode).map { Data(b[hashOffset + $0 * 32..<hashOffset + ($0 + 1) * 32]) }
+        var special: [Int: Data] = [:]
+        for k in stride(from: 1, through: nSpecial, by: 1) { special[k] = Data(b[hashOffset - k * 32..<hashOffset - (k - 1) * 32]) }
+        return Directory(flags: be32(12), codeLimit: be32(32), pageSize: 1 << Int(b[39]), slots: slots, special: special)
+    }
+
+    /// The first page with the three fields a signature changes set to zero.
+    static func maskedPage0(_ page: Data) -> Data {
+        var b = [UInt8](page)
+        func le32(_ i: Int) -> Int { Int(b[i]) | Int(b[i + 1]) << 8 | Int(b[i + 2]) << 16 | Int(b[i + 3]) << 24 }
+        guard b.count >= 32 else { return page }
+        var offset = 32
+        for _ in 0..<le32(16) {
+            guard offset + 8 <= b.count else { break }
+            let cmd = le32(offset), size = le32(offset + 4)
+            guard size >= 8 else { break }
+            if cmd == 0x1D, offset + 16 <= b.count { for i in offset + 12..<offset + 16 { b[i] = 0 } }
+            if cmd == 0x19, offset + 56 <= b.count, b[offset + 8..<offset + 24].prefix(while: { $0 != 0 }).elementsEqual("__LINKEDIT".utf8) {
+                for i in offset + 32..<offset + 40 { b[i] = 0 }
+                for i in offset + 48..<offset + 56 { b[i] = 0 }
+            }
+            offset += size
+        }
+        return Data(b)
+    }
+
+    /// The DER entitlements blob as key → the value's raw DER.
+    static func entitlements(_ blob: Data) -> [String: Data]? {
+        let b = [UInt8](blob)
+        func tlv(_ i: Int, end: Int) -> (tag: UInt8, body: Range<Int>, next: Int)? {
+            guard i + 2 <= end else { return nil }
+            var length = Int(b[i + 1]), start = i + 2
+            if length & 0x80 != 0 {
+                let n = length & 0x7F
+                guard n <= 4, start + n <= end else { return nil }
+                length = b[start..<start + n].reduce(0) { $0 << 8 | Int($1) }
+                start += n
+            }
+            guard start + length <= end else { return nil }
+            return (b[i], start..<start + length, start + length)
+        }
+        guard b.count >= 8, b[0..<4].elementsEqual([0xFA, 0xDE, 0x71, 0x72]) else { return nil }
+        guard let top = tlv(8, end: b.count), top.tag == 0x70,
+              let version = tlv(top.body.lowerBound, end: top.body.upperBound),
+              let dict = tlv(version.next, end: top.body.upperBound), dict.tag == 0xB0 else { return nil }
+        var out: [String: Data] = [:], i = dict.body.lowerBound
+        while i < dict.body.upperBound {
+            guard let pair = tlv(i, end: dict.body.upperBound), pair.tag == 0x30,
+                  let key = tlv(pair.body.lowerBound, end: pair.body.upperBound), key.tag == 0x0C,
+                  let value = tlv(key.next, end: pair.body.upperBound) else { return nil }
+            out[String(decoding: b[key.body], as: UTF8.self)] = Data(b[key.next..<value.next])
+            i = pair.next
+        }
+        return out
+    }
+
+    /// The application identifier in DER entitlements (a UTF8String value).
+    static func applicationIdentifier(_ entries: [String: Data]) -> String? {
+        guard let raw = entries["com.apple.application-identifier"] ?? entries["application-identifier"],
+              raw.count >= 2, raw.first == 0x0C else { return nil }
+        let bytes = [UInt8](raw)
+        var start = 2, length = Int(bytes[1])
+        if length & 0x80 != 0 {
+            let n = length & 0x7F
+            guard n <= 4, 2 + n <= bytes.count else { return nil }
+            length = bytes[2..<2 + n].reduce(0) { $0 << 8 | Int($1) }
+            start = 2 + n
+        }
+        guard start + length == bytes.count else { return nil }
+        return String(decoding: bytes[start...], as: UTF8.self)
+    }
+
+    // MARK: Checking
+
+    /// What the answer shows of its code is the code Apple attests.
+    static func check(_ fields: [String: Any], cdhash: Data, appID: String) -> Swift.Result<Parts, Problem> {
+        func no(_ why: String) -> Swift.Result<Parts, Problem> { .failure(Problem(reason: why)) }
+        guard let parts = parts(fromJSON: fields), let cd = directory(parts.codeDirectory) else { return no("unreadable code identity") }
+        guard Data(SHA256.hash(data: parts.codeDirectory)) == cdhash else {
+            return no("the code it shows is not the code Apple attests (CDHash)")
+        }
+        let firstPage = parts.page0.prefix(min(cd.pageSize, cd.codeLimit))
+        guard let slot0 = cd.slots.first, parts.page0.count == cd.pageSize,
+              Data(SHA256.hash(data: firstPage)) == slot0 else { return no("its first page is not the one its code hashes") }
+        guard cd.special[7] == Data(SHA256.hash(data: parts.entitlements)) else {
+            return no("its entitlements are not the ones its code signature holds")
+        }
+        guard let entries = entitlements(parts.entitlements), applicationIdentifier(entries) == appID else {
+            return no("its entitlements name another app")
+        }
+        return .success(parts)
+    }
+
+    /// The same code as `b`, whoever signed each: every page but the first,
+    /// the code limit, the flags, the first page without its three
+    /// signer-dependent fields, and the entitlements without identity keys.
+    static func sameCode(_ a: Parts, _ b: Parts) -> Bool {
+        guard let da = directory(a.codeDirectory), let db = directory(b.codeDirectory),
+              let ea = entitlements(a.entitlements), let eb = entitlements(b.entitlements) else { return false }
+        return da.codeLimit == db.codeLimit && da.flags == db.flags && da.pageSize == db.pageSize
+            && da.slots.dropFirst() == db.slots.dropFirst()
+            && maskedPage0(a.page0) == maskedPage0(b.page0)
+            && ea.filter { !identityKeys.contains($0.key) } == eb.filter { !identityKeys.contains($0.key) }
     }
 }

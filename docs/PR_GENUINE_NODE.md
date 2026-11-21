@@ -23,7 +23,9 @@ How it works
   not kept (410), each with its tip.
 - At most 6 statements a minute, 8 open connections, 10 s idle timeout.
 - Before starting, Lock it checks the node it reads is its own (started on
-  free ports, still running, `zakurad` signed by the same team). macOS does
+  free ports, still running, `zakurad` signed by the same team, and since
+  build 12 every helper and library matching the fingerprints built into
+  Lock it). macOS does
   not let a sandboxed app inspect other processes, so a verifier has to take
   that check on trust.
 

@@ -96,16 +96,28 @@ fingerprint at this height.
   Mac with SIP on, its node's data was as Lock it left it, and its tree state
   matched a public server at H", not an independent full check of the chain.
   Chain confirmations from several nodes must count it that way.
-- **Which version or which source code made it.** App Attest identifies the
-  team and bundle ID, not a build. Every build the team signs passes,
-  including a modified one. Proving the code needs reproducible builds:
-  anyone rebuilds the published source and gets the identical app.
+- **Which version or which source code made it, without a rebuild.** App
+  Attest identifies the team and bundle ID; with the CDHash opt-in (build
+  9 on) it also names the exact code, and from build 12 each answer shows
+  that code's identity (see "Rebuild and compare" below). Knowing which
+  source it came from still means rebuilding the published source the same
+  way and comparing. Lock it's own check says "same code as this Lock it"
+  when the answering node runs the code you run.
 - **That the data came from Lock it's own node, as a fact anyone can check.**
   Lock it reads the node on 127.0.0.1:8232. Before attesting it checks that
   it found Go Max's ports free, started the `zakurad` inside Lock it on them,
   that this node is still running, and that the `zakurad` file is validly
   signed by the same team; only then does it make a statement, and it says so
-  in it. macOS does not let a sandboxed app inspect other processes, not even
+  in it. Since build 12 it also checks the helpers (`zakurad`, `zainod`,
+  `arti`) and the two libraries in Frameworks (`libswiftCompatibilitySpan
+  .dylib`, `libzcashlc`) against fingerprints built into Lock it's own
+  program, which App Attest's CDHash covers. The fingerprint does not depend
+  on who signed the file (SHA-256 per architecture up to the code signature,
+  with the signature's size and `__LINKEDIT`'s two sizes zeroed;
+  `scripts/nested-code-pins.py`), so it holds for self-builds and for
+  TestFlight, which signs the app again. A helper that does not match is not
+  started; libraries that do not match mean no statement. Limit: the file is
+  checked just before it starts, not the running program. macOS does not let a sandboxed app inspect other processes, not even
   its own children (tried: EPERM), so Lock it cannot look at the listening
   process itself, and a verifier has to take the check on trust.
 - **A full chain state.** v0 does not cover the spent-note (nullifier) sets
@@ -345,9 +357,50 @@ other nodes between two Macs (needs a second node with build 9).
 - Apple's three-day certificate: checked at the moment Apple attested the
   key; Apple's macOS security policy (SIP, full security) checked too.
 
+## Rebuild and compare (build 12, issue #2)
+
+Each answer carries `codeIdentity`: for the Apple silicon slice of Lock it's
+own program, the SHA-256 CodeDirectory, the first page and the DER
+entitlements. A checker requires that SHA-256 of that CodeDirectory is the
+CDHash Apple attests in the answer's own signed data, that the first page
+and the entitlements are the ones the CodeDirectory hashes (slot 0 and
+special slot 7), and that Apple's rpIdHash is SHA-256 of the application
+identifier in those entitlements. Team and bundle ID are then free: a copy
+built and signed by anyone else can pass the same check.
+
+Which code: compare with a build of the published source. Every page hash
+but the first, the code limit and the flags must be equal; the first page
+too, with the three fields a signature changes zeroed (the signature's size
+and `__LINKEDIT`'s two sizes); and the entitlements, apart from the identity
+keys (`com.apple.application-identifier`, `com.apple.developer.team-identifier`,
+`keychain-access-groups`). The helpers and the two libraries are covered by
+the fingerprints built into the program (see "What a statement proves").
+
+Steps, on a Mac with the same Xcode as the build you check:
+
+1. Clone Zecky Lock it for Mac at the commit, and the engine next to it at
+   the commit `scripts/check-engine.sh` pins, as `../ZeckyEngine/zecky-engine`
+   (with its built libraries; docs/ENGINE.md).
+2. Put the node programs in GoMax/bin (`scripts/gomax-helpers.sh`); their
+   hashes must match `GoMax/bin.sha256`.
+3. `TEAM=<your team> scripts/reproducible-archive.sh`. It builds from fixed
+   folders under /tmp/zecky-build, because Swift's `#file` and C's `__FILE__`
+   put each source file's full path into the program: built in place, build
+   11 held 468 paths with the user folder and Xcode's per-Mac DerivedData
+   name, so no two Macs built the same program.
+4. Ask a node with a fresh challenge and run
+   `verify_statement.py <answer> --challenge <c> --reference "<your build>.app"`,
+   or compare two builds: `verify_statement.py --compare-apps A.app B.app`.
+
+Measured 21 Nov 2026: builds 10 and 11 have the same main program (11 only
+changed zakurad), and the comparison passes; build 9 against 11 fails on the
+code limit. That also shows why the helper fingerprints matter: App Attest's
+CDHash alone cannot tell build 10 (no Sprout) from build 11.
+
 ## Not done
 
-- The CDHash opt-in in a TestFlight build.
+- The CDHash opt-in in a TestFlight build (done: build 11, issue #2).
 - Moving the answering code into a separate helper program before Genuine
   node is on by default.
-- Reproducible builds.
+- Reproducible builds: the procedure is above (build 12); a second Mac
+  rebuilding and comparing is still to be done.

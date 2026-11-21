@@ -128,10 +128,23 @@ never count in "Genuine nodes known".
 - #6: with zakurad killed and another program on port 8232, the answer
   says not-running and carries no fingerprint.
 
+## Added in build 12
+
+- `codeIdentity` next to the client data (not inside it: Apple's CDHash
+  binds it): `{"slice": "16777228.0", "codeDirectory": <base64>,
+  "page0": <base64>, "entitlements": <base64>}`. The SHA-256 CodeDirectory
+  of the running Apple silicon slice, its first page (pageSize bytes), and
+  the DER entitlements blob. About 160 KB of base64. Checks in
+  docs/ATTESTED_STATEMENTS.md, "Rebuild and compare". Answers without it
+  (build 11 and older) stay genuine; they only do not show their code.
+- Helpers and libraries: checked against fingerprints built into Lock it
+  before every start and before every answer (`NestedCode`).
+
 ## Not in build 10
 
 - A signer-independent digest of each helper (zakurad, zainod, arti,
   libswiftCompatibilitySpan.dylib) compiled into Lock it and checked before
-  every start (#3 correction, #8 point 2). Next, separately.
-- Reproducible builds and admitting by CDHash (#2).
+  every start (#3 correction, #8 point 2). Done in build 12.
+- Reproducible builds and admitting by CDHash (#2). Done in build 12, see
+  above.
 - Pairing: channel binding, loopback TLS or a Unix socket, logs (#8).

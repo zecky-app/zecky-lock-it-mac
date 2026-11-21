@@ -136,13 +136,15 @@ shows it:
    the QR it scanned. Statements asked over the paired channel only.
 2. **Measure the helpers, not just the app.** App Attest (with the CDHash)
    measures only Lock it's main binary; zainod and zakurad are separate
-   programs, and today Lock it only checks they carry the same team ID. Per
+   programs, and until build 11 Lock it only checked they carry the same team ID. Per
    Andrew's correction, a CDHash pinned per helper breaks with every signer
    (TestFlight re-signing, self-builds). Instead: a signer-independent digest
    of each nested Mach-O (zakurad, zainod, arti, libswiftCompatibilitySpan
    .dylib), compiled into Lock it and checked against the file on disk
    before every start; Lock it refuses a helper that does not match. Lock
-   it's own CDHash, attested, then covers that check. Next code item after
+   it's own CDHash, attested, then covers that check. **Done for build 12**
+   (`NestedCode` in GoMaxNode.swift, `scripts/nested-code-pins.py`), with
+   `libzcashlc` added. Next code item after
    the review fixes; needed before pairing ships.
 3. **Close the plain loopback hop.** Arti hands onion traffic to a port on
    127.0.0.1 in plain TCP (today 8139; for pairing, the read-only filter in
@@ -179,7 +181,7 @@ phone a clear message and a choice.
 
 ## Build order (after approval)
 
-1. Mac: the helper digests (section 6, point 2); then the `zecky-wallet`
+1. Mac: the helper digests (section 6, point 2; done for build 12); then the `zecky-wallet`
    onion service with client authorization, the read-only filter behind TLS
    or a Unix socket (point 3), the QR, the paired phones list.
 2. iPhone: Arti, scanning the QR, syncing through the paired node.

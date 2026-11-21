@@ -72,6 +72,10 @@ done
 ( cd "$BIN" && shasum -a 256 zakurad zainod ) > "$ROOT/GoMax/bin.sha256"
 # Arti's fingerprint apart, so a build without Arti still checks the two.
 if [ -x "$BIN/arti" ]; then ( cd "$BIN" && shasum -a 256 arti ) > "$ROOT/GoMax/arti.sha256"; fi
+# Signer-independent fingerprints, built into Lock it, which checks them
+# before every start (NestedCode in GoMaxNode.swift; issues #3 and #8).
+/usr/bin/python3 -I "$ROOT/scripts/nested-code-pins.py" --helpers "$BIN" >/dev/null
+echo "gomax-helpers: fingerprints written into ZeckyLockIt/GoMaxNode.swift (commit them with GoMax/bin.sha256)."
 
 echo "gomax-helpers: in GoMax/bin:"
 "$BIN/zakurad" --version 2>/dev/null | head -1 || true
