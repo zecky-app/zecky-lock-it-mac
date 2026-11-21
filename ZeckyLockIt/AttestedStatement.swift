@@ -1828,9 +1828,11 @@ enum CodeIdentity {
     struct Parts: Equatable { let codeDirectory: Data; let page0: Data; let entitlements: Data }
     struct Problem: Error { let reason: String }
 
-    /// Entitlements that name who signed, not what the code is.
+    /// Entitlements that name who signed, not what the code is; and the one
+    /// Apple adds when it signs a build for TestFlight (seen on build 12).
     static let identityKeys: Set<String> = ["application-identifier", "com.apple.application-identifier",
-                                             "com.apple.developer.team-identifier", "keychain-access-groups"]
+                                             "com.apple.developer.team-identifier", "keychain-access-groups",
+                                             "beta-reports-active"]
     static let slice = "16777228.0"   // arm64, the slice App Attest runs on Apple silicon
 
     /// Lock it's own running program.

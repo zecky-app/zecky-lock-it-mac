@@ -373,7 +373,9 @@ but the first, the code limit and the flags must be equal; the first page
 too, with the three fields a signature changes zeroed (the signature's size
 and `__LINKEDIT`'s two sizes); and the entitlements, apart from the identity
 keys (`com.apple.application-identifier`, `com.apple.developer.team-identifier`,
-`keychain-access-groups`). The helpers and the two libraries are covered by
+`keychain-access-groups`) and `beta-reports-active`, which Apple adds when it
+signs a build for TestFlight (the only difference between build 12 as
+archived and as installed from TestFlight). The helpers and the two libraries are covered by
 the fingerprints built into the program (see "What a statement proves").
 
 Steps, on a Mac with the same Xcode as the build you check:

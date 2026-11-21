@@ -217,9 +217,11 @@ def verify_assertion(blob, client_hash, public, app_id):
 # program: the SHA-256 CodeDirectory, its first page, and the DER entitlements.
 CS_MAGIC_EMBEDDED = 0xFADE0CC0; CS_MAGIC_CD = 0xFADE0C02; CS_MAGIC_DER_ENT = 0xFADE7172
 ARM64 = 16777228
-# Entitlements that name who signed, not what the code is.
+# Entitlements that name who signed, not what the code is; and the one Apple
+# adds when it signs a build for TestFlight (seen on build 12, 21 Nov 2026).
 IDENTITY_KEYS = {"application-identifier", "com.apple.application-identifier",
-                 "com.apple.developer.team-identifier", "keychain-access-groups"}
+                 "com.apple.developer.team-identifier", "keychain-access-groups",
+                 "beta-reports-active"}
 
 def macho_slices(d):
     magic = struct.unpack(">I", d[:4])[0]
@@ -362,7 +364,8 @@ def compare_code(a, b, name_a, name_b):
     check(mask_page0(a["page0"]) == mask_page0(b["page0"]), "the first page is the same, signer fields zeroed")
     ea = {k: v for k, v in entitlements(a["entitlements"]).items() if k not in IDENTITY_KEYS}
     eb = {k: v for k, v in entitlements(b["entitlements"]).items() if k not in IDENTITY_KEYS}
-    check(ea == eb, "the entitlements are the same, apart from team and app ID")
+    check(ea == eb, "the entitlements are the same, apart from team, app ID and TestFlight's beta-reports-active"
+          + ("" if ea == eb else f"; differ: {sorted(k for k in set(ea) | set(eb) if ea.get(k) != eb.get(k))}"))
 
 
 def main():
