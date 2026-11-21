@@ -20,5 +20,20 @@
 	<array>
 		<string>$(AppIdentifierPrefix)app.zecky.lockit</string>
 	</array>
+	<!-- Attested statements (experimental, off by default): App Attest in
+	     its production environment, and saving a statement file where the
+	     person chooses. -->
+	<key>com.apple.developer.devicecheck.appattest-environment</key>
+	<string>production</string>
+	<!-- Ask App Attest to include this app's code fingerprint (CDHash) in
+	     its evidence, as dsmack does: the first step towards admitting the
+	     code, not the signer. Tried in build 9; removed again if TestFlight
+	     refuses it. -->
+	<key>com.apple.developer.devicecheck.app-attest-opt-in</key>
+	<array>
+		<string>CDhash</string>
+	</array>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
 </dict>
 </plist>

@@ -25,6 +25,9 @@ enum GoMaxConfig {
     static let p2pPort = 8233
     /// Zaino's light-wallet port, the one Lock it connects to.
     static let zainoPort = 8137
+    /// Zakura's metrics (Prometheus text), on this Mac only: the byte
+    /// counters behind the data overview on the Go Max page.
+    static let metricsPort = 8234
     static let host = "127.0.0.1"
 
     /// How many recent blocks the node keeps in full. Zakura's minimum is
@@ -45,8 +48,16 @@ enum GoMaxConfig {
 
     /// Zakura's settings. Everything not written here keeps Zakura's default.
     /// `dataDir` holds the chain state, the peer cache and the node identity.
-    static func zakura(dataDir: String, retention: Int) -> String {
+    /// `metrics`: the byte counters on 127.0.0.1. Left out when their port
+    /// is taken: Zakura refuses to start when it cannot open it.
+    static func zakura(dataDir: String, retention: Int, metrics: Bool = true) -> String {
         let dir = tomlString(dataDir)
+        let metricsSection = metrics ? """
+        [metrics]
+        # Byte counters for the Go Max page, on this Mac only.
+        endpoint_addr = "\(host):\(metricsPort)"
+
+        """ : ""
         return """
         # Written by Zecky Lock it (Go Max). Edits are overwritten.
 
@@ -73,7 +84,7 @@ enum GoMaxConfig {
         cache_dir = \(dir)
         storage_mode = { pruned = { tx_retention = \(retention) } }
 
-        [tracing]
+        \(metricsSection)[tracing]
         use_color = false
 
         """
@@ -157,7 +168,7 @@ enum GoMaxConfig {
 /// together with it (docs/NODE_UPDATES.md). Lock it says so two weeks ahead,
 /// and at the stop it asks: a public server, or wait. Never by itself.
 enum GoMaxSupport {
-    /// `MAINNET_EOS_HEIGHT` of Zakura v1.8.5 and v1.8.6: about Dec 5, 2026.
+    /// `MAINNET_EOS_HEIGHT` of Zakura v1.8.5 to v1.8.9: about Dec 5, 2026.
     static let releaseStopHeight = 3_643_309
     /// The height Lock it goes by. In a debug build only, it can be moved to
     /// see the notice and the stop before the real date:
@@ -206,9 +217,29 @@ enum GoMaxSupport {
     /// 13 Nov 2026: about 60,000 blocks, which showed "needs an update before
     /// Nov 17" three weeks early and could have stopped Go Max mid-sync).
     /// Then the node's verified blocks and the wallet's server count.
-    static func networkHeight(nodeBlocks: Int, nodeEstimate: Int, verificationProgress: Double, walletNetwork: Int) -> Int {
-        let node = verificationProgress >= 0.999 ? max(nodeBlocks, nodeEstimate) : nodeBlocks
+    static func networkHeight(nodeBlocks: Int, nodeEstimate: Int, verificationProgress: Double, walletNetwork: Int,
+                              now: Date = Date()) -> Int {
+        // An estimate is never trusted above what the clock allows.
+        let estimate = min(nodeEstimate, plausibleMax(at: now))
+        let node = verificationProgress >= 0.999 ? max(nodeBlocks, estimate) : nodeBlocks
         return max(node, walletNetwork)
+    }
+
+    /// The highest network height the clock allows at a moment: NU7's block
+    /// plus one every 25 seconds (Birthday.estimatedTip), with room for
+    /// blocks coming faster than that. Verified blocks are never capped by it;
+    /// guesses and remembered heights are.
+    static let plausibleMargin = 5_000
+    static func plausibleMax(at date: Date) -> Int { Birthday.estimatedTip(now: date) + plausibleMargin }
+
+    /// A height remembered across restarts, if the clock allows it when it was
+    /// seen; 0 otherwise. One remembered from a node's guess during its first
+    /// sync (Lock it 0.2.0 build 5 and earlier) can be far too high, and kept
+    /// showing "needs an update" weeks early whenever nothing was answering
+    /// yet, such as right after a start (seen 14 Nov 2026: "before Nov 27").
+    static func trustedRemembered(height: Int, seenAt: Date?, now: Date) -> Int {
+        guard height > 0 else { return 0 }
+        return height <= plausibleMax(at: seenAt ?? now) ? height : 0
     }
 
     /// "Dec 5", in this Mac's time zone.
@@ -303,6 +334,10 @@ enum GoMaxPhase: Equatable {
     case updating
     /// Switched off; the data is kept.
     case stopped
+    /// "Only sync while plugged in": on battery while checking or catching
+    /// up, the programs are stopped and Lock it reads from its server. Goes
+    /// on by itself at the charger.
+    case paused
     /// A program exited or stopped answering.
     case problem
     /// The network is past the last block this node version follows. The
@@ -316,7 +351,7 @@ enum GoMaxPhase: Equatable {
     /// `running` is false when either program is not running.
     static func next(after previous: GoMaxPhase, running: Bool, info: GoMaxChainInfo?, wasEverReady: Bool) -> GoMaxPhase {
         switch previous {
-        case .off, .stopped, .expired: return previous
+        case .off, .stopped, .expired, .paused: return previous
         case .updating: return running && info != nil ? fromInfo(info!, wasEverReady) : .updating
         default: break
         }
@@ -391,6 +426,7 @@ enum GoMaxWords {
         case .catchingUp: return info.map { "Catching up · \(behind($0.blocksBehind))" } ?? "Catching up…"
         case .updating: return "Updating…"
         case .stopped: return "Stopped · the node's data is kept"
+        case .paused: return "Paused on battery · carries on when the charger is connected"
         case .problem: return "Stopped with a problem · switch off and on to try again"
         case .expired: return "Stopped · this node version has reached its last block"
         }
@@ -406,10 +442,18 @@ enum GoMaxWords {
         case .catchingUp: return "Catching up"
         case .updating: return "Updating"
         case .stopped: return "Off · data kept"
+        case .paused: return "Paused · plug in to sync"
         case .problem: return "Stopped"
         case .expired: return "Needs an update"
         }
     }
+
+    /// Under the switch: what Go Max shares and what it does not.
+    static let privateLine = "Private: your node connects to other Zcash nodes, but nobody can connect to it."
+    static let whyPrivate = [
+        "Why Go Max is private. Your node checks every block itself and passes new blocks and transactions on to the nodes it connects to. It does not accept incoming connections, so your internet address is never announced as a Zcash node, and a laptop that sleeps, travels or runs on a data limit isn't asked to serve others.",
+        "Want to help the network more? Zecky Rock it runs a full node on an Umbrel at home, always on. It will be able to open to other nodes by choice, which is where helping counts most: a full node can serve new nodes during their first sync.",
+    ]
 
     /// "Connected to 14 other Zcash nodes".
     static func peers(_ count: Int) -> String {
@@ -450,3 +494,223 @@ enum GoMaxWords {
         return "Using \(GoMaxConfig.formatBytes(sizeOnDisk)) · keeps \(keeps) of recent blocks"
     }
 }
+
+/// "Before you start Go Max": what this Mac has, read on this Mac only.
+/// Nothing is sent anywhere. Only too little disk space stops a start;
+/// everything else informs and the owner decides.
+struct GoMaxComputer: Equatable {
+    let freeBytes: Int64
+    let memoryBytes: UInt64
+    let hasBattery: Bool
+    let onBattery: Bool
+    /// macOS reports Low Data Mode, or a connection it treats as costly
+    /// (a phone's hotspot, for example).
+    var limitedConnection = false
+
+    /// Below 8 GB the Mac may feel slow during the first check. An 8 GB Mac
+    /// reports exactly 8 GiB, so it is not warned.
+    static let lowMemoryBytes: UInt64 = 8 * 1_073_741_824
+
+    var enoughSpace: Bool { GoMaxConfig.missingBytes(free: freeBytes) == 0 }
+
+    struct Line: Equatable { let good: Bool; let text: String }
+
+    /// The lines of the check. `hasData`: a node that already has its data
+    /// needs no new room. `onlyPluggedIn`: the owner's setting.
+    func lines(hasData: Bool, onlyPluggedIn: Bool) -> [Line] {
+        var out: [Line] = []
+        let free = GoMaxConfig.formatBytes(freeBytes)
+        let needed = GoMaxConfig.formatBytes(GoMaxConfig.minFreeBytes)
+        if hasData {
+            out.append(Line(good: true, text: "Free space: \(free). The node's data is already on this Mac."))
+        } else if enoughSpace {
+            out.append(Line(good: true, text: "Free space: \(free) (Go Max needs about \(needed))"))
+        } else {
+            let more = GoMaxConfig.formatBytes(GoMaxConfig.missingBytes(free: freeBytes))
+            out.append(Line(good: false, text: "Free space: \(free). Go Max needs about \(needed): free up \(more) first."))
+        }
+        let memory = "\(Int((Double(memoryBytes) / 1_073_741_824).rounded())) GB"
+        out.append(memoryBytes < Self.lowMemoryBytes
+                   ? Line(good: false, text: "Memory: \(memory). The Mac may feel slow during the first check.")
+                   : Line(good: true, text: "Memory: \(memory)"))
+        out.append(limitedConnection
+                   ? Line(good: false, text: "Data: this connection is limited. The first sync downloads about 350 GB; better to use one without a data limit.")
+                   : Line(good: true, text: "Data: the first sync downloads about 350 GB. Use a connection without a data limit."))
+        if hasBattery {
+            if !onBattery {
+                out.append(Line(good: true, text: "Plugged in"))
+            } else if hasData {
+                // The first check is done: up to date, the node runs on battery too.
+                out.append(Line(good: true, text: onlyPluggedIn
+                    ? "On battery. Catching up waits for the charger; up to date, the node keeps running."
+                    : "On battery. The node keeps running."))
+            } else if onlyPluggedIn {
+                out.append(Line(good: false, text: "Running on battery. Plug in to sync: the first check waits for the charger."))
+            } else {
+                out.append(Line(good: false, text: "Running on battery. The first check drains the battery quickly; plug in if you can."))
+            }
+        }
+        return out
+    }
+
+    static let expect = "The first check works the Mac hard for about 14 hours to a day or more, so the fan may run and the Mac gets warm. After that it is light: one block about every 25 seconds. Disk use is about 15 to 22 GB. You can switch Go Max off at any time, and your wallet works the same without it."
+}
+
+
+/// How long the first check still takes, with the spam years counted in.
+///
+/// Speed is measured on this Mac: blocks checked in the last hour. Blocks
+/// are not equal, though. From mid-2022 to early 2023 someone filled most
+/// blocks with spam (shielded transactions with hundreds of outputs, up to
+/// 2 MB a block), and the chain grew from about 30 GB to well over 100 GB.
+/// So each stretch of the chain gets a weight, roughly its work per block,
+/// and the estimate measures speed in that work rather than in blocks. A
+/// node in the spam years then knows the rest will go faster, and a node
+/// before them knows they are coming. Only the ratios are guessed (a first
+/// guess from block sizes, to be tuned from measured laptop speeds); the
+/// speed is this Mac's own, and the estimate corrects itself as it goes.
+/// Same rules as Lock it for Windows.
+enum GoMaxPace {
+    /// The spam years, roughly: from mid-June 2022 (shortly after NU5 at
+    /// 1,687,104) until the spam faded in 2023.
+    static let spamStart = 1_710_000
+    static let spamEnd = 2_100_000
+    /// Canopy: before it, blocks are taken on Zakura's built-in checkpoints.
+    static let canopy = 1_046_400
+
+    /// From this height on, this much work per block (relative). The one
+    /// place the weights live.
+    static let stretches: [(from: Int, weight: Double)] = [(0, 1), (canopy, 3), (spamStart, 20), (spamEnd, 4)]
+
+    /// Within this many blocks of the tip the node is up to date: no finish, no line.
+    static let upToDateBlocks = 10
+    /// Speed is taken over the last hour…
+    static let window: TimeInterval = 3_600
+    /// …and only once there is a quarter of an hour of it.
+    static let minimum: TimeInterval = 900
+    /// A sample at most every 15 seconds.
+    static let every: TimeInterval = 15
+
+    /// The work to check every block below `height`.
+    static func work(_ height: Int) -> Double {
+        var total = 0.0
+        for (i, stretch) in stretches.enumerated() where height > stretch.from {
+            let until = i + 1 < stretches.count ? min(stretches[i + 1].from, height) : height
+            total += Double(until - stretch.from) * stretch.weight
+        }
+        return total
+    }
+
+    /// The node's height over the last hour.
+    struct Samples {
+        private(set) var list: [(at: Date, height: Int)] = []
+
+        /// Note the height now. A lower height than before (the node
+        /// started over) begins a fresh measurement.
+        mutating func add(_ at: Date, _ height: Int) {
+            if let last = list.last, height < last.height { list.removeAll() }
+            list.append((at, height))
+            list.removeAll { at.timeIntervalSince($0.at) > GoMaxPace.window }
+        }
+
+        mutating func clear() { list.removeAll() }
+
+        /// When the node should reach `tip`: nil while there is too little
+        /// to go on or nothing moved.
+        func finish(tip: Int) -> Date? {
+            guard let first = list.first, let last = list.last else { return nil }
+            let seconds = last.at.timeIntervalSince(first.at)
+            guard seconds >= GoMaxPace.minimum, last.height > first.height, tip > last.height else { return nil }
+            let speed = (GoMaxPace.work(last.height) - GoMaxPace.work(first.height)) / seconds
+            return last.at.addingTimeInterval((GoMaxPace.work(tip) - GoMaxPace.work(last.height)) / speed)
+        }
+    }
+
+    /// The line about the spam years, while the first check runs.
+    static func spamLine(height: Int) -> String {
+        if height < spamStart {
+            return "Ahead: the spam years, blocks 1,710,000 to 2,100,000 (2022–23). Most blocks there are full of spam, so this is the slowest stretch. The expected finish already counts it."
+        }
+        if height < spamEnd {
+            let done = (height - spamStart) * 100 / (spamEnd - spamStart)
+            return "Now in the spam years, blocks 1,710,000 to 2,100,000 (2022–23): \(done)% of this stretch done. It is the slowest part; after block 2,100,000 it goes much faster."
+        }
+        return "The spam years are done. The rest goes much faster."
+    }
+
+    /// "About Tue, Nov 17 at 2:00 PM": to the hour when more than 3 hours
+    /// away, else to 10 minutes. Rounded, because it is an estimate.
+    static func finishText(_ finish: Date?, now: Date = Date(), calendar: Calendar = .current) -> String {
+        guard let finish else { return "Measuring speed…" }
+        let left = finish.timeIntervalSince(now)
+        if left < 600 { return "In a few minutes" }
+        guard let hour = calendar.dateInterval(of: .hour, for: finish)?.start else { return "Measuring speed…" }
+        let minutes = finish.timeIntervalSince(hour) / 60
+        let at = left > 3 * 3_600
+            ? hour.addingTimeInterval(minutes >= 30 ? 3_600 : 0)
+            : hour.addingTimeInterval((minutes / 10).rounded() * 600)
+        var style = Date.FormatStyle(locale: Locale(identifier: "en_US")).weekday(.abbreviated).month(.abbreviated).day().hour().minute()
+        style.calendar = calendar
+        style.timeZone = calendar.timeZone
+        return "About " + at.formatted(style)
+    }
+}
+
+/// The data overview on the Go Max page: what the node downloaded and
+/// uploaded, what it keeps, and what it removed after checking. Counted on
+/// this Mac only; nothing is sent.
+enum GoMaxData {
+    /// Zakura's counters of every byte read from and written to its peers.
+    /// Go Max runs only the legacy peer-to-peer protocol, and these count
+    /// all of its traffic. Prometheus writes the dots as underscores.
+    static let inCounter = "zcash_net_in_bytes_total"
+    static let outCounter = "zcash_net_out_bytes_total"
+
+    /// The value of one counter in Prometheus text, summed over its labels.
+    static func counter(_ name: String, in text: String) -> Double? {
+        var total: Double?
+        for line in text.split(separator: "\n") where !line.hasPrefix("#") {
+            let parts = line.split(separator: " ")
+            guard parts.count >= 2 else { continue }
+            let key = parts[0]
+            guard key == Substring(name) || key.hasPrefix(name + "{"), let value = Double(parts[1]) else { continue }
+            total = (total ?? 0) + value
+        }
+        return total
+    }
+
+    /// A running total over Zakura's restarts: Zakura's counters start at
+    /// zero at every start, so Lock it keeps what came before.
+    struct Total: Codable, Equatable {
+        /// What earlier runs of Zakura counted.
+        var before: Double = 0
+        /// The last value this run of Zakura reported.
+        var current: Double = 0
+        var total: Double { before + current }
+
+        /// A new reading. A lower one than before means Zakura started over.
+        mutating func read(_ value: Double) {
+            if value < current { before += current }
+            current = value
+        }
+
+        /// Zakura is (re)started: what it counted so far is kept.
+        mutating func restart() {
+            before += current
+            current = 0
+        }
+    }
+
+    /// Never below zero: the overview never claims more removed than downloaded.
+    static func removed(downloaded: Double, kept: Double) -> Double { max(0, downloaded - kept) }
+
+    /// "212.4 GB", "980 MB": one decimal for gigabytes, US style.
+    static func format(_ bytes: Double) -> String {
+        let us = Locale(identifier: "en_US")
+        if bytes >= 1e9 { return (bytes / 1e9).formatted(.number.precision(.fractionLength(1)).locale(us)) + " GB" }
+        return "\(Int((bytes / 1e6).rounded())) MB"
+    }
+
+    static let footnote = "Every block is checked on this Mac first, then old block data is removed. Counted on this Mac only; nothing is sent."
+}
+

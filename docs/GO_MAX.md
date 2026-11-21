@@ -55,6 +55,34 @@ Everything the node stores is in Lock it's container:
 `~/Library/Containers/app.zecky.lockit/Data/Library/Application Support/GoMax/`
 (`zakura/`, `zaino/`, `logs/`, the two `.toml` files), left out of Time Machine.
 
+## Private, data use, and the overview (16 Nov 2026, build 9 or 10)
+
+- **Private by design.** The node connects out to other Zcash nodes and
+  passes new blocks and transactions on to them, but accepts no incoming
+  connections: the peer-to-peer port listens on 127.0.0.1. The home
+  address is never announced as a Zcash node, and a laptop that sleeps,
+  travels or runs on a data limit is not asked to serve others. Helping the
+  network more is Rock it's job: a full node at home, always on, which can
+  serve new nodes during their first sync (opening it to others by choice
+  is planned there).
+- **Data use.** The first sync downloads about 350 GB. "Before you start Go
+  Max" says so, and warns (never blocks) when macOS reports Low Data Mode
+  (`NWPath.isConstrained`) or a costly connection such as a phone's hotspot
+  (`isExpensive`).
+- **Data overview** on the Go Max page: Downloaded and Uploaded from
+  Zakura's `zcash.net.in.bytes.total` and `zcash.net.out.bytes.total`, read
+  once a minute from its metrics endpoint on 127.0.0.1. Go Max runs only
+  the legacy peer-to-peer protocol (`p2p_stack = "legacy"`), and these two
+  count all of its traffic. Zakura's counters restart at zero with Zakura,
+  so Lock it keeps running totals. Kept on this Mac: the size of the Zakura
+  and Zaino folders, every five minutes. Removed after check: Downloaded
+  minus Kept, never below zero. (Zakura's `sync.block.payload.committed.bytes`
+  was the first choice, but it is only in builds with the `sync-metrics`
+  feature, not in ours, and only counts Zakura's own sync protocol, which
+  Go Max does not use. Downloaded also holds a little non-block traffic, so
+  this figure is a close estimate.)
+- **Genuine node** answers on its onion address only.
+
 ## Ports, all on this Mac only
 
 | Port | Program | |
@@ -62,9 +90,12 @@ Everything the node stores is in Lock it's container:
 | 8232 | Zakura JSON-RPC | Lock it and Zaino read the node here |
 | 8233 | Zakura peer-to-peer | listens on 127.0.0.1 only; the node connects out to its peers |
 | 8137 | Zaino | Lock it's server while Go Max is up to date |
+| 8234 | Zakura metrics (Prometheus text) | the byte counters for the data overview; left out of the config for a run when something else holds the port, because Zakura refuses to start without it |
+| 8139 | Genuine node (when switched on) | reached from outside only through its onion service, never on the peer-to-peer port or the home IP |
 
-Nothing accepts connections from outside this Mac. A phone (pairing) is the
-next stage; it will need Zaino on the home-network address and Tor.
+Nothing accepts connections from outside this Mac. Phones (pairing) will
+reach Zaino over Tor only, through an onion service with a key per phone
+(see pairing.md).
 
 If something else already answers on 8232 or 8137 (a node started by hand,
 like the prototype), Go Max says so and does not start.

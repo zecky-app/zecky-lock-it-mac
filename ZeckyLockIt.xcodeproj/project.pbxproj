@@ -64,6 +64,7 @@
 		A10000000000000000000101 /* GoMax.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000100 /* GoMax.swift */; };
 		A10000000000000000000103 /* GoMaxNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000102 /* GoMaxNode.swift */; };
 		A10000000000000000000105 /* GoMaxPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000104 /* GoMaxPage.swift */; };
+		A10000000000000000000111 /* AttestedStatement.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000110 /* AttestedStatement.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -136,6 +137,7 @@
 		A10000000000000000000100 /* GoMax.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoMax.swift; sourceTree = "<group>"; };
 		A10000000000000000000102 /* GoMaxNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoMaxNode.swift; sourceTree = "<group>"; };
 		A10000000000000000000104 /* GoMaxPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoMaxPage.swift; sourceTree = "<group>"; };
+		A10000000000000000000110 /* AttestedStatement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttestedStatement.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -224,6 +226,7 @@
 				A10000000000000000000100 /* GoMax.swift */,
 				A10000000000000000000102 /* GoMaxNode.swift */,
 				A10000000000000000000104 /* GoMaxPage.swift */,
+				A10000000000000000000110 /* AttestedStatement.swift */,
 				A1000000000000000000001C /* Mnemonic.swift */,
 				A1000000000000000000001E /* Entropy.swift */,
 				A10000000000000000000020 /* Birthday.swift */,
@@ -479,6 +482,7 @@
 				A10000000000000000000101 /* GoMax.swift in Sources */,
 				A10000000000000000000103 /* GoMaxNode.swift in Sources */,
 				A10000000000000000000105 /* GoMaxPage.swift in Sources */,
+				A10000000000000000000111 /* AttestedStatement.swift in Sources */,
 				A1000000000000000000001D /* Mnemonic.swift in Sources */,
 				A1000000000000000000001F /* Entropy.swift in Sources */,
 				A10000000000000000000021 /* Birthday.swift in Sources */,
@@ -545,11 +549,11 @@
 			buildSettings = {
 				ARCHS = "$(ARCHS_STANDARD)";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = ZeckyLockIt/ZeckyLockIt.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "ZeckyLockIt/ZeckyLockIt-Debug.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -580,7 +584,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -608,7 +612,7 @@
 				ARCHS = arm64;
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -626,7 +630,7 @@
 				ARCHS = arm64;
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;

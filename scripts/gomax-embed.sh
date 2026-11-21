@@ -15,7 +15,7 @@ SRC="$ROOT/GoMax/bin"
 PINS="$ROOT/GoMax/bin.sha256"
 DEST="${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}"
 
-rm -f "$DEST/zakurad" "$DEST/zainod"
+rm -f "$DEST/zakurad" "$DEST/zainod" "$DEST/arti"
 
 if [ ! -x "$SRC/zakurad" ] || [ ! -x "$SRC/zainod" ]; then
   echo "warning: Go Max: no node programs in GoMax/bin, so this build has no node inside (see scripts/gomax-helpers.sh)."
@@ -24,8 +24,17 @@ fi
 [ -f "$PINS" ] || { echo "error: Go Max: GoMax/bin.sha256 is missing." >&2; exit 1; }
 ( cd "$SRC" && /usr/bin/shasum -a 256 -c "$PINS" >/dev/null ) || {
   echo "error: Go Max: the programs in GoMax/bin do not match GoMax/bin.sha256. Refused." >&2; exit 1; }
+"$ROOT/scripts/check-sprout.sh" "$SRC/zakurad"
 
-for f in zakurad zainod; do
+PROGRAMS="zakurad zainod"
+# Arti (Tor) for attested statements (experimental, off by default): in
+# every build when GoMax/bin has it, after the same kind of pin check.
+if [ -x "$SRC/arti" ]; then
+  [ -f "$ROOT/GoMax/arti.sha256" ] && ( cd "$SRC" && /usr/bin/shasum -a 256 -c "$ROOT/GoMax/arti.sha256" >/dev/null ) || {
+    echo "error: Go Max: GoMax/bin/arti does not match GoMax/arti.sha256. Refused." >&2; exit 1; }
+  PROGRAMS="$PROGRAMS arti"
+fi
+for f in $PROGRAMS; do
   /bin/cp "$SRC/$f" "$DEST/$f"
   # Its own identifier under Lock it's, so App Store Connect can tell the
   # two programs apart.
@@ -33,5 +42,9 @@ for f in zakurad zainod; do
     --identifier "${PRODUCT_BUNDLE_IDENTIFIER:-app.zecky.lockit}.$f" \
     --entitlements "$ROOT/GoMax/Helpers.entitlements" \
     --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" "$DEST/$f"
+  # Signed now: it must still match the fingerprint built into Lock it, or
+  # Lock it would refuse to start it.
+  /usr/bin/python3 -I "$ROOT/scripts/nested-code-pins.py" --check "$f" "$DEST/$f" >/dev/null || {
+    echo "error: Go Max: $f does not match its fingerprint in GoMaxNode.swift. Run scripts/gomax-helpers.sh. Refused." >&2; exit 1; }
 done
-echo "Go Max: zakurad and zainod are in the app."
+echo "Go Max: $PROGRAMS in the app."

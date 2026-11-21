@@ -1,5 +1,7 @@
 import AppKit
+import CryptoKit
 import Foundation
+import IOKit.ps
 import Network
 
 /// Go Max: runs the node and its light-wallet server inside Lock it.
@@ -22,6 +24,35 @@ final class GoMaxNode: ObservableObject {
     @Published private(set) var retention = GoMaxConfig.retentionSyncing
     /// The last thing that went wrong, in plain words.
     @Published private(set) var problem: String?
+    /// While the first check runs: when it should be done (nil while the
+    /// speed is still being measured), and where it stands against the
+    /// spam years. Both nil once the node is up to date.
+    @Published private(set) var finishAt: Date?
+    @Published private(set) var spamLine: String?
+    /// The node's height over the last hour, for the expected finish.
+    private var pace = GoMaxPace.Samples()
+
+    /// The data overview: bytes from and to other nodes over every run of
+    /// Zakura, and what Go Max's folder holds. Counted on this Mac only.
+    @Published private(set) var downloaded = GoMaxData.Total()
+    @Published private(set) var uploaded = GoMaxData.Total()
+    @Published private(set) var kept: Double?
+    /// macOS reports Low Data Mode or a costly connection (a phone's hotspot).
+    @Published private(set) var limitedConnection = false
+    /// Issue #6: the node's chain data is exactly as this Lock it left it
+    /// when it last stopped the node cleanly (the seal in Lock it's own
+    /// Keychain item matched before this start). False after a change made
+    /// while Lock it was closed, after a crash, and before the first clean
+    /// stop. Genuine node signs no chain fingerprint while it is false.
+    @Published private(set) var dataUnchangedSinceLockIt = false
+    private static let sealService = "app.zecky.lockit.mac.gomax.dataseal"
+    private static let downloadedKey = "goMax.data.downloaded"
+    private static let uploadedKey = "goMax.data.uploaded"
+    private var lastCount = Date.distantPast
+    private var lastKept = Date.distantPast
+    private let pathMonitor = NWPathMonitor()
+    /// Whether this run of Zakura has its metrics endpoint.
+    private var metricsOn = true
 
     /// The wallet engine, to switch its server. Set when the wallet starts.
     weak var engine: WalletEngine?
@@ -29,6 +60,7 @@ final class GoMaxNode: ObservableObject {
     // MARK: Remembered settings
 
     private static let enabledKey = "goMax.enabled"
+    private static let onlyPluggedInKey = "goMax.onlyPluggedIn"
     private static let widenedKey = "goMax.widened"
     /// The server before Go Max, in the Keychain like the server itself.
     private static let previousService = "app.zecky.lockit.mac.gomax.previous"
@@ -36,6 +68,19 @@ final class GoMaxNode: ObservableObject {
     var enabled: Bool {
         get { UserDefaults.standard.bool(forKey: Self.enabledKey) }
         set { UserDefaults.standard.set(newValue, forKey: Self.enabledKey); objectWillChange.send() }
+    }
+    /// "Only sync while plugged in": on by default on a Mac with a battery.
+    /// On battery, the first check and catching up wait for the charger; a
+    /// node that is up to date keeps running (it needs little power then).
+    var onlyWhilePluggedIn: Bool {
+        get {
+            UserDefaults.standard.object(forKey: Self.onlyPluggedInKey) as? Bool ?? PowerSource.read().hasBattery
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Self.onlyPluggedInKey)
+            objectWillChange.send()
+            Task { await powerLook() }
+        }
     }
     private var widened: Bool {
         get { UserDefaults.standard.bool(forKey: Self.widenedKey) }
@@ -53,15 +98,23 @@ final class GoMaxNode: ObservableObject {
 
     /// The two programs, next to Lock it's own in Contents/MacOS. A build
     /// without them (no GoMax/bin on the Mac that built it) has no Go Max.
-    static func helper(_ name: String) -> URL? {
+    nonisolated static func helper(_ name: String) -> URL? {
         guard let url = Bundle.main.url(forAuxiliaryExecutable: name),
               FileManager.default.isExecutableFile(atPath: url.path) else { return nil }
         return url
     }
     static var isAvailable: Bool { helper("zakurad") != nil && helper("zainod") != nil }
 
+    /// A helper that is there and matches the fingerprint built into Lock it
+    /// (`NestedCode`); otherwise the reason it is refused. Called right
+    /// before every start, so a program changed after installing is not run.
+    nonisolated static func verifiedHelper(_ name: String) -> Result<URL, NestedCode.Refusal> {
+        guard let url = helper(name) else { return .failure(.missing(name)) }
+        return NestedCode.check(name, at: url).map { _ in url }
+    }
+
     /// Lock it's own folder (the sandbox container), left out of Time Machine.
-    private static var folder: URL? {
+    static var folder: URL? {
         try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             .appendingPathComponent("GoMax", isDirectory: true)
     }
@@ -93,6 +146,12 @@ final class GoMaxNode: ObservableObject {
     // MARK: State
 
     private var zakura: Process?
+    /// True once this Lock it found Go Max's ports free and started its own
+    /// node on them; false again when the node stops. While the node runs,
+    /// nothing else can hold its port. Used by the attested-statement
+    /// experiment, which may not inspect processes inside the sandbox.
+    private var startedOnFreePorts = false
+    var ownNodeRunning: Bool { startedOnFreePorts && zakura?.isRunning == true }
     private var zaino: Process?
     /// The writing ends that tell each program Lock it is still there.
     private var lifelines: [Process: Pipe] = [:]
@@ -178,7 +237,11 @@ final class GoMaxNode: ObservableObject {
     /// so the stop is recognised when the node can no longer say it itself.
     private func rememberHeight() {
         let live = liveHeight
-        guard live > UserDefaults.standard.integer(forKey: Self.lastHeightKey) else { return }
+        let remembered = UserDefaults.standard.integer(forKey: Self.lastHeightKey)
+        let seen = UserDefaults.standard.double(forKey: Self.lastHeightTimeKey)
+        // A height remembered from a guess (older builds) is replaced, not kept.
+        let trusted = GoMaxSupport.trustedRemembered(height: remembered, seenAt: seen > 0 ? Date(timeIntervalSince1970: seen) : nil, now: Date())
+        guard live <= GoMaxSupport.plausibleMax(at: Date()), live > trusted else { return }
         UserDefaults.standard.set(live, forKey: Self.lastHeightKey)
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastHeightTimeKey)
     }
@@ -190,8 +253,10 @@ final class GoMaxNode: ObservableObject {
         let live = liveHeight
         if live > 0 { return GoMaxSupport.state(reported: live, seenAt: nil, now: now) }
         let seen = UserDefaults.standard.double(forKey: Self.lastHeightTimeKey)
-        return GoMaxSupport.state(reported: UserDefaults.standard.integer(forKey: Self.lastHeightKey),
-                                  seenAt: seen > 0 ? Date(timeIntervalSince1970: seen) : nil, now: now)
+        let seenAt = seen > 0 ? Date(timeIntervalSince1970: seen) : nil
+        let remembered = GoMaxSupport.trustedRemembered(height: UserDefaults.standard.integer(forKey: Self.lastHeightKey),
+                                                        seenAt: seenAt, now: now)
+        return GoMaxSupport.state(reported: remembered, seenAt: seenAt, now: now)
     }
 
     /// Whether Lock it reads the chain from the node on this Mac right now.
@@ -243,14 +308,29 @@ final class GoMaxNode: ObservableObject {
         self.engine = engine
         guard !loaded else { return }
         loaded = true
+        watchPower()
         if enabled && Self.isAvailable {
             wasEverReady = widened
-            Task { await start() }
+            Task { await startOrWait() }
         } else if Self.previousServer != nil {
             // Go Max is off, but Lock it was left on the node it had been
             // switched to (a quit while switching off): back to the server.
             Task { await restoreServer() }
         }
+    }
+
+    /// Free space where the node's data goes (this Mac's own disk).
+    var freeBytes: Int64 {
+        let values = try? URL(fileURLWithPath: NSHomeDirectory())
+            .resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage ?? 0
+    }
+
+    /// "Before you start Go Max" and "Check this computer".
+    func computerCheck() -> GoMaxComputer {
+        var computer = PowerSource.computer(freeBytes: freeBytes)
+        computer.limitedConnection = limitedConnection
+        return computer
     }
 
     /// What stands in the way of switching on, or nil.
@@ -273,7 +353,66 @@ final class GoMaxNode: ObservableObject {
         // A node that reached the tip before (its window was widened there)
         // is catching up, not checking history from the start.
         wasEverReady = wasEverReady || widened
+        await startOrWait()
+    }
+
+    /// Before the first check is done, a start on battery waits for the
+    /// charger when the owner wants that. A node that was up to date before
+    /// starts anyway: it may only need a few minutes to catch up, and is
+    /// paused at the next looks if it turns out to be far behind.
+    private func startOrWait() async {
+        if onlyWhilePluggedIn, !wasEverReady, PowerSource.read().onBattery {
+            problem = nil
+            phase = .paused
+            return
+        }
         await start()
+    }
+
+    // MARK: Power
+
+    private var powerTimer: Timer?
+    /// Looks in a row on battery while checking or catching up: two (about
+    /// a minute), so pulling the plug for a moment does not stop the node.
+    private var batteryLooks = 0
+
+    private func watchPower() {
+        guard powerTimer == nil else { return }
+        loadCounts()
+        pathMonitor.pathUpdateHandler = { path in
+            let limited = path.isConstrained || path.isExpensive
+            Task { @MainActor in GoMaxNode.shared.limitedConnection = limited }
+        }
+        pathMonitor.start(queue: .main)
+        powerTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
+            Task { @MainActor in await GoMaxNode.shared.powerLook() }
+        }
+    }
+
+    private func powerLook() async {
+        guard enabled, Self.isAvailable else { batteryLooks = 0; return }
+        let power = PowerSource.read()
+        if phase == .paused {
+            if !power.onBattery || !onlyWhilePluggedIn { await start() }
+            return
+        }
+        guard onlyWhilePluggedIn, power.onBattery, phase == .syncing || phase == .catchingUp else {
+            batteryLooks = 0
+            return
+        }
+        batteryLooks += 1
+        if batteryLooks >= 2 { await pause() }
+    }
+
+    /// On battery while checking or catching up: Lock it back on its server
+    /// first (as at Off), then both programs stop. The data stays.
+    private func pause() async {
+        batteryLooks = 0
+        stopPolling()
+        await restoreServer()
+        await stopPrograms()
+        problem = nil
+        phase = .paused
     }
 
     /// After "The node stopped while starting": stop what is left, give the
@@ -286,7 +425,7 @@ final class GoMaxNode: ObservableObject {
         try? await Task.sleep(nanoseconds: 30_000_000_000)
         retrying = false
         guard enabled else { return }
-        await start()
+        await startOrWait()
     }
 
     /// Off: both programs stop, the data stays, Lock it goes back to its server.
@@ -314,6 +453,12 @@ final class GoMaxNode: ObservableObject {
         widened = false
         Self.previousServer = nil
         wasEverReady = false
+        // The node and its data are gone: the overview starts again.
+        downloaded = GoMaxData.Total()
+        uploaded = GoMaxData.Total()
+        kept = nil
+        UserDefaults.standard.removeObject(forKey: Self.downloadedKey)
+        UserDefaults.standard.removeObject(forKey: Self.uploadedKey)
         info = nil
         retention = GoMaxConfig.retentionSyncing
         phase = .off
@@ -365,8 +510,14 @@ final class GoMaxNode: ObservableObject {
             }
             let r = GoMaxConfig.retention(widened: widened)
             retention = r
-            try GoMaxConfig.zakura(dataDir: p.zakuraData.path, retention: r).write(to: p.zakuraConfig, atomically: true, encoding: .utf8)
+            // The counters' port taken by something else: the node starts
+            // without them (the data overview pauses for this run).
+            metricsOn = !(await LocalRPC.portOpen(GoMaxConfig.metricsPort))
+            try GoMaxConfig.zakura(dataDir: p.zakuraData.path, retention: r, metrics: metricsOn)
+                .write(to: p.zakuraConfig, atomically: true, encoding: .utf8)
             try GoMaxConfig.zaino(dataDir: p.zainoData.path).write(to: p.zainoConfig, atomically: true, encoding: .utf8)
+            startedOnFreePorts = true
+            await checkSeal(p.zakuraData)
             try startZakura(p)
             holdAwake(true)
             try await waitForNode()
@@ -389,6 +540,10 @@ final class GoMaxNode: ObservableObject {
     }
 
     private func startZakura(_ p: Paths) throws {
+        // A new run of Zakura counts from zero: keep what the last one counted.
+        downloaded.restart()
+        uploaded.restart()
+        saveCounts()
         // Info shows the sync in the log; it holds blocks and peers, never wallet data.
         zakura = try launch("zakurad", ["-c", p.zakuraConfig.path, "start"], log: p.zakuraLog, pidFile: p.zakuraPid,
                             environment: ["ZAKURA_TRACING__FILTER": "info"])
@@ -405,7 +560,11 @@ final class GoMaxNode: ObservableObject {
     }
 
     private func launch(_ name: String, _ arguments: [String], log: URL, pidFile: URL, environment: [String: String]) throws -> Process {
-        guard let url = Self.helper(name) else { throw Failure("This build of Lock it has no node inside.") }
+        let url: URL
+        switch Self.verifiedHelper(name) {
+        case .success(let found): url = found
+        case .failure(let refusal): throw Failure(refusal.message)
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", Self.keeper, url.path] + arguments
@@ -426,7 +585,7 @@ final class GoMaxNode: ObservableObject {
     }
 
     /// The log, appended to; started afresh once it passes 20 MB.
-    private static func logHandle(_ url: URL) throws -> FileHandle {
+    static func logHandle(_ url: URL) throws -> FileHandle {
         let fm = FileManager.default
         if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: nil) }
         let handle = try FileHandle(forWritingTo: url)
@@ -464,7 +623,7 @@ final class GoMaxNode: ObservableObject {
     /// and keep the ports (seen 12 Nov), and the next Lock it has no way to
     /// stop it: the sandbox lets a run of Lock it signal only what it
     /// started itself.
-    private static let keeper = """
+    static let keeper = """
     exec 3<&0
     "$0" "$@" </dev/null 3<&- &
     c=$!
@@ -520,10 +679,21 @@ final class GoMaxNode: ObservableObject {
     }
 
     private func stopPrograms() async {
+        let nodeWasRunning = zakura?.isRunning == true
         await stop(zaino)
         await stop(zakura)
+        // Only a node this Lock it ran and stopped cleanly gets a seal: data
+        // changed while Go Max was off must not be sealed as Lock it's own.
+        if nodeWasRunning, zakura?.isRunning != true, let p = paths {
+            // Stopped cleanly: seal the data as it is now.
+            let folder = p.zakuraData
+            if let seal = await Task.detached(operation: { Self.dataSeal(folder) }).value {
+                try? KeyStore.save(seal, service: Self.sealService)
+            }
+        }
         zaino = nil
         zakura = nil
+        startedOnFreePorts = false
         lifelines.removeAll()
         if let p = paths {
             try? FileManager.default.removeItem(at: p.zainoPid)
@@ -536,11 +706,60 @@ final class GoMaxNode: ObservableObject {
     /// gets up to 20 seconds to close its database. If it needs longer it
     /// finishes on its own; the next start waits for it.
     private func stopAtQuit() {
+        let nodeRanAtQuit = zakura?.isRunning == true
         stopPolling()
         zaino?.interrupt()
         zakura?.interrupt()
         let until = Date().addingTimeInterval(20)
         while zakura?.isRunning == true && Date() < until { usleep(200_000) }
+        // Closed in time: seal the data. Otherwise the next start finds no
+        // matching seal and says so.
+        if nodeRanAtQuit, zakura?.isRunning != true, let p = paths, let seal = Self.dataSeal(p.zakuraData) {
+            try? KeyStore.save(seal, service: Self.sealService)
+        }
+    }
+
+    // MARK: Data seal (issue #6)
+
+    /// Before each start: is the node's data what Lock it sealed at the last
+    /// clean stop?
+    private func checkSeal(_ folder: URL) async {
+        let stored = (try? KeyStore.read(service: Self.sealService)) ?? nil
+        let now = await Task.detached(operation: { Self.dataSeal(folder) }).value
+        dataUnchangedSinceLockIt = stored != nil && stored == now
+        if !dataUnchangedSinceLockIt {
+            AttestLog.write(stored == nil
+                ? "The node's data has no seal yet (first start, or after a crash): no chain fingerprints until Lock it has stopped the node cleanly once."
+                : "The node's data changed since Lock it last stopped the node: no chain fingerprints until Lock it has stopped the node cleanly again.")
+        }
+        // Running changes the data; a fresh seal is made at the next clean stop.
+        try? KeyStore.delete(service: Self.sealService)
+    }
+
+    /// A fingerprint of the node's database: every file's path and size,
+    /// and the full contents of the files that say which data files belong
+    /// to the database (CURRENT, MANIFEST-*, OPTIONS-*). RocksDB's own text
+    /// logs (LOG*) and its lock file are left out. Read only; nothing is
+    /// changed. Nil when the folder cannot be read.
+    nonisolated static func dataSeal(_ folder: URL) -> Data? {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey]
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys) else { return nil }
+        let base = folder.standardizedFileURL.path
+        var lines: [String] = []
+        for case let url as URL in walker {
+            guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
+            let name = url.lastPathComponent
+            if name.hasPrefix("LOG") || name == "LOCK" { continue }
+            let path = String(url.standardizedFileURL.path.dropFirst(base.count))
+            var line = "\(path)\t\(values.fileSize ?? -1)"
+            if name == "CURRENT" || name.hasPrefix("MANIFEST-") || name.hasPrefix("OPTIONS-") {
+                guard let contents = try? Data(contentsOf: url) else { return nil }
+                line += "\t" + SHA256.hash(data: contents).map { String(format: "%02x", $0) }.joined()
+            }
+            lines.append(line)
+        }
+        guard !lines.isEmpty else { return nil }
+        return Data(SHA256.hash(data: Data(lines.sorted().joined(separator: "\n").utf8)))
     }
 
     /// While the node is checking history or catching up, the Mac does not
@@ -576,6 +795,8 @@ final class GoMaxNode: ObservableObject {
     private func stopPolling() {
         timer?.invalidate()
         timer = nil
+        // Off, paused or a problem: the measured speed starts over.
+        clearPace()
         looksWithoutPeers = 0
         disconnected = false
         peers = nil
@@ -620,7 +841,7 @@ final class GoMaxNode: ObservableObject {
 
     /// One look at the node: phase, Zaino restarts, widening, switching over.
     private func tick() async {
-        guard !busy, phase != .off, phase != .stopped, phase != .updating, phase != .expired else { return }
+        guard !busy, phase != .off, phase != .stopped, phase != .updating, phase != .expired, phase != .paused else { return }
         busy = true
         defer { busy = false }
         let nodeRunning = zakura?.isRunning == true
@@ -633,6 +854,8 @@ final class GoMaxNode: ObservableObject {
         }
         let next = GoMaxPhase.next(after: phase, running: nodeRunning, info: fresh, wasEverReady: wasEverReady)
         if let fresh { info = fresh }
+        updatePace(fresh, next)
+        if fresh != nil { await countData() }
         rememberHeight()
         // The network is past this node version's last block (the node has
         // stopped by itself, or is about to): not a problem, the stop.
@@ -707,6 +930,78 @@ final class GoMaxNode: ObservableObject {
         }
     }
 
+    /// The expected finish and the spam-years line: sampled at every look
+    /// (at most every 15 seconds), also while the Go Max page is closed.
+    /// The network's height is the server's as the wallet last heard it,
+    /// else the clock's estimate.
+    private func updatePace(_ fresh: GoMaxChainInfo?, _ next: GoMaxPhase) {
+        guard let fresh, next == .syncing || next == .catchingUp else { clearPace(); return }
+        let heard = engine?.networkHeight ?? 0
+        let tip = heard > 0 ? heard : Birthday.estimatedTip()
+        guard fresh.blocks + GoMaxPace.upToDateBlocks < tip else { clearPace(); return }
+        let now = Date()
+        if let last = pace.list.last?.at, now.timeIntervalSince(last) < GoMaxPace.every {
+            // Too soon for a new sample; the finish stays as it was.
+        } else {
+            pace.add(now, fresh.blocks)
+        }
+        finishAt = pace.finish(tip: tip)
+        spamLine = GoMaxPace.spamLine(height: fresh.blocks)
+    }
+
+    // MARK: Data overview
+
+    /// Zakura's byte counters once a minute, the folder's size every five.
+    private func countData() async {
+        let now = Date()
+        if metricsOn, now.timeIntervalSince(lastCount) >= 60 {
+            lastCount = now
+            if let raw = await LocalRPC.get("/metrics", port: GoMaxConfig.metricsPort) {
+                let text = String(decoding: raw, as: UTF8.self)
+                if let bytes = GoMaxData.counter(GoMaxData.inCounter, in: text) { downloaded.read(bytes) }
+                if let bytes = GoMaxData.counter(GoMaxData.outCounter, in: text) { uploaded.read(bytes) }
+                saveCounts()
+            }
+        }
+        if now.timeIntervalSince(lastKept) >= 300, let p = paths {
+            lastKept = now
+            let folders = [p.zakuraData, p.zainoData]
+            kept = await Task.detached { folders.reduce(0) { $0 + GoMaxNode.folderSize($1) } }.value
+        }
+    }
+
+    /// Bytes the files in a folder take on disk.
+    nonisolated static func folderSize(_ folder: URL) -> Double {
+        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .isRegularFileKey]
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys) else { return 0 }
+        var total = 0.0
+        for case let url as URL in walker {
+            guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
+            total += Double(values.totalFileAllocatedSize ?? 0)
+        }
+        return total
+    }
+
+    private func loadCounts() {
+        let decoder = JSONDecoder()
+        if let data = UserDefaults.standard.data(forKey: Self.downloadedKey),
+           let total = try? decoder.decode(GoMaxData.Total.self, from: data) { downloaded = total }
+        if let data = UserDefaults.standard.data(forKey: Self.uploadedKey),
+           let total = try? decoder.decode(GoMaxData.Total.self, from: data) { uploaded = total }
+    }
+
+    private func saveCounts() {
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(downloaded) { UserDefaults.standard.set(data, forKey: Self.downloadedKey) }
+        if let data = try? encoder.encode(uploaded) { UserDefaults.standard.set(data, forKey: Self.uploadedKey) }
+    }
+
+    private func clearPace() {
+        pace.clear()
+        finishAt = nil
+        spamLine = nil
+    }
+
     /// At the tip for the first time: keep about a month of blocks from now
     /// on. The node restarts once to take the setting; Zaino after it.
     private func widen() async {
@@ -715,8 +1010,10 @@ final class GoMaxNode: ObservableObject {
         do {
             await stop(zaino)
             await stop(zakura)
-            try GoMaxConfig.zakura(dataDir: p.zakuraData.path, retention: GoMaxConfig.retentionAtTip)
+            startedOnFreePorts = false
+            try GoMaxConfig.zakura(dataDir: p.zakuraData.path, retention: GoMaxConfig.retentionAtTip, metrics: metricsOn)
                 .write(to: p.zakuraConfig, atomically: true, encoding: .utf8)
+            startedOnFreePorts = await LocalRPC.portOpen(GoMaxConfig.rpcPort) == false
             try startZakura(p)
             try await waitForNode()
             try startZaino(p)
@@ -801,8 +1098,8 @@ final class GoMaxNode: ObservableObject {
 /// Not the web: nothing here can reach another machine.
 enum LocalRPC {
     /// The `result` of a call, or nil when the node does not answer.
-    static func call(_ method: String, port: Int) async -> Any? {
-        let request: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": method, "params": [Any]()]
+    static func call(_ method: String, params: [Any] = [], port: Int) async -> Any? {
+        let request: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": method, "params": params]
         guard let body = try? JSONSerialization.data(withJSONObject: request) else { return nil }
         let head = "POST / HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
         guard let response = await exchange(Data(head.utf8) + body, port: port, timeout: 5),
@@ -834,6 +1131,13 @@ enum LocalRPC {
         if let result = object["result"], !(result is NSNull) { return true }
         if let error = object["error"], !(error is NSNull) { return false }
         return nil
+    }
+
+    /// A plain GET on this Mac (Zakura's metrics); the body, or nil.
+    static func get(_ path: String, port: Int) async -> Data? {
+        let head = "GET \(path) HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nConnection: close\r\n\r\n"
+        guard let response = await exchange(Data(head.utf8), port: port, timeout: 5) else { return nil }
+        return body(of: response)
     }
 
     /// Whether something on this Mac accepts connections on the port.
@@ -921,4 +1225,152 @@ enum LocalRPC {
             block()
         }
     }
+}
+
+/// The Mac's power, from IOKit, read on this Mac only.
+enum PowerSource {
+    /// `hasBattery`: a MacBook. `onBattery`: running on it right now.
+    static func read() -> (hasBattery: Bool, onBattery: Bool) {
+        guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue() else { return (false, false) }
+        // "Battery Power" is kIOPSBatteryPowerValue; "Type" and
+        // "InternalBattery" are kIOPSTypeKey and kIOPSInternalBatteryType.
+        let providing: String? = IOPSGetProvidingPowerSourceType(blob).map { $0.takeUnretainedValue() as String }
+        let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef] ?? []
+        let hasBattery = sources.contains { source in
+            let description = IOPSGetPowerSourceDescription(blob, source)?.takeUnretainedValue() as? [String: Any]
+            return description?["Type"] as? String == "InternalBattery"
+        }
+        return (hasBattery, hasBattery && providing == "Battery Power")
+    }
+
+    /// What "Before you start Go Max" shows.
+    static func computer(freeBytes: Int64) -> GoMaxComputer {
+        let power = read()
+        return GoMaxComputer(freeBytes: freeBytes, memoryBytes: ProcessInfo.processInfo.physicalMemory,
+                             hasBattery: power.hasBattery, onBattery: power.onBattery)
+    }
+}
+
+/// Fingerprints of the code inside Lock it that App Attest does not measure:
+/// the three helper programs and the two libraries in Frameworks. App
+/// Attest's CDHash covers only Lock it's own program (issue #2), and a
+/// helper's CDHash changes with whoever signs it, so it cannot be pinned for
+/// self-builds or TestFlight, which signs the app again (Andrew Miller's
+/// correction on issues #3 and #8).
+///
+/// This fingerprint does not depend on the signer: for each architecture in
+/// the file, SHA-256 of the bytes up to the code signature, with the three
+/// fields a signature changes set to zero (the signature's size and the
+/// `__LINKEDIT` segment's two sizes). The same in scripts/nested-code-pins.py,
+/// which writes the pins below from a built app. Checked 21 Nov 2026: one
+/// fingerprint per helper whether the linker, Xcode (Debug) or Apple
+/// Distribution signed it.
+///
+/// Helpers are checked right before every start and refused if they do not
+/// match. The two libraries are loaded by macOS before any of Lock it's code
+/// runs, so Lock it checks their files when it makes a Genuine node answer
+/// and makes none if they do not match. Limits: a check of the file just
+/// before it runs, not of the running program; and Lock it's own program is
+/// covered by App Attest's CDHash, not by this.
+enum NestedCode {
+    enum Refusal: Error, Equatable {
+        case missing(String), unreadable(String), changed(String)
+        var message: String {
+            switch self {
+            case .missing(let name): return name == "arti" ? "No Arti in this build." : "This build of Lock it has no node inside."
+            case .unreadable(let name): return "Lock it could not read \(name) inside the app to check it. Refused."
+            case .changed(let name): return "\(name) inside Lock it is not the one this build was made with. Refused."
+            }
+        }
+    }
+
+    /// The helpers, by name, and the libraries, by their path in Contents.
+    static let libraries = [("libswiftCompatibilitySpan.dylib", "Frameworks/libswiftCompatibilitySpan.dylib"),
+                            ("libzcashlc", "Frameworks/libzcashlc.framework/Versions/A/libzcashlc")]
+
+    static func check(_ name: String, at url: URL) -> Result<Void, Refusal> {
+        guard let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return .failure(.unreadable(name)) }
+        return matches(digests(of: data), pins: pins[name]) ? .success(()) : .failure(.changed(name))
+    }
+
+    /// Both libraries in Frameworks match their pins.
+    static func checkLibraries(in bundle: Bundle = .main) -> Result<Void, Refusal> {
+        for (name, path) in libraries {
+            let url = bundle.bundleURL.appendingPathComponent("Contents/" + path)
+            if case .failure(let refusal) = check(name, at: url) { return .failure(refusal) }
+        }
+        return .success(())
+    }
+
+    /// Every architecture in the file is pinned with the same fingerprint,
+    /// and Apple silicon's is there (a Debug build holds only that one).
+    static func matches(_ found: [String: String]?, pins: [String: String]?) -> Bool {
+        guard let found, let pins, !found.isEmpty else { return false }
+        return found.allSatisfy { pins[$0.key] == $0.value } && found.keys.contains { $0.hasPrefix("16777228.") }
+    }
+
+    /// "cputype.cpusubtype" → fingerprint (hex), per architecture; nil when
+    /// the file is not a signed 64-bit Mach-O program or library.
+    static func digests(of data: Data) -> [String: String]? {
+        let bytes = [UInt8](data)
+        func be32(_ i: Int) -> UInt32 { UInt32(bytes[i]) << 24 | UInt32(bytes[i + 1]) << 16 | UInt32(bytes[i + 2]) << 8 | UInt32(bytes[i + 3]) }
+        func be64(_ i: Int) -> UInt64 { UInt64(be32(i)) << 32 | UInt64(be32(i + 4)) }
+        guard bytes.count >= 8 else { return nil }
+        var ranges: [Range<Int>] = []
+        switch be32(0) {
+        case 0xCAFE_BABE, 0xCAFE_BABF:
+            let wide = be32(0) == 0xCAFE_BABF
+            let count = Int(be32(4))
+            for i in 0..<count {
+                let entry = 8 + i * (wide ? 32 : 20)
+                guard entry + (wide ? 32 : 20) <= bytes.count else { return nil }
+                let offset = wide ? Int(be64(entry + 8)) : Int(be32(entry + 8))
+                let size = wide ? Int(be64(entry + 16)) : Int(be32(entry + 12))
+                guard offset >= 0, size > 0, offset + size <= bytes.count else { return nil }
+                ranges.append(offset..<offset + size)
+            }
+        default:
+            ranges = [0..<bytes.count]
+        }
+        var out: [String: String] = [:]
+        for range in ranges {
+            guard let (key, digest) = sliceDigest(Array(bytes[range])) else { return nil }
+            out[key] = digest
+        }
+        return out
+    }
+
+    private static func sliceDigest(_ m: [UInt8]) -> (String, String)? {
+        func le32(_ i: Int) -> UInt32 { UInt32(m[i]) | UInt32(m[i + 1]) << 8 | UInt32(m[i + 2]) << 16 | UInt32(m[i + 3]) << 24 }
+        guard m.count >= 32, le32(0) == 0xFEED_FACF else { return nil }
+        let cputype = le32(4), subtype = le32(8), ncmds = Int(le32(16))
+        var b = m, offset = 32, limit: Int?
+        for _ in 0..<ncmds {
+            guard offset + 8 <= m.count else { return nil }
+            let cmd = le32(offset), size = Int(le32(offset + 4))
+            guard size >= 8, offset + size <= m.count else { return nil }
+            if cmd == 0x1D, size >= 16 {                       // LC_CODE_SIGNATURE
+                limit = Int(le32(offset + 8))
+                for i in offset + 12..<offset + 16 { b[i] = 0 }   // datasize
+            } else if cmd == 0x19, size >= 56,                 // LC_SEGMENT_64
+                      m[offset + 8..<offset + 24].prefix(while: { $0 != 0 }).elementsEqual("__LINKEDIT".utf8) {
+                for i in offset + 32..<offset + 40 { b[i] = 0 }   // vmsize
+                for i in offset + 48..<offset + 56 { b[i] = 0 }   // filesize
+            }
+            offset += size
+        }
+        guard let limit, limit > 0, limit <= b.count else { return nil }
+        let hash = SHA256.hash(data: b[0..<limit]).map { String(format: "%02x", $0) }.joined()
+        return ("\(cputype).\(subtype)", hash)
+    }
+
+    // BEGIN PINS (written by scripts/nested-code-pins.py; do not edit by hand)
+    static let pins: [String: [String: String]] = [
+        "zakurad": ["16777228.0": "67f8ef92dcfc1b1ee9ea36bf5a6db4b8aa30ffc85ec909bdeac7030372219b56"],
+        "zainod": ["16777228.0": "0ef22f1b34801de85104331f450b17d9dde88f13dff53c5da6f3d03eb5c72a3a"],
+        "arti": ["16777228.0": "1b11c8159babaee5e7510b655157f60a1b85d301d18875b17daa80df823b35e3"],
+        "libswiftCompatibilitySpan.dylib": ["16777223.3": "caf0463800549bc81a701e630bcf142b13cb48e8bf68de473ec1a2aeaa066ba8", "16777228.0": "2c56698ead38721029ec5fe479e2887c3c0ae3a1b4d9e7ccd1c74cf83f3a28b9", "16777228.2147483650": "7d3987a13a2058d94c768e2b93e75fea8695d5bdaba38ad92403a84875634958"],
+        "libzcashlc": ["16777223.3": "471d393c93622d0c2cf762a487ffa7f2816c186d72989022ae7e61a5c16cfa13", "16777228.0": "fadf5bb17be9fa700beab3615b329e9fd245b05ace1dd5b194d0a5a676566b71"],
+    ]
+    // END PINS
 }

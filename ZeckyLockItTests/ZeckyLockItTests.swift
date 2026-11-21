@@ -721,6 +721,14 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertTrue(zakura.contains(#"listen_addr = "127.0.0.1:8232""#))
         XCTAssertTrue(zakura.contains(#"cache_dir = "/tmp/Go Max/zakura""#))
         XCTAssertTrue(zakura.contains(#"identity_dir = "/tmp/Go Max/zakura/identity""#))
+        // The byte counters for the data overview, on this Mac only; left
+        // out when their port is taken (Zakura would refuse to start).
+        XCTAssertTrue(zakura.contains("[metrics]"))
+        XCTAssertTrue(zakura.contains(#"endpoint_addr = "127.0.0.1:8234""#))
+        XCTAssertTrue(zakura.contains("\n[tracing]"))
+        let noMetrics = GoMaxConfig.zakura(dataDir: "/tmp/Go Max/zakura", retention: 10_000, metrics: false)
+        XCTAssertFalse(noMetrics.contains("[metrics]"))
+        XCTAssertFalse(noMetrics.contains("8234"))
         // Nothing listens beyond this Mac.
         XCTAssertFalse(zakura.contains("0.0.0.0"))
         XCTAssertFalse(zakura.contains("[::]"))
@@ -778,6 +786,141 @@ final class ZeckyLockItTests: XCTestCase {
         // A stopped node stays stopped, whatever it is asked.
         XCTAssertEqual(GoMaxPhase.next(after: .expired, running: false, info: nil, wasEverReady: true), .expired)
         XCTAssertEqual(GoMaxWords.short(.expired, nil), "Needs an update")
+    }
+
+    func testGoMaxPausedOnBatteryStaysPausedUntilLockItResumesIt() {
+        XCTAssertEqual(GoMaxPhase.next(after: .paused, running: false, info: nil, wasEverReady: false), .paused)
+        XCTAssertEqual(GoMaxWords.short(.paused, nil), "Paused · plug in to sync")
+        XCTAssertEqual(GoMaxWords.status(.paused, nil), "Paused on battery · carries on when the charger is connected")
+    }
+
+    func testBeforeYouStartGoMax() {
+        let gib: UInt64 = 1_073_741_824
+        let roomy = GoMaxComputer(freeBytes: 112_000_000_000, memoryBytes: 16 * gib, hasBattery: true, onBattery: false)
+        XCTAssertTrue(roomy.enoughSpace)
+        XCTAssertEqual(roomy.lines(hasData: false, onlyPluggedIn: true).map(\.good), [true, true, true, true])
+        XCTAssertEqual(roomy.lines(hasData: false, onlyPluggedIn: true).map(\.text),
+                       ["Free space: 112 GB (Go Max needs about 38 GB)", "Memory: 16 GB",
+                        "Data: the first sync downloads about 350 GB. Use a connection without a data limit.", "Plugged in"])
+        // Low Data Mode or a hotspot: a warning, never a stop.
+        var limited = roomy
+        limited.limitedConnection = true
+        XCTAssertEqual(limited.lines(hasData: false, onlyPluggedIn: true)[2],
+                       GoMaxComputer.Line(good: false, text: "Data: this connection is limited. The first sync downloads about 350 GB; better to use one without a data limit."))
+        XCTAssertTrue(limited.enoughSpace)
+
+        // Too little space: the only thing that stops a start.
+        let full = GoMaxComputer(freeBytes: 12_000_000_000, memoryBytes: 8 * gib, hasBattery: false, onBattery: false)
+        XCTAssertFalse(full.enoughSpace)
+        let fullLines = full.lines(hasData: false, onlyPluggedIn: true)
+        XCTAssertEqual(fullLines.count, 3)   // a desktop Mac: no power line
+        XCTAssertFalse(fullLines[0].good)
+        XCTAssertTrue(fullLines[0].text.hasPrefix("Free space: 12 GB. Go Max needs about 38 GB: free up"))
+        XCTAssertTrue(fullLines[1].good)      // 8 GB is not warned
+        // A node that already has its data needs no new room.
+        XCTAssertTrue(full.lines(hasData: true, onlyPluggedIn: true)[0].good)
+
+        // Little memory and on battery: warned, not stopped.
+        let small = GoMaxComputer(freeBytes: 60_000_000_000, memoryBytes: 4 * gib, hasBattery: true, onBattery: true)
+        let smallLines = small.lines(hasData: false, onlyPluggedIn: true)
+        XCTAssertEqual(smallLines.map(\.good), [true, false, true, false])
+        XCTAssertEqual(smallLines[3].text, "Running on battery. Plug in to sync: the first check waits for the charger.")
+        // The first check done: no warning about it on battery.
+        XCTAssertEqual(small.lines(hasData: true, onlyPluggedIn: true)[3],
+                       GoMaxComputer.Line(good: true, text: "On battery. Catching up waits for the charger; up to date, the node keeps running."))
+        XCTAssertEqual(small.lines(hasData: false, onlyPluggedIn: false)[3].text,
+                       "Running on battery. The first check drains the battery quickly; plug in if you can.")
+    }
+
+    func testExpectedFinishCountsTheSpamYears() throws {
+        XCTAssertEqual(GoMaxPace.work(0), 0)
+        // A spam block is much more work than one before or after.
+        XCTAssertGreaterThan(GoMaxPace.work(GoMaxPace.spamStart + 1) - GoMaxPace.work(GoMaxPace.spamStart),
+                             4 * (GoMaxPace.work(GoMaxPace.spamEnd + 1) - GoMaxPace.work(GoMaxPace.spamEnd)))
+
+        let t = Date(timeIntervalSince1970: 1_763_200_000)
+        var samples = GoMaxPace.Samples()
+        samples.add(t, 1_855_000)
+        XCTAssertNil(samples.finish(tip: 3_560_000), "one sample is not a speed")
+        // 7,200 blocks an hour in the spam years, as on a tester's laptop.
+        samples.add(t.addingTimeInterval(3_600), 1_862_200)
+        let finish = try XCTUnwrap(samples.finish(tip: 3_560_000))
+        let hours = finish.timeIntervalSince(t.addingTimeInterval(3_600)) / 3_600
+        // At spam speed the rest would take (3,560,000 - 1,862,200) / 7,200
+        // = 236 hours; counted with the faster rest it is far less…
+        XCTAssertLessThan(hours, 236)
+        // …but more than the spam that is left alone: 237,800 blocks at 7,200 an hour.
+        XCTAssertGreaterThan(hours, Double(GoMaxPace.spamEnd - 1_862_200) / 7_200)
+
+        // Nothing moved, or the node started over: no estimate.
+        var still = GoMaxPace.Samples()
+        still.add(t, 100)
+        still.add(t.addingTimeInterval(1_000), 100)
+        XCTAssertNil(still.finish(tip: 200))
+        still.add(t.addingTimeInterval(2_000), 50)
+        XCTAssertNil(still.finish(tip: 200))
+        // Less than a quarter of an hour: no estimate yet.
+        var short = GoMaxPace.Samples()
+        short.add(t, 100)
+        short.add(t.addingTimeInterval(600), 200)
+        XCTAssertNil(short.finish(tip: 1_000))
+    }
+
+    func testTheSpamLineAndTheFinishWords() {
+        XCTAssertTrue(GoMaxPace.spamLine(height: 1_000_000).hasPrefix("Ahead: the spam years"))
+        XCTAssertTrue(GoMaxPace.spamLine(height: 1_905_000).contains(": 50% of this stretch done"))
+        XCTAssertTrue(GoMaxPace.spamLine(height: 2_200_000).hasPrefix("The spam years are done"))
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Amsterdam")!
+        let now = Date(timeIntervalSince1970: 1_763_200_000)   // Sat 15 Nov 2025, 10:46:40 in Amsterdam
+        XCTAssertEqual(GoMaxPace.finishText(nil, now: now, calendar: calendar), "Measuring speed…")
+        XCTAssertEqual(GoMaxPace.finishText(now.addingTimeInterval(300), now: now, calendar: calendar), "In a few minutes")
+        // More than 3 hours away: to the hour (10:46:40 + 5 h = 15:46:40 → 16:00).
+        // (Newer macOS puts a narrow space before PM.)
+        func text(_ at: Date) -> String {
+            GoMaxPace.finishText(at, now: now, calendar: calendar).replacingOccurrences(of: "\u{202F}", with: " ")
+        }
+        XCTAssertEqual(text(now.addingTimeInterval(5 * 3_600)), "About Sat, Nov 15 at 4:00 PM")
+        // Closer: to 10 minutes (10:46:40 + 1 h = 11:46:40 → 11:50).
+        XCTAssertEqual(text(now.addingTimeInterval(3_600)), "About Sat, Nov 15 at 11:50 AM")
+    }
+
+    @MainActor func testGenuineNodeAnswersOnThisMacOnlyBehindItsOnion() {
+        // The answering port is not the node's peer-to-peer port, and the
+        // node's own ports never listen beyond this Mac.
+        XCTAssertNotEqual(Int(AttestedStatementMaker.port), GoMaxConfig.p2pPort)
+        XCTAssertEqual(GoMaxConfig.host, "127.0.0.1")
+    }
+
+    func testTheDataOverviewKeepsCountingOverRestarts() {
+        let text = """
+        # TYPE zcash_net_in_bytes_total counter
+        zcash_net_in_bytes_total 1500
+        zcash_net_out_bytes_total{peer="a"} 20
+        zcash_net_out_bytes_total{peer="b"} 22
+        zcash_net_in_bytes_total_other 9
+        """
+        XCTAssertEqual(GoMaxData.counter(GoMaxData.inCounter, in: text), 1_500)
+        XCTAssertEqual(GoMaxData.counter(GoMaxData.outCounter, in: text), 42)
+        XCTAssertNil(GoMaxData.counter("missing", in: text))
+
+        var total = GoMaxData.Total()
+        total.read(1_000)
+        total.read(1_500)
+        XCTAssertEqual(total.total, 1_500)
+        // Lock it starts Zakura again: what it counted is kept.
+        total.restart()
+        total.read(200)
+        XCTAssertEqual(total.total, 1_700)
+        // Zakura restarted by itself: a lower reading than before.
+        total.read(50)
+        XCTAssertEqual(total.total, 1_750)
+
+        XCTAssertEqual(GoMaxData.removed(downloaded: 212.4e9, kept: 18.6e9), 193.8e9, accuracy: 1)
+        XCTAssertEqual(GoMaxData.removed(downloaded: 5e9, kept: 18e9), 0)
+        XCTAssertEqual(GoMaxData.format(212.4e9), "212.4 GB")
+        XCTAssertEqual(GoMaxData.format(980e6), "980 MB")
     }
 
     func testGoMaxPhases() {
@@ -967,7 +1110,483 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(GoMaxSupport.networkHeight(nodeBlocks: 470_000, nodeEstimate: 3_629_500,
                                                   verificationProgress: 0.01, walletNetwork: 0), 470_000)
         // Close to the newest block, the node's estimate counts again (the stop itself).
+        let atStop = Date(timeIntervalSince1970: 1_796_500_000) // 5 Dec 2026
         XCTAssertEqual(GoMaxSupport.networkHeight(nodeBlocks: 3_643_300, nodeEstimate: 3_643_320,
-                                                  verificationProgress: 0.9999, walletNetwork: 3_643_300), 3_643_320)
+                                                  verificationProgress: 0.9999, walletNetwork: 3_643_300, now: atStop), 3_643_320)
+    }
+
+    // MARK: Attested statements (experiment)
+
+    func testStateFingerprintV0MatchesTheNodeCheck() throws {
+        // Height 3,572,141 as read from a caught-up Go Max node on 14 Nov 2026,
+        // twice, with the same answers. The hash was worked out separately
+        // (Python, sort_keys, no spaces) from the same answers.
+        let block: [String: Any] = [
+            "height": 3_572_141,
+            "hash": "00000000004cd7dd4872e1297afcff16d35326e9866c66fe99f3fe4eb5c95cb8",
+            "blockcommitments": "49647988e37d90f6c388891372bc01e876b74be2ac0d0a7bba9b8a353cd27591",
+            "trees": ["sapling": ["size": Int64(73_998_529)], "orchard": ["size": Int64(50_482_901)], "ironwood": ["size": Int64(1_221_975)]],
+            "valuePools": [
+                ["id": "transparent", "chainValueZat": Int64(1_203_207_003_547_583)],
+                ["id": "sprout", "chainValueZat": Int64(1_222_421_094_946)],
+                ["id": "sapling", "chainValueZat": Int64(41_799_243_186_949)],
+                ["id": "orchard", "chainValueZat": Int64(32_095_005_911_000)],
+                ["id": "lockbox", "chainValueZat": Int64(7_623_449_971_263)],
+                ["id": "ironwood", "chainValueZat": Int64(418_168_756_608_146)],
+            ],
+            "chainSupply": ["chainValueZat": Int64(1_704_115_880_319_887)],
+        ]
+        func pool(_ root: String) -> [String: Any] { ["commitments": ["finalRoot": root]] }
+        let tree: [String: Any] = [
+            "hash": "00000000004cd7dd4872e1297afcff16d35326e9866c66fe99f3fe4eb5c95cb8",
+            "sapling": pool("10bbab91363c4fbea88fb7587b4a4c4bffda5bc86416e9c8265bac0ba70cb743"),
+            "orchard": pool("f678cf38d95a8f9e237bf1a60ce64885fad0aac4aa9275603c6460e2f2696f36"),
+            "ironwood": pool("2a7de8393e1af1ce6cb442703370be3bd77d1061eb045ee6dd5be89990c9171f"),
+        ]
+        let fingerprint = try XCTUnwrap(StateFingerprint.make(block: block, treeState: tree))
+        let json = try StateFingerprint.canonicalJSON(fingerprint)
+        XCTAssertEqual(StateFingerprint.sha256Hex(json), "f17eb64d714918b65d3994aa22a60a24288bbd18e1ed8e6608e6883de5da9d5c")
+        // A tree state from another block is refused.
+        var other = tree
+        other["hash"] = "00"
+        XCTAssertNil(StateFingerprint.make(block: block, treeState: other))
+    }
+
+    func testStatementClientDataCarriesTheChallenge() throws {
+        let json = try StatementClientData.json(
+            fingerprintSHA256: "f17eb64d714918b65d3994aa22a60a24288bbd18e1ed8e6608e6883de5da9d5c",
+            challenge: String(repeating: "ab", count: 32))
+        // The same bytes as the verifier's Python check.
+        XCTAssertEqual(StateFingerprint.sha256Hex(json), "5ccba1dc81a5bd165c8add75720af17ce187277d810e1fc5d46f2e24a327db5b")
+        XCTAssertTrue(StatementClientData.validChallenge(""))
+        XCTAssertTrue(StatementClientData.validChallenge(String(repeating: "0f", count: 32)))
+        XCTAssertFalse(StatementClientData.validChallenge(String(repeating: "AB", count: 32)))
+        XCTAssertFalse(StatementClientData.validChallenge("abc"))
+    }
+
+    func testStatementClientDataV2SignsTheNodeState() throws {
+        let c = String(repeating: "ab", count: 32)
+        let syncing = StatementClientData.NodeState(state: "syncing", tip: 3_412_000, estimate: 3_576_300)
+        let json = try StatementClientData.jsonV2(fingerprintSHA256: "", challenge: c, node: syncing)
+        // Sorted keys, no spaces: the same bytes the verifier rebuilds.
+        XCTAssertEqual(String(decoding: json, as: UTF8.self),
+                       "{\"challenge\":\"\(c)\",\"fingerprintSHA256\":\"\",\"node\":{\"estimate\":3576300,\"state\":\"syncing\",\"tip\":3412000},\"purpose\":\"zecky-go-max-state\",\"v\":2}")
+        let stopped = StatementClientData.NodeState(state: "not-running", tip: nil, estimate: 3_576_300)
+        XCTAssertNil(stopped.dictionary["tip"])
+    }
+
+    /// v3 (issue #3): where the answer came from is signed, in the bytes the
+    /// verifier rebuilds.
+    func testStatementClientDataV3SignsWhereTheAnswerCameFrom() throws {
+        let c = String(repeating: "ab", count: 32)
+        let node = StatementClientData.NodeState(state: "up-to-date", tip: 3_579_600, estimate: 3_579_601)
+        let from = StatementClientData.Provenance(
+            createdAt: "2026-11-16T16:00:00Z", appId: "W2F7RNV886.app.zecky.lockit", lockItVersion: "0.2.0",
+            lockItBuild: "10", onion: "abc.onion", nodeBuild: "v1.8.8", nodeSubversion: "/Zakura:1.8.8/", ownNode: true)
+        let json = try StatementClientData.jsonV3(fingerprintSHA256: "", challenge: c, node: node, from: from)
+        XCTAssertEqual(String(decoding: json, as: UTF8.self),
+                       "{\"appId\":\"W2F7RNV886.app.zecky.lockit\",\"challenge\":\"\(c)\",\"createdAt\":\"2026-11-16T16:00:00Z\","
+                       + "\"fingerprintSHA256\":\"\",\"lockIt\":{\"build\":\"10\",\"version\":\"0.2.0\"},"
+                       + "\"node\":{\"build\":\"v1.8.8\",\"estimate\":3579601,\"state\":\"up-to-date\",\"subversion\":\"/Zakura:1.8.8/\",\"tip\":3579600},"
+                       + "\"nodeCheck\":{\"dataUnchangedSinceLockIt\":false,\"executableSignedBySameTeamAsLockIt\":true,\"ownNode\":true},"
+                       + "\"onion\":\"abc.onion\",\"purpose\":\"zecky-go-max-state\",\"v\":3}")
+    }
+
+    func testStatementSummaryForTheLog() throws {
+        let syncing = try JSONSerialization.data(withJSONObject: [
+            "nodeState": ["state": "syncing", "tip": 3_412_000, "estimate": 3_576_300], "fingerprintNote": "syncing"])
+        XCTAssertEqual(AttestedStatementMaker.summary(of: syncing), " · syncing at block 3412000, no fingerprint (syncing)")
+        let upToDate = try JSONSerialization.data(withJSONObject: [
+            "nodeState": ["state": "up-to-date", "tip": 3_576_300, "estimate": 3_576_300],
+            "fingerprintJSON": #"{"height":3576200,"v":0}"#])
+        XCTAssertEqual(AttestedStatementMaker.summary(of: upToDate), " · up to date, fingerprint at 3576200")
+    }
+
+    /// A real answer kept on this Mac only, never in the repository (it
+    /// carries an App Attest key ID): the newest asked-*.json in GoMax/logs,
+    /// saved by "Check another node". Without one, these tests are skipped.
+    private func localStatement() throws -> (data: Data, challenge: String) {
+        let logs = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+            .appendingPathComponent("GoMax/logs", isDirectory: true)
+        let files = (try? FileManager.default.contentsOfDirectory(at: logs, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        // The newest answer a genuine node gave (a fake node's answer, saved
+        // by the issue #5 test, is passed over).
+        let byDate = files.filter { $0.lastPathComponent.hasPrefix("asked-") && $0.pathExtension == "json" }
+            .sorted { a, b in
+                let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return da > db
+            }
+        for url in byDate {
+            guard let data = try? Data(contentsOf: url),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let challenge = json["challenge"] as? String,
+                  StatementCheck.check(data, expectedAppID: "W2F7RNV886.app.zecky.lockit", challenge: challenge).genuine
+            else { continue }
+            return (data, challenge)
+        }
+        throw XCTSkip("No answer from a genuine node in GoMax/logs yet (older formats no longer count): check a node first.")
+    }
+
+    // MARK: Andrew Miller's review (issues #4, #5), reproduced
+
+    /// #5: a node that answers with hand-written JSON echoing the challenge
+    /// must not count as genuine in "Check another node".
+    func testIssue5AHandWrittenAnswerIsNotGenuine() throws {
+        let challenge = String(repeating: "ab", count: 32)
+        let client = String(decoding: try StatementClientData.jsonV3(
+            fingerprintSHA256: "", challenge: challenge,
+            node: .init(state: "up-to-date", tip: 3_579_000, estimate: 3_579_000),
+            from: .init(createdAt: "2026-11-16T15:00:00Z", appId: "W2F7RNV886.app.zecky.lockit", lockItVersion: "0.2.0",
+                        lockItBuild: "10", onion: "", nodeBuild: "v1.8.8", nodeSubversion: "", ownNode: true)), as: UTF8.self)
+        let fake: [String: Any] = [
+            "format": "zecky-attested-statement/v3", "challenge": challenge, "clientDataJSON": client,
+            "fingerprintSHA256": "", "kind": "assertion", "keyAttestationClientDataJSON": client,
+            "keyId": Data(repeating: 1, count: 32).base64EncodedString(),
+            "assertion": Data("not a signature".utf8).base64EncodedString(),
+            "keyAttestation": Data("not an attestation".utf8).base64EncodedString(),
+            "createdAt": "2026-11-16T15:00:00Z",
+        ]
+        let data = try JSONSerialization.data(withJSONObject: fake, options: [.sortedKeys])
+        let result = StatementCheck.check(data, expectedAppID: "W2F7RNV886.app.zecky.lockit", challenge: challenge)
+        XCTAssertFalse(result.genuine, "a hand-written answer passed: \(result.reason)")
+    }
+
+    /// #4: in an assertion answer, the key attestation's authData must be
+    /// bound to Apple's certificate. Swapping the 16-byte environment
+    /// (AAGUID) inside it must make the answer fail.
+    func testIssue4AnEditedKeyAttestationIsNotGenuine() throws {
+        let (data, challenge) = try localStatement()
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        guard json["kind"] as? String == "assertion" else { throw XCTSkip("The saved answer is not an assertion.") }
+        var attestation = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(json["keyAttestation"] as? String)))
+        let production = Data("appattest".utf8) + Data(repeating: 0, count: 7)
+        let development = Data("appattestdevelop".utf8)
+        if let range = attestation.range(of: production) {
+            attestation.replaceSubrange(range, with: development)
+        } else if let range = attestation.range(of: development) {
+            attestation.replaceSubrange(range, with: production)
+        } else {
+            return XCTFail("No App Attest environment found in the key attestation.")
+        }
+        json["keyAttestation"] = attestation.base64EncodedString()
+        let edited = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])
+        let result = StatementCheck.check(edited, expectedAppID: "W2F7RNV886.app.zecky.lockit", challenge: challenge)
+        XCTAssertFalse(result.genuine, "an edited key attestation passed")
+    }
+
+    /// #3: the fields that say where an answer came from are signed. Andrew's
+    /// edit (lockIt.build "999-evil", node.build "my-own-fork") must fail.
+    func testIssue3EditedProvenanceIsNotGenuine() throws {
+        let (data, challenge) = try localStatement()
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var client = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(try XCTUnwrap(json["clientDataJSON"] as? String).utf8)) as? [String: Any])
+        var lockIt = try XCTUnwrap(client["lockIt"] as? [String: Any])
+        lockIt["build"] = "999-evil"
+        client["lockIt"] = lockIt
+        var node = try XCTUnwrap(client["node"] as? [String: Any])
+        node["build"] = "my-own-fork"
+        client["node"] = node
+        json["clientDataJSON"] = String(decoding: try StateFingerprint.canonicalJSON(client), as: UTF8.self)
+        let edited = try JSONSerialization.data(withJSONObject: json)
+        XCTAssertFalse(StatementCheck.check(edited, expectedAppID: "W2F7RNV886.app.zecky.lockit", challenge: challenge).genuine)
+        // Unsigned copies next to the signed data are not read at all.
+        var withCopies = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        withCopies["lockIt"] = ["build": "999-evil"]
+        let copies = try JSONSerialization.data(withJSONObject: withCopies)
+        let result = StatementCheck.check(copies, expectedAppID: "W2F7RNV886.app.zecky.lockit", challenge: challenge)
+        XCTAssertTrue(result.genuine, result.reason)
+    }
+
+    /// #8 point 1, in "Finding other nodes": an answer relayed through
+    /// another onion address names the genuine node's address, not the one
+    /// asked, and is refused.
+    func testIssue8ARelayedAnswerIsNotGenuine() throws {
+        let (data, challenge) = try localStatement()
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let client = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(try XCTUnwrap(json["clientDataJSON"] as? String).utf8)) as? [String: Any])
+        let own = try XCTUnwrap(client["onion"] as? String)
+        guard !own.isEmpty else { throw XCTSkip("The saved answer was made without Tor.") }
+        let app = "W2F7RNV886.app.zecky.lockit"
+        XCTAssertTrue(StatementCheck.check(data, expectedAppID: app, challenge: challenge, onion: own).genuine)
+        let relay = String(repeating: "r", count: 56) + ".onion"
+        XCTAssertFalse(StatementCheck.check(data, expectedAppID: app, challenge: challenge, onion: relay).genuine)
+    }
+
+    /// #6: before a fingerprint is vouched for, the node's tree state must
+    /// equal an independent server's, exactly. Wrong chain data, however it
+    /// got onto the Mac, disagrees.
+    func testIssue6CrossCheckWithTheNetwork() {
+        func tree(hash: String, sapling: String, orchard: String, ironwood: String?) -> [String: Any] {
+            var t: [String: Any] = [
+                "hash": hash, "height": 3_579_600,
+                "sapling": ["commitments": ["finalRoot": "aa", "finalState": sapling]],
+                "orchard": ["commitments": ["finalRoot": "bb", "finalState": orchard]],
+            ]
+            if let ironwood { t["ironwood"] = ["commitments": ["finalRoot": "cc", "finalState": ironwood]] }
+            return t
+        }
+        let server = (hash: "00ab", saplingTree: "01ff", orchardTree: "02ee", ironwoodTree: "03dd")
+        XCTAssertEqual(StateFingerprint.crossCheck(node: tree(hash: "00AB", sapling: "01ff", orchard: "02ee", ironwood: "03dd"), server: server), "agrees")
+        // A different block, or one changed tree: disagrees.
+        XCTAssertEqual(StateFingerprint.crossCheck(node: tree(hash: "00ac", sapling: "01ff", orchard: "02ee", ironwood: "03dd"), server: server), "disagrees")
+        XCTAssertEqual(StateFingerprint.crossCheck(node: tree(hash: "00ab", sapling: "01ff", orchard: "02ef", ironwood: "03dd"), server: server), "disagrees")
+        // A pool the node does not have yet is an empty tree, as on the server.
+        XCTAssertEqual(StateFingerprint.crossCheck(node: tree(hash: "00ab", sapling: "01ff", orchard: "02ee", ironwood: nil),
+                                                   server: (hash: "00ab", saplingTree: "01ff", orchardTree: "02ee", ironwoodTree: "")), "agrees")
+        // Without the serialized tree, nothing can be compared: never "agrees".
+        var noState = tree(hash: "00ab", sapling: "01ff", orchard: "02ee", ironwood: "03dd")
+        noState["sapling"] = ["commitments": ["finalRoot": "aa"]]
+        XCTAssertEqual(StateFingerprint.crossCheck(node: noState, server: server), "not-comparable")
+    }
+
+    /// #6, layer 1: the seal changes when a data file is added, removed or
+    /// resized, or when the database's own index changes; RocksDB's text
+    /// logs do not count.
+    func testIssue6TheDataSealNoticesChanges() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("seal-\(UUID().uuidString)")
+        let db = folder.appendingPathComponent("state/mainnet", isDirectory: true)
+        try FileManager.default.createDirectory(at: db, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data("MANIFEST-000005\n".utf8).write(to: db.appendingPathComponent("CURRENT"))
+        try Data(repeating: 1, count: 100).write(to: db.appendingPathComponent("MANIFEST-000005"))
+        try Data(repeating: 2, count: 4096).write(to: db.appendingPathComponent("000007.sst"))
+        let sealed = try XCTUnwrap(GoMaxNode.dataSeal(folder))
+        XCTAssertEqual(GoMaxNode.dataSeal(folder), sealed, "the same data gives the same seal")
+        try Data("log line".utf8).write(to: db.appendingPathComponent("LOG"))
+        XCTAssertEqual(GoMaxNode.dataSeal(folder), sealed, "RocksDB's text log does not count")
+        // Andrew's case: data from elsewhere. A swapped data file…
+        try Data(repeating: 3, count: 4097).write(to: db.appendingPathComponent("000007.sst"))
+        XCTAssertNotEqual(GoMaxNode.dataSeal(folder), sealed)
+        try Data(repeating: 2, count: 4096).write(to: db.appendingPathComponent("000007.sst"))
+        XCTAssertEqual(GoMaxNode.dataSeal(folder), sealed)
+        // …an added one, or a changed index.
+        try Data(repeating: 4, count: 10).write(to: db.appendingPathComponent("000009.sst"))
+        XCTAssertNotEqual(GoMaxNode.dataSeal(folder), sealed)
+        try FileManager.default.removeItem(at: db.appendingPathComponent("000009.sst"))
+        try Data(repeating: 9, count: 100).write(to: db.appendingPathComponent("MANIFEST-000005"))
+        XCTAssertNotEqual(GoMaxNode.dataSeal(folder), sealed)
+    }
+
+    func testAKeyIsCheckedAtTheMomentAppleAttestedIt() throws {
+        // Apple's leaf certificate is valid for three days; the chain is
+        // checked when Apple attested the key, so older keys still pass.
+        let (data, challenge) = try localStatement()
+        let result = StatementCheck.check(data, expectedAppID: "W2F7RNV886.app.zecky.lockit", challenge: challenge)
+        XCTAssertTrue(result.genuine, result.reason)
+        let attested = try XCTUnwrap(result.attestedAt)
+        XCTAssertLessThan(attested, Date())
+        XCTAssertNotNil(result.keyId)
+        // Apple attests a build number for TestFlight and App Store builds
+        // only; an answer from an Xcode build carries none.
+    }
+
+    func testDiscoveryAcceptsOnlyV3OnionNames() {
+        let good = String(repeating: "a", count: 50) + "234567.onion"
+        XCTAssertTrue(GenuineNodes.validOnion(good))
+        XCTAssertFalse(GenuineNodes.validOnion(good.uppercased()))
+        XCTAssertFalse(GenuineNodes.validOnion(String(repeating: "a", count: 55) + ".onion"))
+        XCTAssertFalse(GenuineNodes.validOnion(String(repeating: "a", count: 50) + "234561.onion"))
+        XCTAssertFalse(GenuineNodes.validOnion(String(repeating: "a", count: 56) + ".onion/x"))
+        XCTAssertFalse(GenuineNodes.validOnion("http://" + good))
+    }
+
+    func testStatementCheckAcceptsAGenuineAnswerAndNothingElse() throws {
+        let app = "W2F7RNV886.app.zecky.lockit"
+        let (data, challenge) = try localStatement()
+        let genuine = StatementCheck.check(data, expectedAppID: app, challenge: challenge)
+        XCTAssertTrue(genuine.genuine, genuine.reason)
+
+        // Another challenge: not fresh for this asker.
+        XCTAssertFalse(StatementCheck.check(data, expectedAppID: app, challenge: String(repeating: "00", count: 32)).genuine)
+        // Another app.
+        XCTAssertFalse(StatementCheck.check(data, expectedAppID: "ABCDE12345.app.zecky.lockit", challenge: challenge).genuine)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        // A changed fingerprint, when the answer has one.
+        if let text = json["fingerprintJSON"] as? String {
+            json["fingerprintJSON"] = text + " "
+            let altered = try JSONSerialization.data(withJSONObject: json)
+            XCTAssertFalse(StatementCheck.check(altered, expectedAppID: app, challenge: challenge).genuine)
+            json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        // Client data the key did not sign.
+        var client = try XCTUnwrap(JSONSerialization.jsonObject(with: Data((json["clientDataJSON"] as? String ?? "").utf8)) as? [String: Any])
+        client["fingerprintSHA256"] = String(repeating: "0", count: 64)
+        json["fingerprintSHA256"] = client["fingerprintSHA256"]
+        json["clientDataJSON"] = String(decoding: try StateFingerprint.canonicalJSON(client), as: UTF8.self)
+        json.removeValue(forKey: "fingerprintJSON")
+        let swapped = try JSONSerialization.data(withJSONObject: json)
+        XCTAssertFalse(StatementCheck.check(swapped, expectedAppID: app, challenge: challenge).genuine)
+    }
+
+    func testStatementRequestsAreParsedStrictly() {
+        let c = String(repeating: "ab", count: 32)
+        func parse(_ query: String) -> StatementRequest? {
+            if case .success(let r) = StatementRequest.parse("GET /statement?\(query) HTTP/1.1") { return r }
+            return nil
+        }
+        XCTAssertEqual(parse("challenge=\(c)"), StatementRequest(challenge: c, height: nil))
+        XCTAssertEqual(parse("challenge=\(c)&height=3572944"), StatementRequest(challenge: c, height: 3_572_944))
+        XCTAssertEqual(parse("height=3572944&challenge=\(c)"), StatementRequest(challenge: c, height: 3_572_944))
+        XCTAssertNil(parse("height=3572944"))                         // no challenge
+        XCTAssertNil(parse("challenge="))                             // empty challenge
+        XCTAssertNil(parse("challenge=\(c.uppercased())"))
+        XCTAssertNil(parse("challenge=\(c)&height=0"))
+        XCTAssertNil(parse("challenge=\(c)&height=-5"))
+        XCTAssertNil(parse("challenge=\(c)&height=12a"))
+        XCTAssertNil(parse("challenge=\(c)&height=1&height=2"))      // repeated
+        XCTAssertNil(parse("challenge=\(c)&challenge=\(c)"))
+        XCTAssertNil(parse("challenge=\(c)&other=1"))                // unknown
+        if case .success = StatementRequest.parse("POST /statement?challenge=\(c) HTTP/1.1") { XCTFail("only GET") }
+    }
+
+    func testStatementRequestsAreLimitedPerMinute() {
+        var limit = RequestLimit()
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        for i in 0..<6 { XCTAssertTrue(limit.allow(at: start.addingTimeInterval(Double(i))).allowed) }
+        let seventh = limit.allow(at: start.addingTimeInterval(10))
+        XCTAssertFalse(seventh.allowed)
+        XCTAssertEqual(seventh.retryAfter, 50)                   // the first leaves at 60 s
+        XCTAssertFalse(limit.allow(at: start.addingTimeInterval(59.5)).allowed)
+        XCTAssertTrue(limit.allow(at: start.addingTimeInterval(60)).allowed)   // one left the window
+        XCTAssertFalse(limit.allow(at: start.addingTimeInterval(60.5)).allowed)
+        XCTAssertEqual(limit.recent.count, 6)                    // refusals are not counted
+    }
+
+    func testHeightsTheClockDoesNotAllowAreNotTrusted() {
+        // 14 Nov 2026, 13:10 UTC: the real tip was 3,572,285.
+        let now = Date(timeIntervalSince1970: 1_794_661_800)
+        let limit = GoMaxSupport.plausibleMax(at: now)
+        XCTAssertGreaterThan(limit, 3_572_285)
+        XCTAssertLessThan(limit, 3_590_000)
+        // A remembered guess about 26,000 blocks too high is dropped; a real one is kept.
+        XCTAssertEqual(GoMaxSupport.trustedRemembered(height: 3_598_400, seenAt: now, now: now), 0)
+        XCTAssertEqual(GoMaxSupport.trustedRemembered(height: 3_572_285, seenAt: now, now: now), 3_572_285)
+        // Dropped, it shows no early notice.
+        XCTAssertEqual(GoMaxSupport.state(reported: GoMaxSupport.trustedRemembered(height: 3_598_400, seenAt: now, now: now),
+                                          seenAt: now, now: now, stopHeight: 3_643_309), .fine)
+        // A caught-up node's estimate above the clock is capped; its verified blocks are not.
+        XCTAssertEqual(GoMaxSupport.networkHeight(nodeBlocks: 3_572_285, nodeEstimate: 3_640_000,
+                                                  verificationProgress: 1, walletNetwork: 3_572_285, now: now), limit)
+        XCTAssertEqual(GoMaxSupport.networkHeight(nodeBlocks: 3_643_400, nodeEstimate: 0,
+                                                  verificationProgress: 1, walletNetwork: 0, now: now), 3_643_400)
+    }
+}
+
+/// Andrew Miller's correction on issues #3 and #8: Lock it checks a
+/// signer-independent fingerprint of every helper before starting it, and
+/// of its two libraries before making a Genuine node answer.
+final class NestedCodeTests: XCTestCase {
+    private func helperData(_ name: String) throws -> (URL, Data) {
+        guard let url = GoMaxNode.helper(name) else { throw XCTSkip("this build has no \(name) inside") }
+        return (url, try Data(contentsOf: url))
+    }
+
+    private func refusal(_ result: Result<Void, NestedCode.Refusal>) -> NestedCode.Refusal? {
+        if case .failure(let refusal) = result { return refusal }
+        return nil
+    }
+
+    /// Where the signature starts (LC_CODE_SIGNATURE dataoff) in a thin file.
+    private func signatureStart(_ d: Data) -> Int? {
+        let b = [UInt8](d)
+        func le32(_ i: Int) -> Int { Int(b[i]) | Int(b[i + 1]) << 8 | Int(b[i + 2]) << 16 | Int(b[i + 3]) << 24 }
+        var offset = 32
+        for _ in 0..<le32(16) {
+            if le32(offset) == 0x1D { return le32(offset + 8) }
+            offset += le32(offset + 4)
+        }
+        return nil
+    }
+
+    func testEverythingInsideThisBuildMatchesItsFingerprint() throws {
+        var checked = 0
+        for name in ["zakurad", "zainod", "arti"] {
+            guard let url = GoMaxNode.helper(name) else { continue }
+            XCTAssertEqual(GoMaxNode.verifiedHelper(name).map { $0.lastPathComponent }, .success(name))
+            XCTAssertNoThrow(try NestedCode.check(name, at: url).get())
+            checked += 1
+        }
+        if checked == 0 { throw XCTSkip("this build has no helpers inside") }
+        XCTAssertNoThrow(try NestedCode.checkLibraries().get(),
+                         "Frameworks changed: run scripts/nested-code-pins.py on the built app")
+    }
+
+    func testAChangedHelperIsRefused() throws {
+        let (_, original) = try helperData("zakurad")
+        let start = try XCTUnwrap(signatureStart(original))
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("nested-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let copy = folder.appendingPathComponent("zakurad")
+
+        // The same program, signed by someone else: only the signature
+        // (after `start`) and its size fields differ. Still accepted.
+        var resigned = original
+        resigned.replaceSubrange(start..<resigned.count, with: Data(repeating: 0xAB, count: 1234))
+        try resigned.write(to: copy)
+        XCTAssertNoThrow(try NestedCode.check("zakurad", at: copy).get(), "a new signature alone must not matter")
+
+        // One byte of the program changed: refused, before it can start.
+        var changed = original
+        changed[start / 2] ^= 0x01
+        try changed.write(to: copy)
+        XCTAssertEqual(refusal(NestedCode.check("zakurad", at: copy)), .changed("zakurad"))
+
+        // Another helper in its place: refused.
+        if let zainod = GoMaxNode.helper("zainod") {
+            try FileManager.default.removeItem(at: copy)
+            try FileManager.default.copyItem(at: zainod, to: copy)
+            XCTAssertEqual(refusal(NestedCode.check("zakurad", at: copy)), .changed("zakurad"))
+        }
+
+        // Not a program at all, or a name Lock it has no fingerprint for.
+        try Data("#!/bin/sh\necho fake node\n".utf8).write(to: copy)
+        XCTAssertEqual(refusal(NestedCode.check("zakurad", at: copy)), .changed("zakurad"))
+        XCTAssertEqual(refusal(NestedCode.check("other", at: copy)), .changed("other"))
+    }
+}
+
+/// Issue #2 with Andrew Miller's correction: each answer shows the code
+/// identity of the running program, bound to the CDHash Apple attests.
+final class CodeIdentityTests: XCTestCase {
+    private func mine() throws -> (CodeIdentity.Parts, [String: Any], Data, String) {
+        let parts = try XCTUnwrap(CodeIdentity.current(), "Lock it's own program has no readable code signature")
+        let appID = try XCTUnwrap(CodeIdentity.applicationIdentifier(XCTUnwrap(CodeIdentity.entitlements(parts.entitlements))))
+        return (parts, CodeIdentity.json(parts), Data(SHA256.hash(data: parts.codeDirectory)), appID)
+    }
+
+    func testItsOwnCodeIdentityChecksOut() throws {
+        let (parts, fields, cdhash, appID) = try mine()
+        let directory = try XCTUnwrap(CodeIdentity.directory(parts.codeDirectory))
+        XCTAssertEqual(parts.page0.count, directory.pageSize)
+        XCTAssertTrue(appID.hasSuffix(".app.zecky.lockit"), "the app ID in its entitlements is Lock it's")
+        XCTAssertEqual(try CodeIdentity.check(fields, cdhash: cdhash, appID: appID).get(), parts)
+        XCTAssertTrue(CodeIdentity.sameCode(parts, parts))
+    }
+
+    func testAShownCodeThatIsNotTheAttestedOneIsRefused() throws {
+        let (parts, fields, cdhash, appID) = try mine()
+        func reason(_ f: [String: Any], _ hash: Data = cdhash, _ app: String? = nil) -> String? {
+            if case .failure(let p) = CodeIdentity.check(f, cdhash: hash, appID: app ?? appID) { return p.reason }
+            return nil
+        }
+        // Apple attests other code than the answer shows.
+        XCTAssertEqual(reason(fields, Data(repeating: 7, count: 32)), "the code it shows is not the code Apple attests (CDHash)")
+        // A changed first page.
+        var page = parts.page0; page[page.startIndex + 100] ^= 1
+        var f = fields; f["page0"] = page.base64EncodedString()
+        XCTAssertEqual(reason(f), "its first page is not the one its code hashes")
+        // Other entitlements than the signature holds.
+        var ent = parts.entitlements; ent[ent.count - 1] ^= 1
+        f = fields; f["entitlements"] = ent.base64EncodedString()
+        XCTAssertEqual(reason(f), "its entitlements are not the ones its code signature holds")
+        // Entitlements of another app.
+        XCTAssertEqual(reason(fields, cdhash, "ABCDE12345.other.app"), "its entitlements name another app")
+        // Another code limit is other code, whoever signed it.
+        var other = parts.codeDirectory; other[other.startIndex + 35] ^= 1
+        XCTAssertFalse(CodeIdentity.sameCode(CodeIdentity.Parts(codeDirectory: other, page0: parts.page0, entitlements: parts.entitlements), parts))
     }
 }

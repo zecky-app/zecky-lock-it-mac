@@ -6,11 +6,12 @@
 # change a pin without rebuilding the engine from its tag and comparing first.
 set -euo pipefail
 
-# Branch tor-submit: v4.0.0-zecky.5 plus one Swift-only commit, "Tor for
-# sending only" (the library and header are the zecky.5 ones, same
-# fingerprints). To become v4.0.0-zecky.6 once reviewed and tagged.
+# Branch tor-submit: v4.0.0-zecky.5 plus two Swift-only commits, "Tor for
+# sending only" (ef8b055) and "Genuine node: tree state from another server
+# over Tor" (f754a69, 16 Nov 2026). The library and header are the zecky.5
+# ones, same fingerprints. To become v4.0.0-zecky.6 once reviewed and tagged.
 ENGINE_TAG="v4.0.0-zecky.5 + tor-submit"
-ENGINE_COMMIT="ef8b055cfd90bfe3e22e111f3a0adff2525ef532"
+ENGINE_COMMIT="f754a69bfbb0879edcf4c483169deae35f2a65ce"
 SWIFTPM_ZIP_SHA256="35a3e6829555d4a3f5a5b0aafea5577318e8f81d8b27ec6a2de98ce76ba15a7c"
 MAC_LIB_SHA256="ec88e07329e28e5b691b389d79631e88b91aadf19f54b14416c353dfef3079fa"
 HEADER_SHA256="1d9cada2baa1c0f3c7f8035422e1feecd9f0bd696ce7b07ea686313d2844a2dc"

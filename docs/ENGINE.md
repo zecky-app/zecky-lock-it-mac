@@ -45,7 +45,10 @@ This branch builds against the engine's `tor-submit` branch: commit
 `ef8b055`, which is `v4.0.0-zecky.5` plus one Swift-only commit that adds
 `SDKSynchronizer.submitOverTor(enabled:)`. The Rust core, the library and
 the header are the zecky.5 ones, with the same fingerprints.
-`scripts/check-engine.sh` pins that commit here. Before building this
+Since 16 Nov 2026 a second Swift-only commit, `f754a69`, adds
+`SDKSynchronizer.treeStateOverTor(height:from:)`: the tree state at a
+height from a given server over a fresh Tor circuit, for Genuine node's
+cross-check (review issue #6). `scripts/check-engine.sh` pins `f754a69` here. Before building this
 branch: `git -C ~/Documents/ZeckyEngine/zecky-engine checkout tor-submit`;
 before building `main`: `... checkout main`. Once reviewed, the commit is
 to be tagged `v4.0.0-zecky.6` and pinned by tag.

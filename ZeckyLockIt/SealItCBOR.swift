@@ -41,6 +41,14 @@ indirect enum ZCBOR {
         return self
     }
 
+    func value(forText key: String) -> ZCBOR? {
+        guard case let .map(entries) = untagged else { return nil }
+        for entry in entries {
+            if case let .text(k) = entry.key, k == key { return entry.value }
+        }
+        return nil
+    }
+
     var bytesValue: Data? { if case let .bytes(d) = untagged { return d }; return nil }
     var textValue: String? { if case let .text(s) = untagged { return s }; return nil }
     var uintValue: UInt64? { if case let .uint(n) = untagged { return n }; return nil }
@@ -70,6 +78,15 @@ enum ZCBORReader {
         let item = try readItem(bytes, &index, depth: 0)
         guard index == bytes.count else { throw ZCBORError.trailingBytes }
         return item
+    }
+
+    /// The first item and how many bytes it took, for data that continues
+    /// after it (App Attest's authenticator data).
+    static func decodePrefix(_ data: Data) throws -> (item: ZCBOR, length: Int) {
+        let bytes = [UInt8](data)
+        var index = 0
+        let item = try readItem(bytes, &index, depth: 0)
+        return (item, index)
     }
 
     private static func readArgument(_ b: [UInt8], _ i: inout Int, _ info: UInt8) throws -> UInt64 {

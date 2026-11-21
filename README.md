@@ -21,6 +21,29 @@ Feedback is very welcome: use TestFlight's feedback, or email
 dev@zecky.app. To report a security problem, see [SECURITY.md](SECURITY.md)
 and please report it privately.
 
+## How to recognise genuine Zecky Lock it
+
+- **Only from these places:** the TestFlight invite you get through
+  https://zecky.app, and later the App Store under the developer name Zecky.
+  Not from other sites, links in replies or direct messages from strangers.
+- **Signed by team `W2F7RNV886`.** Every genuine build is signed with this
+  Apple team. On your Mac you can check an installed copy:
+
+  ```
+  codesign -dv "/Applications/Zecky Lock it.app" 2>&1 | grep TeamIdentifier
+  ```
+
+  It must say `TeamIdentifier=W2F7RNV886`.
+- **A Go Max node can prove it from the outside.** With Genuine node on, it
+  answers a fresh challenge with a statement signed through Apple's App
+  Attest, which anyone can check with [tools/verify-statement](tools/verify-statement)
+  and `--app-id W2F7RNV886.app.zecky.lockit`. A copy built by someone else
+  cannot pass as this app. An app can never vouch for itself on its own
+  screen; check it from another device or with the verifier.
+
+The code is open (Apache-2.0), so anyone may build it. Only builds signed by
+this team are Zecky Lock it.
+
 ## What is inside
 
 - **Wallet engine:** the Zcash developers' own core, librustzcash, through
