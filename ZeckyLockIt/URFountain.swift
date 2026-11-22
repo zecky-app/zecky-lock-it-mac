@@ -776,6 +776,13 @@ final class FountainEncoder {
             self.data = data
         }
 
+        /// Limits for what a scanned part may announce (audit, 22 Nov 2026):
+        /// a sequence of 0 parts traps in DegreeChooser (1...0), and a huge
+        /// sequence or message length would allocate without limit. A
+        /// Seal it transaction is a few kilobytes in a few dozen parts.
+        static let maxSeqLen = 1000
+        static let maxMessageLen = 10 * 1024 * 1024
+
         init(cbor: Data) throws {
             guard let decoded = try? ZCBORReader.decode(cbor),
                   let a = decoded.arrayValue, a.count == 5,
@@ -783,7 +790,8 @@ final class FountainEncoder {
                   let messageLen = a[2].uintValue, let checksum = a[3].uintValue,
                   let data = a[4].bytesValue,
                   seqNum <= UInt64(UInt32.max), checksum <= UInt64(UInt32.max),
-                  seqLen <= UInt64(Int.max), messageLen <= UInt64(Int.max)
+                  seqLen >= 1, seqLen <= UInt64(Self.maxSeqLen),
+                  messageLen >= 1, messageLen <= UInt64(Self.maxMessageLen)
             else { throw FountainEncoderError.invalidPartHeader }
             self.init(seqNum: UInt32(seqNum), seqLen: Int(seqLen), messageLen: Int(messageLen),
                       checksum: UInt32(checksum), data: data)

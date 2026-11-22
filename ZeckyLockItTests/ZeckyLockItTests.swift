@@ -1042,6 +1042,31 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(Item(id: Data([6]), kind: .received, amount: 1, date: nil, state: .confirmed).title, "Received")
     }
 
+    /// Audit 22 Nov 2026: a scanned part announcing 0 parts trapped in
+    /// DegreeChooser (1...0); a huge part count or message length allocated
+    /// without limit. Both are refused before any decoding work.
+    func testAScannedPartWithImpossibleLengthsIsRefused() throws {
+        typealias Part = FountainEncoder.Part
+        func cbor(seqLen: Int, messageLen: Int) -> Data {
+            Part(seqNum: 1, seqLen: seqLen, messageLen: messageLen, checksum: 1, data: Data([1, 2, 3])).cbor
+        }
+        XCTAssertNoThrow(try Part(cbor: cbor(seqLen: 3, messageLen: 9)))
+        XCTAssertThrowsError(try Part(cbor: cbor(seqLen: 0, messageLen: 9)))
+        XCTAssertThrowsError(try Part(cbor: cbor(seqLen: 1001, messageLen: 9)))
+        XCTAssertThrowsError(try Part(cbor: cbor(seqLen: 3, messageLen: 0)))
+        XCTAssertThrowsError(try Part(cbor: cbor(seqLen: 3, messageLen: 10 * 1024 * 1024 + 1)))
+        XCTAssertNoThrow(try Part(cbor: cbor(seqLen: 1000, messageLen: 10 * 1024 * 1024)))
+        // The same through the scanner: a frame claiming 0 or 1001 parts.
+        let decoder = SealItURDecoder(expectedType: "zcash-pczt")
+        for header in ["1-0", "1-1001"] {
+            let body = Bytewords.encode(cbor(seqLen: 3, messageLen: 9), style: .minimal)
+            XCTAssertThrowsError(try decoder.receive("ur:zcash-pczt/\(header)/\(body)"), header)
+        }
+        // And a frame whose header is fine but whose part claims 0 parts.
+        let zero = Bytewords.encode(cbor(seqLen: 0, messageLen: 9), style: .minimal)
+        XCTAssertThrowsError(try decoder.receive("ur:zcash-pczt/1-3/\(zero)"))
+    }
+
     /// Audit 22 Nov 2026: the time lock used only this Mac's clock. Now the
     /// wait must pass by the clock and by the blocks (25 s each) since it
     /// started, as the 48 hours of "lost my keys".

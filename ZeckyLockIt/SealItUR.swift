@@ -123,7 +123,8 @@ final class SealItURDecoder {
 
         case 3: // multi part: ur:type/seq-len/body
             let seq = components[1].split(separator: "-")
-            guard seq.count == 2, let seqNum = UInt32(seq[0]), let seqLen = Int(seq[1]) else {
+            guard seq.count == 2, let seqNum = UInt32(seq[0]), let seqLen = Int(seq[1]),
+                  (1...FountainEncoder.Part.maxSeqLen).contains(seqLen) else {
                 throw SealItURError.badSequence
             }
             let partCBOR = try Bytewords.decode(components[2], style: .minimal)
