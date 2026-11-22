@@ -1,4 +1,5 @@
 import CryptoKit
+import LocalAuthentication
 import XCTest
 import ZcashLightClientKit
 @testable import ZeckyLockIt
@@ -1040,6 +1041,41 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(Item.markTexSteps([e1, e2]).map(\.title), ["TEX payment", "TEX payment · forwarding fee"])
         XCTAssertEqual(Item.short(tex), "tex18qayysmd…yj4828")
         XCTAssertEqual(Item(id: Data([6]), kind: .received, amount: 1, date: nil, state: .confirmed).title, "Received")
+    }
+
+    /// Audit 22 Nov 2026: with Tor sending on, the price goes over Tor too,
+    /// and is never asked in the clear while Tor is not ready.
+    func testThePriceTakesTheSameRoadAsPayments() {
+        XCTAssertEqual(PriceFeed.road(torSending: true, torReady: true), .tor)
+        XCTAssertEqual(PriceFeed.road(torSending: true, torReady: false), .wait)
+        XCTAssertEqual(PriceFeed.road(torSending: false, torReady: true), .direct)
+    }
+
+    /// Audit 22 Nov 2026: a cancelled Touch ID or password prompt counted as
+    /// a wrong code. Only a real wrong code counts now.
+    func testACancelledPromptIsNotAWrongCode() {
+        XCTAssertTrue(WalletVault.isCancellation(NSError(domain: LAError.errorDomain, code: LAError.userCancel.rawValue)))
+        XCTAssertTrue(WalletVault.isCancellation(NSError(domain: LAError.errorDomain, code: LAError.systemCancel.rawValue)))
+        let wrapped = NSError(domain: "CryptoKit", code: 1,
+                              userInfo: [NSUnderlyingErrorKey: NSError(domain: LAError.errorDomain, code: LAError.appCancel.rawValue)])
+        XCTAssertTrue(WalletVault.isCancellation(wrapped), "the Secure Enclave key wraps LocalAuthentication's error")
+        XCTAssertTrue(WalletVault.isCancellation(KeyStore.Failure.keychain(errSecUserCanceled)))
+        // A wrong code or password still counts.
+        XCTAssertFalse(WalletVault.isCancellation(KeyStore.Failure.keychain(errSecAuthFailed)))
+        XCTAssertFalse(WalletVault.isCancellation(NSError(domain: LAError.errorDomain, code: LAError.authenticationFailed.rawValue)))
+    }
+
+    /// Audit 22 Nov 2026: detailed logs only from this launch's arguments,
+    /// not from a value saved in Lock it's preferences.
+    func testDetailedLogsComeOnlyFromTheLaunchArguments() {
+        XCTAssertTrue(GoMaxNode.detailedLogs(["Zecky Lock it", "-goMax.detailedLogs", "YES"]))
+        XCTAssertFalse(GoMaxNode.detailedLogs(["Zecky Lock it", "-goMax.detailedLogs", "NO"]))
+        XCTAssertFalse(GoMaxNode.detailedLogs(["Zecky Lock it", "-goMax.detailedLogs"]))
+        XCTAssertFalse(GoMaxNode.detailedLogs(["Zecky Lock it"]))
+        // A saved value no longer counts.
+        UserDefaults.standard.set(true, forKey: "goMax.detailedLogs")
+        defer { UserDefaults.standard.removeObject(forKey: "goMax.detailedLogs") }
+        XCTAssertFalse(GoMaxNode.detailedLogs(["Zecky Lock it"]))
     }
 
     /// Audit 22 Nov 2026: "\d" matched other scripts' digits, which Int64

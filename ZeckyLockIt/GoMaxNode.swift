@@ -98,6 +98,15 @@ final class GoMaxNode: ObservableObject {
 
     /// The two programs, next to Lock it's own in Contents/MacOS. A build
     /// without them (no GoMax/bin on the Mac that built it) has no Go Max.
+    /// Detailed Zaino logs, for one launch only: read from the launch
+    /// arguments, never from saved settings. UserDefaults would also read a
+    /// value written to Lock it's preferences file, which would keep the
+    /// detailed logs (with addresses) on for every launch (audit, 22 Nov 2026).
+    nonisolated static func detailedLogs(_ arguments: [String]) -> Bool {
+        guard let i = arguments.firstIndex(of: "-goMax.detailedLogs"), i + 1 < arguments.count else { return false }
+        return ["YES", "yes", "1", "true"].contains(arguments[i + 1])
+    }
+
     nonisolated static func helper(_ name: String) -> URL? {
         guard let url = Bundle.main.url(forAuxiliaryExecutable: name),
               FileManager.default.isExecutableFile(atPath: url.path) else { return nil }
@@ -554,7 +563,7 @@ final class GoMaxNode: ObservableObject {
         // addresses. For finding a fault, Lock it can be opened once with
         // detailed logs: open "Zecky Lock it.app" --args -goMax.detailedLogs YES
         // (not remembered; the log stays in Lock it's own folder).
-        let level = UserDefaults.standard.bool(forKey: "goMax.detailedLogs") ? "info" : "warn"
+        let level = Self.detailedLogs(ProcessInfo.processInfo.arguments) ? "info" : "warn"
         zaino = try launch("zainod", ["start", "--config", p.zainoConfig.path], log: p.zainoLog, pidFile: p.zainoPid,
                            environment: ["RUST_LOG": level, "ZAINOLOG_COLOR": "false"])
     }

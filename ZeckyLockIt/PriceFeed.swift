@@ -1,8 +1,9 @@
 import Foundation
 
 /// Optional value of the balance in USD, EUR or BTC. Off unless the owner
-/// turns it on. The price service (CoinGecko) sees this Mac's internet
-/// address and a price request, never anything about the wallet.
+/// turns it on. The price service (CoinGecko) sees a price request, never
+/// anything about the wallet; while Tor sending is on, it goes over the
+/// engine's Tor, so it does not see this Mac's internet address either.
 @MainActor
 final class PriceFeed: ObservableObject {
     enum Currency: String, CaseIterable, Identifiable {
@@ -43,6 +44,16 @@ final class PriceFeed: ObservableObject {
     /// No cookies, no cache, nothing kept between requests.
     private let session = URLSession(configuration: .ephemeral)
 
+    /// The engine's Tor, set once the wallet engine runs. While Tor sending
+    /// is on and this is not there yet, no price is asked (never in the clear).
+    static var overTor: ((URLRequest) async throws -> (Data, HTTPURLResponse))?
+
+    /// How the price is asked: over Tor, directly, or not at all for now.
+    enum Road: Equatable { case tor, direct, wait }
+    nonisolated static func road(torSending: Bool, torReady: Bool) -> Road {
+        torSending ? (torReady ? .tor : .wait) : .direct
+    }
+
     init() { restart() }
 
     func reset() { currency = .none }
@@ -62,7 +73,16 @@ final class PriceFeed: ObservableObject {
     private func fetch() async {
         var request = URLRequest(url: Self.url)
         request.timeoutInterval = 20
-        guard let (data, response) = try? await session.data(for: request),
+        let answer: (Data, URLResponse)?
+        switch Self.road(torSending: TorSending.isOn, torReady: Self.overTor != nil) {
+        case .wait: return
+        case .tor:
+            guard let overTor = Self.overTor else { return }
+            if let (data, response) = try? await overTor(request) { answer = (data, response) } else { answer = nil }
+        case .direct:
+            answer = try? await session.data(for: request)
+        }
+        guard let (data, response) = answer,
               (response as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Double]],
               let zcash = json["zcash"] else { return }

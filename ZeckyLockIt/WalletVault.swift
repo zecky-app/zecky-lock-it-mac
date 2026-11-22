@@ -285,9 +285,29 @@ enum WalletVault {
             if secret { resetTries() }
             return plain
         } catch {
+            // A cancelled Touch ID or password prompt is not a wrong code
+            // (audit, 22 Nov 2026): it does not count towards the waits.
+            if Self.isCancellation(error) { throw Failure.cancelled }
             if secret { throw Failure.wrongCode(wait: wrongTry()) }
             throw error
         }
+    }
+
+    /// The owner (or the system) cancelled the prompt: Touch ID's or the
+    /// password's Cancel, the app or system ending it. Looks through
+    /// wrapped errors too (the Secure Enclave key wraps LocalAuthentication's).
+    nonisolated static func isCancellation(_ error: Error) -> Bool {
+        if case KeyStore.Failure.keychain(let status) = error { return status == errSecUserCanceled }
+        if case Failure.cancelled = error { return true }
+        var current: NSError? = error as NSError
+        for _ in 0..<4 {
+            guard let e = current else { break }
+            if e.domain == LAError.errorDomain,
+               [LAError.userCancel, .appCancel, .systemCancel].map(\.rawValue).contains(e.code) { return true }
+            if e.domain == NSOSStatusErrorDomain, e.code == Int(errSecUserCanceled) { return true }
+            current = e.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
     }
 
     // MARK: The code

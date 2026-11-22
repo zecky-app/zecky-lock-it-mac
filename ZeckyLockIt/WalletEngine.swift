@@ -440,6 +440,13 @@ final class WalletEngine: ObservableObject {
                 let base = try WalletFiles.base("Wallet")
                 synchronizer = SDKSynchronizer(initializer: WalletFiles.initializer(base: base, alias: .custom("zecky-main")))
                 self.synchronizer = synchronizer
+                // The price, when shown, goes over the engine's Tor too while
+                // Tor sending is on (audit, 22 Nov 2026).
+                PriceFeed.overTor = { [weak synchronizer] request in
+                    guard let synchronizer else { throw URLError(.notConnectedToInternet) }
+                    let answer = try await synchronizer.httpRequestOverTor(for: request, retryLimit: 1)
+                    return (answer.data, answer.response)
+                }
                 // Before anything starts, so the engine's own retries of a
                 // waiting payment take the same road.
                 await synchronizer.submitOverTor(enabled: TorSending.isOn)
