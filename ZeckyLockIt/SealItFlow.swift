@@ -67,20 +67,24 @@ final class SealItFlow: ObservableObject {
         let account = export.accounts[0]
 
         // Don't import the same signer account twice.
-        for existing in await sealItAccounts()
-        where existing.seedFingerprint == export.seedFingerprint
-            && existing.hdAccountIndex?.index == account.index {
-            return existing.id
+        for existing in await sealItAccounts() {
+            if let fingerprint = export.seedFingerprint {
+                if existing.seedFingerprint == fingerprint && existing.hdAccountIndex?.index == account.index { return existing.id }
+            } else if existing.ufvk?.stringEncoded == account.ufvk {
+                return existing.id
+            }
         }
 
         return try await synchronizer.importAccount(
             ufvk: account.ufvk,
             seedFingerprint: export.seedFingerprint,
-            zip32AccountIndex: Zip32AccountIndex(account.index),
+            zip32AccountIndex: export.seedFingerprint == nil ? nil : Zip32AccountIndex(account.index),
             purpose: .spending,          // as Zashi does for Keystone: enables PCZT spending
-            name: account.name.flatMap { $0.isEmpty ? nil : $0 } ?? "Seal it",
+            name: account.name.flatMap { $0.isEmpty ? nil : $0 } ?? (export.fromCupcake ? "Cupcake" : "Seal it"),
             keySource: Self.keySource,
-            birthday: birthday
+            // Cupcake's QR has no birthday and its wallet may hold Zcash
+            // already: look from NU7 on (Cupcake added Zcash after it).
+            birthday: export.fromCupcake ? BlockHeight(NetworkUpgrade.nu7Height) : birthday
         )
     }
 
@@ -101,6 +105,9 @@ final class SealItFlow: ObservableObject {
 
     /// Starts sealing a payment priced on the Send screen (the same checks
     /// and receipt as the lock; Sapling-only addresses are refused there).
+    /// The payment being signed goes to Cupcake, which uses its own PCZT layout.
+    private var signerIsCupcake = false
+
     func startSend(from account: AccountUUID, proposal: Proposal) async {
         reset()
         do {
@@ -108,12 +115,23 @@ final class SealItFlow: ObservableObject {
             try NetworkUpgrade.checkReleases(networkHeight: (try? await synchronizer.latestHeight()) ?? 0)
             let pczt = try await synchronizer.createPCZTFromProposal(accountUUID: account, proposal: proposal)
 
+            // A wallet paired from Cupcake has no seed fingerprint.
+            let cupcake = (try? await synchronizer.listAccounts())?.first { $0.id == account }.map { $0.seedFingerprint == nil } ?? false
+            signerIsCupcake = cupcake
+            if cupcake {
+                // Cupcake signs and then makes the proofs itself (as Zkool
+                // does), so it gets the whole PCZT, witnesses included, in
+                // its shielded-assets layout (same content, empty asset fields).
+                step = .showUnsigned(.pczt(try CupcakePczt.toCupcake(pczt), forCupcake: true))
+                return
+            }
+
             // Proofs are made here on the Mac, on the full PCZT, while the phone signs.
             let sync = synchronizer
             provingTask = Task { try await sync.addProofsToPCZT(pczt: pczt) }
 
             let redacted = try await synchronizer.redactPCZTForSigner(pczt: pczt)
-            step = .showUnsigned(.pczt(redacted))
+            step = .showUnsigned(.pczt(redacted, forCupcake: false))
         } catch {
             fail(error)
         }
@@ -127,11 +145,20 @@ final class SealItFlow: ObservableObject {
     /// Called with the complete `ur:zcash-pczt` message scanned from the signer.
     func receivedSigned(message: Data) async {
         do {
-            let signed = try SealItPayload.parsePczt(message)
-            guard let provingTask else { throw FlowError.noPendingTransaction }
-
-            step = .preparing("Finishing the proofs…")
-            let proven = try await provingTask.value
+            let scanned = try SealItPayload.parsePczt(message)
+            let signed: Data
+            let proven: Data
+            if signerIsCupcake {
+                // Cupcake's reply carries its own proofs and signatures; the
+                // engine checks both before anything is sent.
+                signed = try CupcakePczt.fromCupcake(scanned)
+                proven = signed
+            } else {
+                signed = scanned
+                guard let provingTask else { throw FlowError.noPendingTransaction }
+                step = .preparing("Finishing the proofs…")
+                proven = try await provingTask.value
+            }
 
             try NetworkUpgrade.checkReleases(networkHeight: (try? await synchronizer.latestHeight()) ?? 0)
             step = .broadcasting
@@ -164,6 +191,7 @@ final class SealItFlow: ObservableObject {
     func reset() {
         provingTask?.cancel()
         provingTask = nil
+        signerIsCupcake = false
         step = .idle
     }
 
@@ -187,7 +215,7 @@ final class SealItFlow: ObservableObject {
         var errorDescription: String? {
             switch self {
             case .saplingRecipient:
-                return "Seal it can't sign to an old Sapling-only address. Use a u1… or t1… address."
+                return "A signing phone can't sign to an old Sapling-only address. Use a u1… or t1… address."
             case .noteToPublic:
                 return "A private note can only go to a shielded address. Remove the note, or use their u1… address."
             case .noPendingTransaction:

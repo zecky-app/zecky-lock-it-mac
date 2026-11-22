@@ -594,7 +594,7 @@ private struct KeyRing: View {
                 .help(showHidden ? "Put them out of sight again" : "Show the wallets kept out of sight")
             }
             Menu {
-                Button("Pair Seal it (offline phone)") {
+                Button("Pair a signing phone (Cupcake, Seal it)") {
                     model.sealItPairing = true
                     model.sealItSending = false
                     model.sheet = .signer
@@ -731,7 +731,7 @@ private struct KeyRing: View {
     private var removeMessage: String {
         guard let removing else { return "" }
         if SealItFlow.isSealIt(removing) {
-            return "Its keys and Zcash stay on your Seal it phone. You can pair it again at any time."
+            return "Its keys and Zcash stay on your signing phone. You can pair it again at any time."
         }
         return "Its words are deleted from this Mac. Only remove it if you have its 24 words written down, or it is empty."
     }

@@ -27,9 +27,9 @@ struct SignerSheet: View {
     }
 
     var body: some View {
-        SheetScaffold(title: pairingAtOpen ? "Seal it" : (sending ? "Send Zcash" : "Receive"),
+        SheetScaffold(title: pairingAtOpen ? "Signing phone" : (sending ? "Send Zcash" : "Receive"),
                       subtitle: pairingAtOpen ? "Pair the offline phone that holds the keys."
-                                : (sending ? "Written here, sealed on your offline phone, sent from here."
+                                : (sending ? "Written here, signed on your phone, sent from here."
                                            : "Zcash sent here is kept in this sealed wallet."),
                       width: 560, height: 760,
                       wallet: pairingAtOpen ? nil : model.selectedWallet.map { WalletTag(name: engine.walletName($0), sealed: true) },
@@ -158,7 +158,7 @@ private struct SealContent: View {
                         .overlay(Capsule().stroke(Theme.gold.opacity(0.5), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .help("Pair another Seal it wallet")
+                .help("Pair another signing phone")
             }
         }
     }
@@ -176,7 +176,7 @@ private struct SealContent: View {
 
     @ViewBuilder private var pair: some View {
         if pairing {
-            Text("On your offline phone, open Seal it and show the account QR code. Hold the phone up to this Mac's camera.")
+            Text("On your phone, open Cupcake (or Seal it) and show the QR code for connecting a wallet. Hold the phone up to this Mac's camera.")
                 .font(Theme.text(13)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             URScannerView(expectedType: SealItURType.accounts) { message in
@@ -189,15 +189,15 @@ private struct SealContent: View {
             mark()
             VStack(alignment: .leading, spacing: 10) {
                 step(1, "Write it", "Lock it writes the payment here, on this Mac.")
-                step(2, "Seal it", "Your offline phone holds the keys and seals the payment.")
+                step(2, "Seal it", "Your phone holds the keys and signs the payment, in Cupcake or Seal it.")
                 step(3, "Send it", "Lock it scans the sealed payment back and sends it.")
-                Text("Seal it is an early prototype. Use small amounts only.")
+                Text("Signing with a phone is new in Lock it. Use small amounts only.")
                     .font(Theme.text(12)).foregroundStyle(Theme.muted).padding(.top, 4)
             }
             .card()
             if let pairNote { Text(pairNote).font(Theme.text(12)).foregroundStyle(Theme.red) }
             Spacer()
-            PrimaryButton(title: "Pair Seal it") { pairNote = nil; pairing = true }
+            PrimaryButton(title: "Pair a signing phone") { pairNote = nil; pairing = true }
         }
     }
 
@@ -213,7 +213,7 @@ private struct SealContent: View {
     }
 
     private func importAccount(_ message: Data) async {
-        pairNote = "Adding the Seal it account…"
+        pairNote = "Adding the wallet…"
         do {
             let birthday = await flow.recentBirthday()
             let id = try await flow.importAccount(fromAccountsUR: message, birthday: birthday)
@@ -258,7 +258,7 @@ private struct SealContent: View {
 
         case .showUnsigned(let encoder):
             SealSteps(current: .seal)
-            Text("On your phone, open Seal it and scan this. Check the address and amount there, then seal it.")
+            Text("On your phone, open the wallet in Cupcake or Seal it and scan this. Check the address and amount there, then sign.")
                 .font(Theme.text(13)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             HStack { Spacer(); AnimatedURQRView(encoder: encoder).frame(width: 320, height: 320); Spacer() }
@@ -351,7 +351,7 @@ private struct SealContent: View {
                         Button(showQR ? "Hide QR" : "QR code") { withAnimation(.easeOut(duration: 0.15)) { showQR.toggle() } }
                             .buttonStyle(.plain).font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
                     }
-                    Text("Send Zcash here to fill Seal it.")
+                    Text("Send Zcash here to fill this wallet.")
                         .font(Theme.text(11)).foregroundStyle(Theme.muted)
                     if showQR, let qr = QRCode.image(for: address) {
                         Image(nsImage: qr).interpolation(.none).resizable()

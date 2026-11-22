@@ -333,13 +333,13 @@ struct EraseWalletSheet: View {
         let money = balance > 0 ? " It still holds Zcash: without its 24 words on paper, that Zcash cannot be recovered." : ""
         switch kind {
         case .sealed:
-            return "This Seal it wallet is removed from Lock it. Its keys and Zcash stay on your offline phone; you can pair it again at any time."
+            return "This wallet is removed from Lock it. Its keys and Zcash stay on your signing phone; you can pair it again at any time."
         case .macWallet:
             return "Its 24 words are deleted from this Mac. The other wallets stay as they are." + money
         case .handOver(let next):
             return "Its 24 words are deleted from this Mac, and the lock passes to \(WalletNames.display(next, lead: false)). Your code, keys, time lock and settings stay. The other wallets stay as they are." + money
         case .everything:
-            return "This is the last wallet with words on this Mac, so everything is erased: its words, every Seal it pairing, the address book and the settings. Lock it starts fresh." + money
+            return "This is the last wallet with words on this Mac, so everything is erased: its words, every paired signing phone, the address book and the settings. Lock it starts fresh." + money
         }
     }
 
