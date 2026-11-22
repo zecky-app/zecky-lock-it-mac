@@ -9,7 +9,29 @@ import SwiftUI
 ///
 /// Shortening or switching off the time lock waits as long as the current
 /// time lock, so nobody can talk the owner into "just turn it off".
+///
+/// Both waits count in hours *and* in blocks (25 seconds each since NU7),
+/// from the block height when they started, like the 48 hours of "lost my
+/// keys". Moving this Mac's clock forward alone opens nothing (audit, 22 Nov
+/// 2026). With no height known yet, nothing is ready.
 enum TimeLock {
+    /// The network's latest height, as the wallet last saw it.
+    static var latestHeight = 0
+
+    /// The wait has passed by the clock and by the blocks since `height`.
+    static func passed(_ wait: TimeInterval, since start: Date, height: Int?, now: Date, tip: Int) -> Bool {
+        guard now.timeIntervalSince(start) >= wait else { return false }
+        guard wait > 0 else { return true }
+        guard let height, height > 0, tip >= height else { return false }
+        return Double(BlockTime.seconds(from: height, to: tip)) >= wait
+    }
+
+    /// Seconds of the wait the blocks have not covered yet.
+    static func blocksLeft(_ wait: TimeInterval, height: Int?, tip: Int) -> TimeInterval {
+        guard let height, height > 0, tip >= height else { return wait }
+        return max(0, wait - Double(BlockTime.seconds(from: height, to: tip)))
+    }
+
     static let choices = [0, 24, 72, 168]
 
     /// Builds from Xcode run the time lock fast: an hour lasts 5 seconds,
@@ -32,6 +54,12 @@ enum TimeLock {
         var pendingHours: Int?
         var pendingFrom: Date?
         var readyAt: Date?
+        /// When and at which block opening was asked for.
+        var askedAt: Date?
+        var askedHeight: Int?
+        /// When and at which block a shorter time lock (or off) was chosen.
+        var pendingAskedAt: Date?
+        var pendingHeight: Int?
         /// Every time the glass was broken, newest first (the last 10).
         var broken: [Date]?
         /// The home screen still has to say the glass was broken.
@@ -42,12 +70,30 @@ enum TimeLock {
         get {
             guard let data = (try? KeyStore.read(service: service)) ?? nil,
                   var s = try? JSONDecoder().decode(State.self, from: data) else { return State() }
+            let before = s
+            let now = Date(), tip = latestHeight
+            // Started before the height was known (or before this build):
+            // the blocks count from the first height seen after it.
+            if let ready = s.readyAt, s.askedHeight == nil, tip > 0 {
+                s.askedHeight = tip
+                if s.askedAt == nil { s.askedAt = ready.addingTimeInterval(-TimeInterval(s.hours) * hour) }
+            }
+            if let from = s.pendingFrom, s.pendingHeight == nil, tip > 0 {
+                s.pendingHeight = tip
+                if s.pendingAskedAt == nil { s.pendingAskedAt = from.addingTimeInterval(-TimeInterval(s.hours) * hour) }
+            }
             // A shorter time lock takes over once its wait has passed.
-            if let from = s.pendingFrom, let hours = s.pendingHours, from <= Date() {
-                s.hours = hours; s.pendingHours = nil; s.pendingFrom = nil
+            if let from = s.pendingFrom, let hours = s.pendingHours, let asked = s.pendingAskedAt,
+               passed(from.timeIntervalSince(asked), since: asked, height: s.pendingHeight, now: now, tip: tip) {
+                s.hours = hours; s.pendingHours = nil; s.pendingFrom = nil; s.pendingAskedAt = nil; s.pendingHeight = nil
             }
             // A request that was never used lapses after its window.
-            if let ready = s.readyAt, Date() > ready.addingTimeInterval(window) { s.readyAt = nil }
+            if let ready = s.readyAt, now > ready.addingTimeInterval(window) {
+                s.readyAt = nil; s.askedAt = nil; s.askedHeight = nil
+            }
+            if (try? JSONEncoder().encode(s)) != (try? JSONEncoder().encode(before)) {
+                try? KeyStore.save(try JSONEncoder().encode(s), service: service)
+            }
             return s
         }
         set { try? KeyStore.save(try JSONEncoder().encode(newValue), service: service) }
@@ -63,20 +109,27 @@ enum TimeLock {
     static var phase: Phase {
         let s = state
         guard s.hours > 0 else { return .off }
-        guard let ready = s.readyAt else { return .notAsked }
-        if Date() < ready { return .waiting(until: ready) }
-        return .ready(until: ready.addingTimeInterval(window))
+        guard let ready = s.readyAt, let asked = s.askedAt else { return .notAsked }
+        let wait = ready.timeIntervalSince(asked), now = Date()
+        if passed(wait, since: asked, height: s.askedHeight, now: now, tip: latestHeight) {
+            return .ready(until: ready.addingTimeInterval(window))
+        }
+        // Not yet: by the clock, or the blocks still have to come.
+        return .waiting(until: max(ready, now.addingTimeInterval(blocksLeft(wait, height: s.askedHeight, tip: latestHeight))))
     }
 
     static func askToOpen() {
         var s = state
-        s.readyAt = Date().addingTimeInterval(TimeInterval(s.hours) * hour)
+        let now = Date()
+        s.askedAt = now
+        s.askedHeight = latestHeight > 0 ? latestHeight : nil
+        s.readyAt = now.addingTimeInterval(TimeInterval(s.hours) * hour)
         state = s
     }
 
     static func cancelRequest() {
         var s = state
-        s.readyAt = nil
+        s.readyAt = nil; s.askedAt = nil; s.askedHeight = nil
         state = s
     }
 
@@ -84,12 +137,15 @@ enum TimeLock {
     static func choose(_ hours: Int) {
         var s = state
         if LockRules.timeLock(from: s.hours, to: hours) == .nothing {
-            s.hours = hours; s.pendingHours = nil; s.pendingFrom = nil
+            s.hours = hours; s.pendingHours = nil; s.pendingFrom = nil; s.pendingAskedAt = nil; s.pendingHeight = nil
             LockLog.add(.timeLock, hours == 0 ? "Time lock off" : "Time lock on · \(label(hours).lowercased())")
         } else {
             s.pendingHours = hours
-            let from = Date().addingTimeInterval(TimeInterval(s.hours) * hour)
+            let now = Date()
+            let from = now.addingTimeInterval(TimeInterval(s.hours) * hour)
             s.pendingFrom = from
+            s.pendingAskedAt = now
+            s.pendingHeight = latestHeight > 0 ? latestHeight : nil
             LockLog.add(.timeLock, (hours == 0 ? "Time lock off" : "Time lock \(label(hours).lowercased())") + " from \(when(from))")
         }
         state = s
@@ -100,7 +156,7 @@ enum TimeLock {
 
     static func cancelChange() {
         var s = state
-        s.pendingHours = nil; s.pendingFrom = nil
+        s.pendingHours = nil; s.pendingFrom = nil; s.pendingAskedAt = nil; s.pendingHeight = nil
         state = s
         LockLog.add(.timeLock, "Kept the \(label(s.hours).lowercased()) time lock")
     }
@@ -122,10 +178,10 @@ enum TimeLock {
         let was = s.hours
         s.broken = Array(([Date()] + (s.broken ?? [])).prefix(10))
         s.brokenNotice = true
-        s.readyAt = nil
+        s.readyAt = nil; s.askedAt = nil; s.askedHeight = nil
         s.hours = 0
         s.pendingHours = nil
-        s.pendingFrom = nil
+        s.pendingFrom = nil; s.pendingAskedAt = nil; s.pendingHeight = nil
         state = s
         LockLog.add(.glassBroken, "Opened past a \(label(was).lowercased()) time lock · time lock off")
     }

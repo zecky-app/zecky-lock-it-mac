@@ -378,7 +378,10 @@ final class WalletEngine: ObservableObject {
     private var texReceivers: [Data: String] = [:]
 
     /// The network's latest block, from the engine's state.
-    @Published var networkHeight: Int = 0
+    @Published var networkHeight: Int = 0 {
+        // The time lock counts blocks too, not only this Mac's clock.
+        didSet { if networkHeight > 0 { TimeLock.latestHeight = networkHeight } }
+    }
 
     // How long until Zcash that is still confirming can be used, as on the
     // iPhone (src/lib/confirmations.ts): 10 confirmations for Zcash from

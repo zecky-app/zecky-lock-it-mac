@@ -1042,6 +1042,31 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(Item(id: Data([6]), kind: .received, amount: 1, date: nil, state: .confirmed).title, "Received")
     }
 
+    /// Audit 22 Nov 2026: the time lock used only this Mac's clock. Now the
+    /// wait must pass by the clock and by the blocks (25 s each) since it
+    /// started, as the 48 hours of "lost my keys".
+    func testMovingTheClockForwardAloneDoesNotOpenTheTimeLock() {
+        let wait: TimeInterval = 24 * 3600
+        let asked = Date(timeIntervalSince1970: 1_795_300_000)
+        let height = 3_600_000
+        let blocks24h = Int(wait) / 25   // 3,456 blocks
+        // Clock moved a day forward, the chain moved 10 blocks: not open.
+        XCTAssertFalse(TimeLock.passed(wait, since: asked, height: height,
+                                       now: asked.addingTimeInterval(wait + 60), tip: height + 10))
+        // The blocks are there but the clock is not: not open either.
+        XCTAssertFalse(TimeLock.passed(wait, since: asked, height: height,
+                                       now: asked.addingTimeInterval(3600), tip: height + blocks24h))
+        // Both: open.
+        XCTAssertTrue(TimeLock.passed(wait, since: asked, height: height,
+                                      now: asked.addingTimeInterval(wait), tip: height + blocks24h))
+        // Height not known: never open.
+        XCTAssertFalse(TimeLock.passed(wait, since: asked, height: nil, now: asked.addingTimeInterval(wait * 2), tip: height))
+        XCTAssertFalse(TimeLock.passed(wait, since: asked, height: height, now: asked.addingTimeInterval(wait * 2), tip: 0))
+        // How long the blocks still need: half of them is half of the wait.
+        XCTAssertEqual(TimeLock.blocksLeft(wait, height: height, tip: height + blocks24h / 2), wait / 2, accuracy: 25)
+        XCTAssertEqual(TimeLock.blocksLeft(wait, height: height, tip: height + blocks24h + 5), 0)
+    }
+
     /// Seen 21 Nov 2026: a TEX payment priced right after starting, with the
     /// wallet about 1,000 blocks behind, had expired before it was sent.
     func testNoPaymentIsBuiltBeforeTheWalletIsUpToDate() {
