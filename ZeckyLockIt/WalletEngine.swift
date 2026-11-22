@@ -790,8 +790,8 @@ final class WalletEngine: ObservableObject {
 
     // MARK: Outside the lock
 
-    /// Zcash on a public (transparent) address. Lock it never hands one out,
-    /// but a wallet restored from another app can have some.
+    /// Zcash on a public (transparent) address: from the Transparent tab on
+    /// Receive, or in a wallet restored from another app.
     @Published var outsideTheLock: Int64 = 0
 
     /// Locks public Zcash in: shields it into this wallet's private pool.

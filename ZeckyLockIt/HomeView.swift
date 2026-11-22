@@ -1292,7 +1292,7 @@ struct IronwoodSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(kind == .ironwood
                  ? "Since the Ironwood upgrade (28 July 2026) the Orchard pool only lets Zcash out; new Zcash goes to Ironwood. Part of yours is still in Orchard. Move it once to Ironwood, in this same wallet, and it stays as private as before. Your other Zcash is not touched."
-                 : "This Zcash arrived on a transparent address of this wallet, so its amount and sender are visible on the blockchain. Lock it in, and from then on it is shielded like the rest. Lock it never hands out a transparent address itself.")
+                 : "This Zcash arrived on a transparent address of this wallet, so its amount and sender are visible on the blockchain. Lock it in, and from then on it is shielded like the rest.")
                 .font(Theme.text(13)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(spacing: 8) {
