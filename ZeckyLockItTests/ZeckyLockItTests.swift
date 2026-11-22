@@ -1042,6 +1042,27 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(Item(id: Data([6]), kind: .received, amount: 1, date: nil, state: .confirmed).title, "Received")
     }
 
+    /// Audit 22 Nov 2026: "\d" matched other scripts' digits, which Int64
+    /// cannot read, and they were read as 0: "١.5" became 0.5 ZEC.
+    func testOnlyTheDigitsZeroToNineAreReadAsAnAmount() {
+        XCTAssertNil(AmountInput.zec("١.5"))
+        XCTAssertNil(AmountInput.zec("١"))
+        XCTAssertNil(AmountInput.zec("1.٥"))
+        XCTAssertNil(AmountInput.zec("١٢,٣٤٥"))
+        XCTAssertNil(AmountInput.fiat("١٢"))
+        XCTAssertEqual(AmountInput.zec("1.5"), 150_000_000)
+        XCTAssertEqual(AmountInput.zec("0,001"), 100_000)
+        XCTAssertEqual(AmountInput.zec(".5"), 50_000_000)
+    }
+
+    /// Audit 22 Nov 2026: with bitcoin as the currency, 8 decimals.
+    func testBitcoinAmountsTakeEightDecimals() {
+        XCTAssertNil(AmountInput.fiat("0.00051234"), "two decimals for money")
+        XCTAssertEqual(AmountInput.fiat("0.00051234", decimals: 8), 0.00051234)
+        XCTAssertNil(AmountInput.fiat("0.000512345", decimals: 8))
+        XCTAssertEqual(AmountInput.fiat("25,50"), 25.5)
+    }
+
     /// Audit 22 Nov 2026: a scanned part announcing 0 parts trapped in
     /// DegreeChooser (1...0); a huge part count or message length allocated
     /// without limit. Both are refused before any decoding work.

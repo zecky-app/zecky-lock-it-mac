@@ -512,7 +512,7 @@ struct SendComposer: View {
     /// like "1,500" in ZEC or money is asked about, never guessed.
     private func zatoshi(_ text: String) -> Int64? {
         if fiat {
-            guard let rate, rate > 0, let value = AmountInput.fiat(text) else { return nil }
+            guard let rate, rate > 0, let value = AmountInput.fiat(text, decimals: prices.currency == .btc ? 8 : 2) else { return nil }
             let z = (value / rate * 100_000_000).rounded()
             return z >= 1 ? Int64(z) : nil
         }
@@ -530,7 +530,7 @@ struct SendComposer: View {
                     problem = AmountInput.question(amountText, unit: fiat ? prices.currency.short : "ZEC")
                     return
                 }
-                problem = fiat ? "Enter an amount in \(prices.currency.short), like 25.00." : (unit == .zec ? "Enter the amount as a number, like 0.5 (at most 8 decimals)." : "Enter a whole number of zats.")
+                problem = fiat ? "Enter an amount in \(prices.currency.short), like \(prices.currency == .btc ? "0.0005" : "25.00")." : (unit == .zec ? "Enter the amount as a number, like 0.5 (at most 8 decimals)." : "Enter a whole number of zats.")
                 return
             }
             amount = parsed

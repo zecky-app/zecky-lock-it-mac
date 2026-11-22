@@ -74,7 +74,7 @@ enum AmountInput {
     /// question rather than guessed. "0,001", "1,5" or "12,34" can only mean
     /// one thing and are read as decimals.
     static func ambiguous(_ text: String) -> Bool {
-        text.trimmingCharacters(in: .whitespaces).range(of: #"^[1-9]\d{0,2},\d{3}$"#, options: .regularExpression) != nil
+        text.trimmingCharacters(in: .whitespaces).range(of: #"^[1-9][0-9]{0,2},[0-9]{3}$"#, options: .regularExpression) != nil
     }
 
     /// The question to ask for an ambiguous amount, in `unit`.
@@ -87,18 +87,20 @@ enum AmountInput {
         return "Is that \(whole).\(short) \(unit) or \(whole)\(part) \(unit)? Type \(whole).\(part) or \(whole)\(part)."
     }
 
-    /// ZEC typed as "1.5" or "1,5", at most 8 decimals, above zero.
+    /// ZEC typed as "1.5" or "1,5", at most 8 decimals, above zero. Only
+    /// the digits 0-9: "\d" also matches other scripts' digits ("١"), which
+    /// Int64 cannot read, and those were read as 0 (audit, 22 Nov 2026).
     static func zec(_ text: String) -> Int64? {
         let t = text.trimmingCharacters(in: .whitespaces)
         guard !ambiguous(t),
-              let m = t.range(of: #"^\d*([.,]\d{0,8})?$"#, options: .regularExpression), m == t.startIndex..<t.endIndex
+              let m = t.range(of: #"^[0-9]*([.,][0-9]{0,8})?$"#, options: .regularExpression), m == t.startIndex..<t.endIndex
         else { return nil }
         let pieces = t.split(separator: t.contains(",") ? "," : ".", omittingEmptySubsequences: false)
         let whole = pieces.first.map(String.init) ?? ""
         let fraction = pieces.count > 1 ? String(pieces[1]) : ""
         guard !(whole.isEmpty && fraction.isEmpty), whole.count <= 10 else { return nil }
-        let w = Int64(whole.isEmpty ? "0" : whole) ?? 0
-        let f = Int64(fraction.padding(toLength: 8, withPad: "0", startingAt: 0)) ?? 0
+        guard let w = Int64(whole.isEmpty ? "0" : whole),
+              let f = Int64(fraction.padding(toLength: 8, withPad: "0", startingAt: 0)) else { return nil }
         let z = w * 100_000_000 + f
         return z > 0 ? z : nil
     }
@@ -112,11 +114,12 @@ enum AmountInput {
         return v
     }
 
-    /// Money typed as "25", "25.50" or "25,50" (at most 2 decimals).
-    static func fiat(_ text: String) -> Double? {
+    /// Money typed as "25", "25.50" or "25,50": at most 2 decimals, or 8
+    /// for bitcoin ("0.00051234").
+    static func fiat(_ text: String, decimals: Int = 2) -> Double? {
         let t = text.trimmingCharacters(in: .whitespaces)
         guard !ambiguous(t),
-              let m = t.range(of: #"^\d+([.,]\d{0,2})?$"#, options: .regularExpression), m == t.startIndex..<t.endIndex,
+              let m = t.range(of: "^[0-9]+([.,][0-9]{0,\(decimals)})?$", options: .regularExpression), m == t.startIndex..<t.endIndex,
               let v = Double(t.replacingOccurrences(of: ",", with: ".")), v > 0
         else { return nil }
         return v
