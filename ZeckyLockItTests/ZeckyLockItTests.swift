@@ -1004,7 +1004,56 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(try WalletEngine.outcome(of: [.timedOut], overTor: false), .saved)
         XCTAssertEqual(try WalletEngine.outcome(of: [.accepted(by: server), .notAttempted], overTor: true), .saved)
         // A refusal is an error, nothing was sent.
-        XCTAssertThrowsError(try WalletEngine.outcome(of: [.rejected(code: -25, message: "no")], overTor: true))
+        XCTAssertThrowsError(try WalletEngine.outcome(of: [.rejected(code: -25, message: "no")], overTor: true)) {
+            XCTAssertTrue(String(describing: $0).contains("Nothing was sent"))
+        }
+        // A TEX payment is two transactions. Step 1 accepted, step 2 refused:
+        // part of it went out, so never "nothing was sent" (21 Nov 2026).
+        XCTAssertThrowsError(try WalletEngine.outcome(of: [.accepted(by: server), .rejected(code: -25, message: "expired")],
+                                                       overTor: false)) {
+            let text = String(describing: $0)
+            XCTAssertTrue(text.hasPrefix("Only part of this payment went through"), text)
+            XCTAssertFalse(text.contains("Nothing was sent"))
+        }
+    }
+
+    /// Seen 21 Nov 2026: step 2 of a TEX payment showed as "Sent −0.000 ZEC".
+    /// The engine puts the tex1 receiver on step 1 (seen on the real pair).
+    func testActivityNamesBothStepsOfATexPayment() {
+        typealias Item = WalletEngine.ActivityItem
+        let tex = "tex18qayysmdg7qqk4qta0vh0xss8ngx3qytyj4828"
+        let at = Date(timeIntervalSince1970: 1_795_211_580)
+        let step1 = Item(id: Data([1]), kind: .sent, amount: 110_000, date: at, state: .confirmed,
+                         minedHeight: 3_597_827, fee: 10_000, texReceiver: tex)
+        let step2 = Item(id: Data([2]), kind: .sent, amount: 15_000, date: at, state: .confirmed,
+                         minedHeight: 3_597_827, fee: 15_000)
+        let plain = Item(id: Data([3]), kind: .sent, amount: 15_000, date: at.addingTimeInterval(-86_400), state: .confirmed,
+                         minedHeight: 3_590_000, fee: 15_000)
+        let marked = Item.markTexSteps([step1, step2, plain])
+        XCTAssertEqual(marked[0].title, "TEX payment")
+        XCTAssertEqual(marked[1].title, "TEX payment · forwarding fee")
+        XCTAssertEqual(marked[1].texReceiver, tex)
+        XCTAssertEqual(marked[2].title, "Sent", "a fee-only payment in another block is not a TEX step")
+        // The expired pair of a refused attempt: no block, same moment.
+        let e1 = Item(id: Data([4]), kind: .sent, amount: 110_000, date: nil, state: .expired, fee: 10_000, texReceiver: tex)
+        let e2 = Item(id: Data([5]), kind: .sent, amount: 15_000, date: nil, state: .expired, fee: 15_000)
+        XCTAssertEqual(Item.markTexSteps([e1, e2]).map(\.title), ["TEX payment", "TEX payment · forwarding fee"])
+        XCTAssertEqual(Item.short(tex), "tex18qayysmd…yj4828")
+        XCTAssertEqual(Item(id: Data([6]), kind: .received, amount: 1, date: nil, state: .confirmed).title, "Received")
+    }
+
+    /// Seen 21 Nov 2026: a TEX payment priced right after starting, with the
+    /// wallet about 1,000 blocks behind, had expired before it was sent.
+    func testNoPaymentIsBuiltBeforeTheWalletIsUpToDate() {
+        XCTAssertNil(WalletEngine.caughtUpProblem(network: 3_597_825, wallet: 3_597_825))
+        XCTAssertNil(WalletEngine.caughtUpProblem(network: 3_597_825, wallet: 3_597_822), "a few blocks behind counts as up to date")
+        let behind = WalletEngine.caughtUpProblem(network: 3_597_825, wallet: 3_596_744)
+        XCTAssertNotNil(behind)
+        XCTAssertEqual(behind.map { String(describing: $0) },
+                       "Lock it is still catching up (block 3,596,744 of 3,597,825). You can send once it says Up to date. Nothing was sent.")
+        // Not known yet (just started): not up to date either.
+        XCTAssertNotNil(WalletEngine.caughtUpProblem(network: 0, wallet: 0))
+        XCTAssertNotNil(WalletEngine.caughtUpProblem(network: 3_597_825, wallet: 0))
     }
 
     func testTorNeverGetsThePrivateNode() {

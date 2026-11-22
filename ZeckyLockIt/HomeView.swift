@@ -1015,9 +1015,14 @@ struct PaymentDetail: View {
             .buttonStyle(.plain)
 
             VStack(spacing: 0) {
-                line(received ? "Received" : (item.undelivered ? "Payment" : "Sent"),
-                     hidden ? amount(paid) : (received ? "+" : "−") + amount(paid),
+                line(item.title,
+                     item.texStep == 2 ? "Fee only" : (hidden ? amount(paid) : (received ? "+" : "−") + amount(paid)),
                      tint: received ? Theme.green : Theme.text, first: true, strong: true)
+                if let tex = item.texReceiver {
+                    // Step 1 takes the Zcash to a temporary address of this
+                    // wallet; step 2 forwards it to the TEX address.
+                    line(item.texStep == 2 ? "Forwarded to" : "To", WalletEngine.ActivityItem.short(tex))
+                }
                 if let fee = item.fee {
                     line("Network fee", amount(fee))
                     line("Out of the lock in total", amount(item.amount))
@@ -1189,7 +1194,7 @@ struct ActivityList: View {
             }
             .frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 2) {
-                Text(locked ? "Received" : (item.undelivered ? "Payment" : "Sent")).font(Theme.text(14, weight: .medium))
+                Text(item.title).font(Theme.text(14, weight: .medium))
                 Text(subtitle(item)).font(Theme.text(12)).foregroundStyle(item.state == .waiting ? Theme.gold : Theme.muted)
             }
             Spacer()

@@ -327,7 +327,55 @@ final class WalletEngine: ObservableObject {
         var fee: Int64? = nil
         /// The transaction ID as block explorers write it.
         var txid: String { id.toHexStringTxId() }
+        /// A payment to a TEX address (ZIP 320) is two transactions: step 1
+        /// takes the Zcash from the private pool to a temporary transparent
+        /// address of this wallet (the engine records the tex1 receiver on
+        /// it), step 2 forwards it from there, so only its fee leaves the
+        /// wallet. Both carry the tex1 receiver here.
+        var texReceiver: String? = nil
+        var texStep: Int? = nil
+
+        var title: String {
+            if kind == .received { return "Received" }
+            if undelivered { return "Payment" }
+            switch texStep {
+            case 1: return "TEX payment"
+            case 2: return "TEX payment · forwarding fee"
+            default: return "Sent"
+            }
+        }
+
+        /// Marks both steps of each TEX payment. Step 2 is a sent
+        /// transaction that is only a fee, made within five minutes of a
+        /// step 1 (same block when mined).
+        static func markTexSteps(_ items: [ActivityItem]) -> [ActivityItem] {
+            var out = items
+            let steps1 = out.indices.filter { out[$0].kind == .sent && out[$0].texReceiver != nil }
+            for i in steps1 { out[i].texStep = 1 }
+            for i in out.indices where out[i].kind == .sent && out[i].texReceiver == nil {
+                guard let fee = out[i].fee, fee > 0, out[i].amount == fee else { continue }
+                let match = steps1.first { j in
+                    if let a = out[i].minedHeight, let b = out[j].minedHeight { return a == b }
+                    guard let a = out[i].date, let b = out[j].date else { return out[i].state == out[j].state }
+                    return abs(a.timeIntervalSince(b)) <= 300
+                }
+                if let j = match {
+                    out[i].texStep = 2
+                    out[i].texReceiver = out[j].texReceiver
+                }
+            }
+            return out
+        }
+
+        /// "tex1abcdefgh…wxyz12"
+        static func short(_ address: String) -> String {
+            address.count > 22 ? "\(address.prefix(12))…\(address.suffix(6))" : address
+        }
     }
+
+    /// Receivers already looked up, per transaction (a mined one never changes).
+    private var recipientsChecked: Set<Data> = []
+    private var texReceivers: [Data: String] = [:]
 
     /// The network's latest block, from the engine's state.
     @Published var networkHeight: Int = 0
@@ -660,6 +708,7 @@ final class WalletEngine: ObservableObject {
 
     enum SendError: Error, CustomStringConvertible {
         case badAddress, tooLittle, belowFee, notEnough, noteToPublic, refused(String), lockClosed, busy
+        case notCaughtUp(wallet: Int, network: Int), partlyRefused(String)
         var description: String {
             switch self {
             case .badAddress: return "That is not a valid Zcash address."
@@ -670,6 +719,13 @@ final class WalletEngine: ObservableObject {
             case .refused(let why): return "The server refused the payment. Nothing was sent. (\(why))"
             case .lockClosed: return "The lock closed before the payment was signed. Nothing was sent. Open the lock and try again."
             case .busy: return "Another payment is being sent right now. Wait until it is done."
+            case .notCaughtUp(let wallet, let network):
+                guard wallet > 0, network > 0 else {
+                    return "Lock it is still catching up with the Zcash network. You can send once it says Up to date."
+                }
+                return "Lock it is still catching up (block \(wallet.formatted(.number.locale(Locale(identifier: "en_US")))) of \(network.formatted(.number.locale(Locale(identifier: "en_US"))))). You can send once it says Up to date. Nothing was sent."
+            case .partlyRefused(let why):
+                return "Only part of this payment went through: the first step was sent, the next was refused (\(why)). Your Zcash is not lost: it is on a temporary address of this wallet. Check Activity before sending again."
             }
         }
     }
@@ -692,9 +748,24 @@ final class WalletEngine: ObservableObject {
     /// One move of everything in Orchard to this wallet's own Ironwood
     /// receiver: the engine's own migration, with the fee taken so no change
     /// goes back to Orchard. Sapling and Ironwood funds are not touched.
+    /// A payment is built for the chain as the wallet sees it: its expiry is
+    /// about 40 blocks after the wallet's height. Built while the wallet is
+    /// still catching up, it has expired before it is sent (seen 21 Nov
+    /// 2026: a TEX payment right after starting, about 1,000 blocks behind,
+    /// refused by the node). So nothing is priced or signed until the wallet
+    /// is up to date, by the same rule as the status line.
+    nonisolated static func caughtUpProblem(network: Int, wallet: Int) -> SendError? {
+        SyncMath.nearlyCurrent(network: network, wallet: wallet) ? nil : .notCaughtUp(wallet: wallet, network: network)
+    }
+
+    private func requireCaughtUp() throws {
+        if let problem = Self.caughtUpProblem(network: networkHeight, wallet: walletHeight) { throw problem }
+    }
+
     func planIronwoodMove() async throws -> SendPlan {
         guard let synchronizer, let account else { throw EngineError.notReady }
         try NetworkUpgrade.checkReleases(networkHeight: networkHeight)
+        try requireCaughtUp()
         let proposal = try await synchronizer.proposeOrchardToIronwoodMigration(accountUUID: account)
         let fee = proposal.totalFeeRequired().amount
         return SendPlan(proposal: proposal, to: "Ironwood", amount: max(0, orchardHeld - fee), fee: fee, toSelf: true, staysInWallet: true)
@@ -710,6 +781,7 @@ final class WalletEngine: ObservableObject {
     func planLockIn() async throws -> SendPlan {
         guard let synchronizer, let account else { throw EngineError.notReady }
         try NetworkUpgrade.checkReleases(networkHeight: networkHeight)
+        try requireCaughtUp()
         guard let proposal = try await synchronizer.proposeShielding(
             accountUUID: account, shieldingThreshold: Zatoshi(10_000), memo: .empty, transparentReceiver: nil)
         else { throw SendError.tooLittle }
@@ -722,6 +794,7 @@ final class WalletEngine: ObservableObject {
               from: AccountUUID? = nil) async throws -> SendPlan {
         guard let synchronizer, let account = from ?? current else { throw EngineError.notReady }
         try NetworkUpgrade.checkReleases(networkHeight: networkHeight)
+        try requireCaughtUp()
         let spendable = self.spendable(of: account)
         let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let recipient = try? Recipient(trimmed, network: .mainnet) else { throw SendError.badAddress }
@@ -836,6 +909,7 @@ final class WalletEngine: ObservableObject {
         // Checked again right before signing: the upgrade may have come
         // closer while the payment was being reviewed.
         try NetworkUpgrade.checkReleases(networkHeight: networkHeight)
+        try requireCaughtUp()
         let key = try DerivationTool(networkType: .mainnet)
             .deriveUnifiedSpendingKey(seed: seed, accountIndex: Zip32AccountIndex(0))
         // Made first, handed over second: where it goes is Lock it's choice,
@@ -897,10 +971,20 @@ final class WalletEngine: ObservableObject {
     /// What the owner is told, from what the servers answered.
     nonisolated static func outcome(of outcomes: [TransactionSubmissionOutcome], overTor: Bool) throws -> SendOutcome {
         var result: SendOutcome = .sent
+        // One outcome per transaction. A payment can be two (TEX: shielded
+        // to a temporary address, then to the receiver): when one went
+        // through and another was refused, "nothing was sent" is not true.
+        if let refusal = outcomes.lazy.compactMap({ outcome -> String? in
+            if case .rejected(let code, let message) = outcome { return "\(code): \(message)" }
+            return nil
+        }).first {
+            let accepted = outcomes.contains { if case .accepted = $0 { return true }; return false }
+            throw accepted ? SendError.partlyRefused(refusal) : SendError.refused(refusal)
+        }
         for outcome in outcomes {
             switch outcome {
             case .accepted: break
-            case .rejected(let code, let message): throw SendError.refused("\(code): \(message)")
+            case .rejected: break
             // Over Tor, no answer in time counts as not connected: a blocked
             // network makes Tor hang, not fail. (It may still have gone out;
             // sending the same payment again another way is harmless.)
@@ -997,6 +1081,17 @@ final class WalletEngine: ObservableObject {
     func refreshActivity() async {
         guard let synchronizer, let txs = try? await synchronizer.allTransactions() else { return }
         noteArrivals(txs)
+        // A payment to a TEX address is two transactions; the second one
+        // sends to the tex1 address (seen 21 Nov 2026 as "Sent −0.000 ZEC").
+        for tx in txs where tx.isSentTransaction && tx.accountUUID == current && !recipientsChecked.contains(tx.rawID) {
+            let recipients = await synchronizer.getRecipients(for: tx)
+            let tex = recipients.lazy.compactMap { recipient -> String? in
+                if case .address(let address) = recipient, case .tex = address { return address.stringEncoded }
+                return nil
+            }.first
+            if let tex { texReceivers[tx.rawID] = tex }
+            if tx.minedHeight != nil { recipientsChecked.insert(tx.rawID) }
+        }
         activity = txs.filter { $0.accountUUID == current }.map { tx in
             let kind: ActivityItem.Kind = tx.isSentTransaction ? .sent : .received
             let state: ActivityItem.State
@@ -1007,9 +1102,11 @@ final class WalletEngine: ObservableObject {
                                 date: tx.blockTime.map { Date(timeIntervalSince1970: $0) }, state: state,
                                 minedHeight: tx.minedHeight.map { Int($0) },
                                 undelivered: state == .waiting && Undelivered.ids.contains(tx.rawID),
-                                fee: kind == .sent ? tx.fee.map { Int64($0.amount) } : nil)
+                                fee: kind == .sent ? tx.fee.map { Int64($0.amount) } : nil,
+                                texReceiver: texReceivers[tx.rawID])
         }
         .sorted { ($0.date ?? .distantFuture) > ($1.date ?? .distantFuture) }
+        activity = ActivityItem.markTexSteps(activity)
         // A payment that was never taken by a server and has now expired:
         // said once on the home screen. One that is mined is simply done.
         for tx in txs where Undelivered.ids.contains(tx.rawID) {
