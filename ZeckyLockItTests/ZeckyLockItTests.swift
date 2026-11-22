@@ -1043,6 +1043,17 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertEqual(Item(id: Data([6]), kind: .received, amount: 1, date: nil, state: .confirmed).title, "Received")
     }
 
+    /// Zcash on the transparent address: asked once per new amount, only when
+    /// up to date and nothing else is open; after locking in, news again.
+    func testTheLockInNoticeAsksOncePerArrival() {
+        XCTAssertTrue(OutsideNotice.shouldAsk(amount: 5_000_000, upToDate: true, busy: false, lastAsked: 0))
+        XCTAssertFalse(OutsideNotice.shouldAsk(amount: 5_000_000, upToDate: true, busy: false, lastAsked: 5_000_000), "asked already")
+        XCTAssertTrue(OutsideNotice.shouldAsk(amount: 7_000_000, upToDate: true, busy: false, lastAsked: 5_000_000), "more arrived")
+        XCTAssertFalse(OutsideNotice.shouldAsk(amount: 5_000_000, upToDate: false, busy: false, lastAsked: 0), "still syncing")
+        XCTAssertFalse(OutsideNotice.shouldAsk(amount: 5_000_000, upToDate: true, busy: true, lastAsked: 0), "a sheet is open")
+        XCTAssertFalse(OutsideNotice.shouldAsk(amount: 0, upToDate: true, busy: false, lastAsked: 0))
+    }
+
     /// Cupcake's reader (22 Nov 2026) failed with "Unable to handle '' UR
     /// tag": it needs "ur:type/1-1/…" even for one frame, in lower case.
     func testCupcakeGetsSequencedLowerCaseFrames() throws {

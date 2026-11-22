@@ -23,16 +23,28 @@ struct ReceiveView: View {
     @State private var requestFiat = false
     @State private var usage: [String: Int] = [:]
     @State private var copiedOther: String?
+    /// The Transparent tab, as on Lock it iPhone: the wallet's transparent
+    /// address, for senders that cannot pay a shielded one (some exchanges).
+    @State private var transparent = false
+    @State private var transparentAddress: String?
 
     var body: some View {
-        SheetScaffold(title: mode == .all ? "All addresses" : "Receive",
-                      subtitle: mode == .all ? "Every shielded address this wallet has handed out." : "Your shielded address: amount and sender stay hidden. Zcash sent here locks in by itself.",
+        SheetScaffold(title: mode == .all ? "All addresses" : (transparent ? "Transparent address" : "Receive"),
+                      subtitle: mode == .all ? "Every shielded address this wallet has handed out."
+                        : (transparent ? "Visible to everyone, like Bitcoin. Only for senders that cannot pay a shielded address."
+                           : "Your shielded address: amount and sender stay hidden. Zcash sent here locks in by itself."),
                       height: 600,
                       wallet: wallet.map(engine.tag) ?? engine.currentTag,
                       onClose: onClose) {
             if let address {
                 switch mode {
-                case .address, .request: main(address)
+                case .address, .request:
+                    tabs
+                    if transparent {
+                        if let transparentAddress { publicMain(transparentAddress) } else { HStack { Spacer(); ProgressView(); Spacer() }.padding(.top, 60); Spacer() }
+                    } else {
+                        main(address)
+                    }
                 case .all: allAddresses
                 }
             } else if let problem {
@@ -139,6 +151,61 @@ struct ReceiveView: View {
     private func requestURI(_ address: String) -> String? {
         guard mode == .request, let zec = requestZEC else { return nil }
         return "zcash:\(address)?amount=\(zec)"
+    }
+
+    // MARK: Transparent (as on Lock it iPhone)
+
+    private var tabs: some View {
+        HStack(spacing: 8) {
+            Chip(title: "Shielded", on: !transparent) { transparent = false; copied = false }
+            Chip(title: "Transparent", on: transparent) {
+                transparent = true; copied = false; mode = .address
+                guard transparentAddress == nil, let wallet else { return }
+                Task {
+                    do { transparentAddress = try await engine.transparentAddress(of: wallet) }
+                    catch { problem = "No transparent address could be shown. \(error)"; transparent = false }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Made hard to mistake for the shielded one: a red frame, "PUBLIC" on
+    /// the code, and what it means right under the address.
+    private func publicMain(_ address: String) -> some View {
+        VStack(spacing: 14) {
+            ZStack(alignment: .top) {
+                qrCard(address)
+                    .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(Theme.red, lineWidth: 3))
+                Text("PUBLIC").font(Theme.text(11, weight: .bold)).tracking(2)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10).padding(.vertical, 3)
+                    .background(Theme.red, in: Capsule())
+                    .offset(y: -10)
+            }
+            .accessibilityLabel("QR code of your transparent address, which is public")
+            Button { copy(address) } label: {
+                VStack(spacing: 4) {
+                    Text(shortGrouped(address))
+                        .font(.system(size: 13, design: .monospaced)).foregroundStyle(Theme.text)
+                    Text(copied ? "Copied ✓" : "Click to copy")
+                        .font(Theme.text(11, weight: .medium)).foregroundStyle(copied ? Theme.green : Theme.gold)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(address)
+            Label("Anyone can see what arrives here and where it came from. Lock it asks you to lock it in as soon as it arrives; after that it is private again. Prefer your shielded address whenever the sender can pay it.",
+                  systemImage: "exclamationmark.triangle.fill")
+                .font(Theme.text(12)).foregroundStyle(Theme.text)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(12)
+                .background(Theme.red.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
+            link("Back to your shielded address") { transparent = false; copied = false }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: All addresses

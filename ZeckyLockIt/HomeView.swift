@@ -11,6 +11,8 @@ struct HomeView: View {
     @ObservedObject private var goMax = GoMaxNode.shared
 
     @State private var tilt: CGSize = .zero
+    /// New Zcash on the transparent address: asked once to lock it in.
+    @State private var outsideNotice = false
     @State private var area: CGSize = .zero
     @Environment(\.colorScheme) private var scheme
 
@@ -322,6 +324,14 @@ struct HomeView: View {
         // yet: the Go Max page opens once, with the choice.
         .onAppear { if goMax.needsChoice && model.sheet == nil { model.openGoMax() } }
         .onChange(of: goMax.needsChoice) { needs in if needs && model.sheet == nil { model.openGoMax() } }
+        .onChange(of: engine.outsideTheLock) { _ in checkOutside() }
+        .onChange(of: engine.status) { _ in checkOutside() }
+        .alert("Zcash arrived on your transparent address", isPresented: $outsideNotice) {
+            Button("Lock it in") { model.sheet = .lockIn }
+            Button("Later", role: .cancel) {}
+        } message: {
+            Text("\(model.amountsHidden ? "It" : Amount.text(engine.outsideTheLock, model.unit)) is visible to everyone on the blockchain until you lock it in. Locking it in moves it into your private lock.")
+        }
         .overlay { panel }
         .overlay { ArrivalToast(model: model, engine: engine) }
         .overlay { if model.tourShown { TourCard(model: model).transition(.opacity) } }
@@ -1484,4 +1494,34 @@ enum KeyRingHidden {
 
     /// For Erase wallet.
     static func erase() { UserDefaults.standard.removeObject(forKey: key) }
+}
+
+extension HomeView {
+    /// Asks once per new amount outside the lock, when the wallet is up to
+    /// date and nothing else is open (Lock it iPhone shows the same news).
+    func checkOutside() {
+        let amount = engine.outsideTheLock
+        if OutsideNotice.shouldAsk(amount: amount, upToDate: engine.status == .upToDate,
+                                   busy: model.sheet != nil, lastAsked: OutsideNotice.lastAsked) {
+            OutsideNotice.lastAsked = amount
+            outsideNotice = true
+        } else if amount < OutsideNotice.lastAsked {
+            // Locked in (or spent): the next arrival is news again.
+            OutsideNotice.lastAsked = amount
+        }
+    }
+}
+
+/// When to ask to lock in Zcash that arrived on the transparent address.
+enum OutsideNotice {
+    private static let key = "outside.lastAsked"
+    static var lastAsked: Int64 {
+        get { Int64(UserDefaults.standard.integer(forKey: key)) }
+        set { UserDefaults.standard.set(Int(newValue), forKey: key) }
+    }
+
+    /// More than was already asked about, up to date, and no sheet open.
+    static func shouldAsk(amount: Int64, upToDate: Bool, busy: Bool, lastAsked: Int64) -> Bool {
+        amount > 0 && amount > lastAsked && upToDate && !busy
+    }
 }

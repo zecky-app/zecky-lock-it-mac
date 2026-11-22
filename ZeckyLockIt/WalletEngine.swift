@@ -674,6 +674,13 @@ final class WalletEngine: ObservableObject {
     /// The wallet chosen on the key ring (the main one when none is).
     var currentAccount: AccountUUID? { current }
 
+    /// The wallet's transparent address (one per wallet, as on Lock it
+    /// iPhone), for senders that cannot pay a shielded address.
+    func transparentAddress(of wallet: AccountUUID) async throws -> String {
+        guard let synchronizer else { throw EngineError.notReady }
+        return try await synchronizer.getTransparentAddress(accountUUID: wallet).stringEncoded
+    }
+
     /// How many incoming payments each of the wallet's own addresses received.
     func addressUsage(of wallet: AccountUUID) async throws -> [String: Int] {
         guard let synchronizer else { throw EngineError.notReady }

@@ -1217,9 +1217,11 @@ struct HowItWorks: View {
             "Every change is listed in Activity › The lock.",
         ]),
         Chapter(title: "Private by default", icon: "shield.lefthalf.filled", summary: "Amounts, senders and addresses stay hidden.", essentials: [
-            "Lock it only hands out shielded addresses. Once an address has been paid, a fresh one appears, so payments cannot be linked to each other.",
+            "Receive shows a shielded address. Once it has been paid, a fresh one appears, so payments cannot be linked to each other.",
+            "For a sender that cannot pay a shielded address, such as some exchanges, Receive has a Transparent tab with the wallet's transparent address. What arrives there is public until you lock it in; Lock it asks you to as soon as it arrives.",
         ], more: [
-            "Zcash that arrives on a transparent address (only possible after restoring) can be locked in with one step. A transparent address works like Bitcoin: its payments are visible to everyone until you lock them in.",
+            "Zcash that arrives on a transparent address can be locked in with one step, with your code and Touch ID. A transparent address works like Bitcoin: its payments are visible to everyone until you lock them in. Lock it never pays from it except to lock it in.",
+            "The transparent tab shows the same address each time, as on Lock it iPhone, so payments to it can be linked to each other. Use it only when the shielded address is not accepted.",
         ]),
         Chapter(title: "Go Max", icon: "point.3.connected.trianglepath.dotted", summary: "Your own Zcash node, inside Lock it.", essentials: [
             "Go Max runs a Zcash node in Lock it on this Mac. It checks every block since the Canopy upgrade itself and keeps only recent blocks in full. When it is up to date, Lock it reads the chain from it instead of a server.",
