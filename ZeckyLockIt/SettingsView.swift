@@ -1211,7 +1211,9 @@ struct HowItWorks: View {
             "Touch ID always falls back to your Mac password, so anyone who knows that password passes Touch ID too. The Zecky code is the secret only you know; this Mac's Secure Enclave checks it itself.",
             "Key 4 is a security key, such as a YubiKey, touched before each payment you send. Lock it checks its signature itself; nothing goes over the internet. Pair a key on each device.",
             "With a backup key you can also ask a key before your 24 words are shown. Lost every key? \"Lost my keys\" removes them after 48 hours and 48 hours of Zcash blocks, only on a built-in server; any of your keys can cancel it before then.",
-            "With a time lock, opening has to be asked for 24 hours, 3 or 7 days ahead. In an emergency, Break the glass opens straight away and stays on record. A time lock does not stop someone who has your 24 words.",
+            "With a time lock, opening has to be asked for 24 hours, 3 or 7 days ahead. The wait counts in hours and in Zcash blocks, so setting this Mac's clock forward does not shorten it; shortening or switching off the time lock waits the same way. In an emergency, Break the glass opens straight away and stays on record. A time lock does not stop someone who has your 24 words.",
+            "The lock and the time lock cover the Zcash on this Mac. A Seal it wallet's key is on its signer, not on this Mac, so every Seal it payment is approved on that device; the Mac's lock does not stand in front of it.",
+            "After three wrong Zecky codes, each try waits longer, up to an hour. Lock it keeps that count itself, so it slows guessing in Lock it; the Secure Enclave checks the code. With a Lock it password instead of Touch ID, that password's strength is what protects your words: choose a long one.",
             "Every change is listed in Activity › The lock.",
         ]),
         Chapter(title: "Private by default", icon: "shield.lefthalf.filled", summary: "Amounts, senders and addresses stay hidden.", essentials: [
@@ -1233,10 +1235,10 @@ struct HowItWorks: View {
             "Lock it talks to one Zcash server (zec.rocks by default) over an encrypted connection. The server sees this Mac's internet address, never your words or your balance.",
         ], more: [
             "Your own node (Rock it) on a home or Tailscale address is reached without that layer: at home the traffic stays in your network, and Tailscale encrypts it on the way. A home address cannot prove it is your node; away from home use Rock it's Tailscale address.",
-            "Value is off unless you choose a currency. Then CoinGecko is asked for the price every 5 minutes and sees only this Mac's internet address.",
+            "Value is off unless you choose a currency. Then CoinGecko is asked for the price every 5 minutes. While payments go over Tor (the default), the price does too, so CoinGecko does not see this Mac's internet address either.",
             "With Go Max up to date, Lock it uses no server at all: it reads the chain from its own node on this Mac.",
             "Payments you send leave over Tor, each on its own connection, to a public Zcash server: it sees a payment arriving from Tor, not this Mac's internet address. If Tor cannot connect, the payment waits and you are told; it never goes out another way by itself. You can switch this off in Settings › Network.",
-            "Everything else (reading the chain from a server, the price) does not use Tor yet.",
+            "Reading the chain from a server does not use Tor yet.",
         ]),
         Chapter(title: "On this Mac", icon: "laptopcomputer", summary: "Where your data lives.", essentials: [
             "Your history (amounts and dates, never the words) is kept in Lock it's own protected folder and left out of Time Machine. Keep FileVault on so the whole disk is encrypted as well.",
