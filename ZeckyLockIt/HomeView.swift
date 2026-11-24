@@ -632,19 +632,19 @@ private struct KeyRing: View {
         .confirmationDialog(removeTitle, isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
             Button("Remove", role: .destructive) {
                 guard let wallet = removing else { return }
+                // Removing deletes a wallet's words from this Mac (or a
+                // pairing): only after Touch ID or the code, as showing them.
                 Task {
-                    if model.selectedWallet == wallet.id { model.selectedWallet = nil }
-                    try? await engine.removeWallet(wallet.id)
-                    KeyRingVault.remove(id: wallet.id)
-                    WalletNames.forget(wallet.id)
-                    hidden = KeyRingHidden.without(KeyRingVault.hex(wallet.id), in: hidden)
-                    KeyRingHidden.saved = hidden
+                    gate = await OwnerGateRequest.ask("remove \(WalletNames.name(for: wallet, fallback: "this wallet")) from Lock it") {
+                        Task { await remove(wallet) }
+                    }
                 }
             }
             Button("Keep it", role: .cancel) {}
         } message: {
             Text(removeMessage)
         }
+        .ownerGate($gate)
         .alert("Rename wallet", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $newName)
             Button("Rename") {
@@ -733,6 +733,17 @@ private struct KeyRing: View {
         guard !showHidden, let id = model.selectedWallet, hidden.contains(KeyRingVault.hex(id)) else { return }
         choose(nil)
     }
+    @State private var gate: OwnerGateRequest?
+
+    private func remove(_ wallet: Account) async {
+        if model.selectedWallet == wallet.id { model.selectedWallet = nil }
+        try? await engine.removeWallet(wallet.id)
+        KeyRingVault.remove(id: wallet.id)
+        WalletNames.forget(wallet.id)
+        hidden = KeyRingHidden.without(KeyRingVault.hex(wallet.id), in: hidden)
+        KeyRingHidden.saved = hidden
+    }
+
     @State private var renaming: Account?
     @State private var newName = ""
 

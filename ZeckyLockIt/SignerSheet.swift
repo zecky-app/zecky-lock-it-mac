@@ -62,6 +62,7 @@ private struct SealContent: View {
     @State private var account: AccountUUID?
     @State private var accounts: [Account] = []
     @State private var confirmRemove = false
+    @State private var gate: OwnerGateRequest?
     @State private var checked = false
     @State private var pairing = false
     @State private var pairNote: String?
@@ -366,12 +367,15 @@ private struct SealContent: View {
             }
         }
         .card()
-        .confirmationDialog("Remove this sealed wallet from Lock it?", isPresented: $confirmRemove) {
-            Button("Remove", role: .destructive) { Task { await remove() } }
+        .confirmationDialog("Remove this wallet from Lock it?", isPresented: $confirmRemove) {
+            Button("Remove", role: .destructive) {
+                Task { gate = await OwnerGateRequest.ask("remove this wallet from Lock it") { Task { await remove() } } }
+            }
             Button("Keep it", role: .cancel) {}
         } message: {
-            Text("Its keys and Zcash stay on your offline phone. You can pair it again at any time.")
+            Text("Its keys and Zcash stay on your signing device. You can pair it again at any time.")
         }
+        .ownerGate($gate)
     }
 
     private var selectedBalance: (spendable: Int64, total: Int64) {

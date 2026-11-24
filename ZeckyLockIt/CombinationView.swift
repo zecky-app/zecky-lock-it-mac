@@ -421,3 +421,45 @@ struct NoMacPasswordView: View {
         first = ""; second = ""
     }
 }
+
+// MARK: - Owner gate
+
+/// Something that is removed for good waits for the owner: Touch ID or the
+/// Mac password, or the Zecky code (or Lock it password) when the lock has
+/// one, as for showing the words.
+struct OwnerGateRequest: Identifiable {
+    let id = UUID()
+    let reason: String
+    let action: () -> Void
+
+    /// Asks Touch ID or the Mac password right away, or returns a request
+    /// for the code sheet. Nil when it is done (confirmed or not).
+    @MainActor
+    static func ask(_ reason: String, then action: @escaping () -> Void) async -> OwnerGateRequest? {
+        if WalletVault.needsSecret { return OwnerGateRequest(reason: reason, action: action) }
+        if await OwnerCheck.confirm(reason: reason) { action() }
+        return nil
+    }
+}
+
+extension View {
+    /// The code sheet for an `OwnerGateRequest`.
+    func ownerGate(_ request: Binding<OwnerGateRequest?>) -> some View {
+        sheet(item: request) { pending in
+            SheetScaffold(title: "Confirm it's you", subtitle: "To \(pending.reason).", height: 520,
+                          onClose: { request.wrappedValue = nil }) {
+                CodePrompt(action: "Continue",
+                           submit: { code in
+                               do {
+                                   _ = try await WalletVault.unseal(reason: pending.reason, code: code)
+                                   return nil
+                               } catch WalletVault.Failure.cancelled {
+                                   return "Not confirmed, so nothing changed."
+                               } catch { return String(describing: error) }
+                           },
+                           onDone: { request.wrappedValue = nil; pending.action() },
+                           onCancel: { request.wrappedValue = nil })
+            }
+        }
+    }
+}
