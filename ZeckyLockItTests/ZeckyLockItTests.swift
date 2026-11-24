@@ -1101,6 +1101,20 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertThrowsError(try CupcakePczt.toCupcake(Data("PSBT1234".utf8)))
     }
 
+    /// The price: every 5 minutes, and until one comes, 15 s, 30 s, 1 min,
+    /// 2 min, then back to 5 minutes (CoinGecko limits calls; Tor exits are shared).
+    func testThePriceRetriesPatiently() {
+        let s: UInt64 = 1_000_000_000
+        XCTAssertEqual(PriceFeed.wait(afterMisses: 0), 300 * s)
+        XCTAssertEqual(PriceFeed.wait(afterMisses: 1), 15 * s)
+        XCTAssertEqual(PriceFeed.wait(afterMisses: 2), 30 * s)
+        XCTAssertEqual(PriceFeed.wait(afterMisses: 3), 60 * s)
+        XCTAssertEqual(PriceFeed.wait(afterMisses: 4), 120 * s)
+        XCTAssertEqual(PriceFeed.wait(afterMisses: 5), 240 * s)
+        XCTAssertEqual(PriceFeed.wait(afterMisses: 6), 300 * s)
+        XCTAssertEqual(PriceFeed.wait(afterMisses: 50), 300 * s)
+    }
+
     /// A newly paired wallet's name says where it signs.
     func testASignerWalletIsNamedAfterItsDevice() {
         XCTAssertEqual(SealItFlow.walletName("Account 0", cupcake: false), "Keystone · Account 0")

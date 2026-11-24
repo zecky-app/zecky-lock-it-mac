@@ -38,7 +38,7 @@ final class PriceFeed: ObservableObject {
     @Published private(set) var rates: [String: Double] = [:]
 
     private var task: Task<Void, Never>?
-    private static let refresh: UInt64 = 5 * 60 * 1_000_000_000
+    nonisolated private static let refresh: UInt64 = 5 * 60 * 1_000_000_000
     private static let url = URL(string: "https://api.coingecko.com/api/v3/simple/price?ids=zcash&vs_currencies=usd,eur,btc")!
 
     /// No cookies, no cache, nothing kept between requests.
@@ -63,21 +63,35 @@ final class PriceFeed: ObservableObject {
         task = nil
         guard currency != .none else { return }
         task = Task { [weak self] in
+            var misses = 0
             while !Task.isCancelled {
-                await self?.fetch()
-                try? await Task.sleep(nanoseconds: Self.refresh)
+                let got = await self?.fetch() ?? false
+                misses = got ? 0 : misses + 1
+                try? await Task.sleep(nanoseconds: Self.wait(afterMisses: misses))
             }
         }
     }
 
-    private func fetch() async {
+    /// How long until the next try. A price every 5 minutes; until one
+    /// comes (Tor still starting, or CoinGecko turning a Tor exit away),
+    /// sooner but patiently: 15 s, 30 s, 1 min, 2 min, then 5 min. The free
+    /// API limits calls per address, and Tor exits are shared, so no hammering.
+    nonisolated static func wait(afterMisses misses: Int) -> UInt64 {
+        guard misses > 0 else { return refresh }
+        let second: UInt64 = 1_000_000_000
+        return min(refresh, 15 * second << UInt64(min(misses - 1, 10)))
+    }
+
+    /// True when a price came in. A miss keeps the last price on screen.
+    @discardableResult
+    private func fetch() async -> Bool {
         var request = URLRequest(url: Self.url)
         request.timeoutInterval = 20
         let answer: (Data, URLResponse)?
         switch Self.road(torSending: TorSending.isOn, torReady: Self.overTor != nil) {
-        case .wait: return
+        case .wait: return false
         case .tor:
-            guard let overTor = Self.overTor else { return }
+            guard let overTor = Self.overTor else { return false }
             if let (data, response) = try? await overTor(request) { answer = (data, response) } else { answer = nil }
         case .direct:
             answer = try? await session.data(for: request)
@@ -85,8 +99,9 @@ final class PriceFeed: ObservableObject {
         guard let (data, response) = answer,
               (response as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Double]],
-              let zcash = json["zcash"] else { return }
+              let zcash = json["zcash"], !zcash.isEmpty else { return false }
         rates = zcash
+        return true
     }
 
     /// "≈ $34.12", "≈ €31.50", "≈ 0.00031200 BTC", or nil when off or unknown.
