@@ -33,7 +33,7 @@ struct ReceiveView: View {
                       subtitle: mode == .all ? "Every shielded address this wallet has handed out."
                         : (transparent ? "Visible to everyone, like Bitcoin. Only for senders that cannot pay a shielded address."
                            : "Your shielded address: amount and sender stay hidden. Zcash sent here locks in by itself."),
-                      height: 600,
+                      height: 690,
                       wallet: wallet.map(engine.tag) ?? engine.currentTag,
                       onClose: onClose) {
             if let address {
@@ -70,7 +70,8 @@ struct ReceiveView: View {
     private func main(_ address: String) -> some View {
         let payload = requestURI(address)
         return VStack(spacing: 14) {
-            qrCard(payload ?? address)
+            // Same place as on the Transparent tab, so switching does not jump.
+            qrCard(payload ?? address).padding(.top, 12)
             if mode == .request {
                 VStack(spacing: 6) {
                     HStack(spacing: 8) {
@@ -183,6 +184,7 @@ struct ReceiveView: View {
                     .background(Theme.red, in: Capsule())
                     .offset(y: -10)
             }
+            .padding(.top, 12)   // room for "PUBLIC" under the tabs; same place as the shielded code
             .accessibilityLabel("QR code of your transparent address, which is public")
             Button { copy(address) } label: {
                 VStack(spacing: 4) {
@@ -196,7 +198,7 @@ struct ReceiveView: View {
             }
             .buttonStyle(.plain)
             .help(address)
-            Label("Anyone can see what arrives here and where it came from. Lock it asks you to lock it in as soon as it arrives; after that it is private again. Prefer your shielded address whenever the sender can pay it.",
+            Label("Anyone can see what arrives here and who sent it. Lock it asks you to lock it in as soon as it arrives. Use your shielded address whenever the sender can.",
                   systemImage: "exclamationmark.triangle.fill")
                 .font(Theme.text(12)).foregroundStyle(Theme.text)
                 .fixedSize(horizontal: false, vertical: true)
