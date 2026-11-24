@@ -136,7 +136,7 @@ struct SyncSheet: View {
                         line("Older blocks", String(format: "%.0f%% checked", (share * 100).rounded(.down)) + " · from \(n(start))")
                     }
                     line("Block time", network == 0 ? "…" : BlockTime.spacing(at: network) == 25 ? "25 seconds (since NU7)" : "75 seconds")
-                    line("Wallet birthday", engine.birthdayHeight > 0 ? "Block \(n(engine.birthdayHeight))" : "…", last: true)
+                    line("Checked from", engine.birthdayHeight > 0 ? "Block \(n(engine.birthdayHeight))" : "…", last: true)
                 }
                 section("Checked so far") {
                     VStack(alignment: .leading, spacing: 6) {
@@ -149,7 +149,7 @@ struct SyncSheet: View {
                             }
                         }
                         .frame(height: 10)
-                        .accessibilityLabel(wallet >= network && network > 0 ? "Every block since the birthday is checked" : "Checked up to block \(n(wallet))")
+                        .accessibilityLabel(wallet >= network && network > 0 ? "Every block since block \(n(engine.birthdayHeight)) is checked" : "Checked up to block \(n(wallet))")
                         HStack {
                             Text(engine.birthdayHeight > 0 ? n(engine.birthdayHeight) : "…")
                             Spacer()
@@ -247,11 +247,11 @@ struct SyncSheet: View {
             let last = engine.lastCheckedPercent.map { " Last time: " + String(format: "%.1f", min(100, $0)) + "%." } ?? ""
             return (network > 0 ? "Reading where the wallet is…" : "Waiting for the network block") + last
         }
-        if upToDate { return "Every block since the wallet birthday" }
+        if upToDate { return "Every block since block \(n(engine.birthdayHeight)), for all wallets on this Mac" }
         if let open = engine.openBlocks, open > 0 {
-            return "Of all blocks since the wallet birthday. Catching up \(n(open)) new \(open == 1 ? "block" : "blocks")."
+            return "Of all blocks since block \(n(engine.birthdayHeight)). Catching up \(n(open)) new \(open == 1 ? "block" : "blocks")."
         }
-        return "Of all blocks since the wallet birthday"
+        return "Of all blocks since block \(n(engine.birthdayHeight))"
     }
 
     private func section<C: View>(_ title: String, @ViewBuilder _ rows: () -> C) -> some View {

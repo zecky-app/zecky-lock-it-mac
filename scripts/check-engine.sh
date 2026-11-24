@@ -10,8 +10,11 @@ set -euo pipefail
 # sending only" (ef8b055) and "Genuine node: tree state from another server
 # over Tor" (f754a69, 16 Nov 2026). The library and header are the zecky.5
 # ones, same fingerprints. To become v4.0.0-zecky.6 once reviewed and tagged.
+# Then a third Swift-only commit (24 Nov 2026, 1aba422): importing an account
+# with a birthday past the newest built-in checkpoint takes the server's tree
+# state at that block, so pairing a signing device no longer rescans weeks.
 ENGINE_TAG="v4.0.0-zecky.5 + tor-submit"
-ENGINE_COMMIT="f754a69bfbb0879edcf4c483169deae35f2a65ce"
+ENGINE_COMMIT="1aba4223af8185970a9b093736fe825f332fd348"
 SWIFTPM_ZIP_SHA256="35a3e6829555d4a3f5a5b0aafea5577318e8f81d8b27ec6a2de98ce76ba15a7c"
 MAC_LIB_SHA256="ec88e07329e28e5b691b389d79631e88b91aadf19f54b14416c353dfef3079fa"
 HEADER_SHA256="1d9cada2baa1c0f3c7f8035422e1feecd9f0bd696ce7b07ea686313d2844a2dc"
