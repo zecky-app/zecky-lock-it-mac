@@ -427,7 +427,7 @@ struct SendComposer: View {
             HStack {
                 QuietButton(title: "Change") { self.plan = nil }.frame(width: 140)
                 Spacer()
-                PrimaryButton(title: purpose == .sealIt ? "Sign it on your phone"
+                PrimaryButton(title: purpose == .sealIt ? "Sign it on your device"
                               : "Send \(Amount.text(plan.amount, unit))" + fromWallet.map { " from \($0.name)" }.orEmpty) {
                     onConfirm(plan)
                 }

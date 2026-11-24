@@ -30,11 +30,11 @@ enum SealItURError: LocalizedError {
         switch self {
         case .notUR(let seen):
             return seen.isEmpty
-                ? "That QR code isn't from Cupcake or Seal it."
-                : "That QR code isn't from Cupcake or Seal it (it starts with \"\(seen)…\")."
+                ? "That QR code isn't from Cupcake or Keystone."
+                : "That QR code isn't from Cupcake or Keystone (it starts with \"\(seen)…\")."
         case let .wrongType(expected, got):
             return expected == SealItURType.accounts
-                ? "That's not the QR code for connecting a wallet (scanned \(got)). In Cupcake or Seal it, show that QR code."
+                ? "That's not the QR code for connecting a wallet (scanned \(got)). On Cupcake or Keystone, show that QR code."
                 : "That's not the signed transaction (scanned \(got))."
         case .badSequence: return "Couldn't read the moving QR code. Hold the phone steady and try again."
         case .missingField(let f): return "The QR code is missing the \(f)."

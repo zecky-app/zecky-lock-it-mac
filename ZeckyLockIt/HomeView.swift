@@ -579,7 +579,7 @@ private struct KeyRing: View {
                         Button("Erase this wallet…") { model.startErasing(wallet.id) }
                     }
                 case .sealed(let wallet):
-                    chip(title: WalletNames.name(for: wallet, fallback: "Seal it"), icon: "envelope.fill", on: model.selectedWallet == wallet.id) {
+                    chip(title: WalletNames.name(for: wallet, fallback: "Signing device"), icon: "envelope.fill", on: model.selectedWallet == wallet.id) {
                         choose(wallet.id)
                     }
                     .contextMenu {
@@ -604,7 +604,7 @@ private struct KeyRing: View {
                 .help(showHidden ? "Put them out of sight again" : "Show the wallets kept out of sight")
             }
             Menu {
-                Button("Pair a signing phone (Cupcake, Seal it)") {
+                Button("Pair a signing device (Cupcake or Keystone)") {
                     model.sealItPairing = true
                     model.sealItSending = false
                     model.sheet = .signer
@@ -741,7 +741,7 @@ private struct KeyRing: View {
     private var removeMessage: String {
         guard let removing else { return "" }
         if SealItFlow.isSealIt(removing) {
-            return "Its keys and Zcash stay on your signing phone. You can pair it again at any time."
+            return "Its keys and Zcash stay on your signing device. You can pair it again at any time."
         }
         return "Its words are deleted from this Mac. Only remove it if you have its 24 words written down, or it is empty."
     }

@@ -27,9 +27,9 @@ struct SignerSheet: View {
     }
 
     var body: some View {
-        SheetScaffold(title: pairingAtOpen ? "Signing phone" : (sending ? "Send Zcash" : "Receive"),
+        SheetScaffold(title: pairingAtOpen ? "Signing device" : (sending ? "Send Zcash" : "Receive"),
                       subtitle: pairingAtOpen ? "Pair the offline phone that holds the keys."
-                                : (sending ? "Written here, signed on your phone, sent from here."
+                                : (sending ? "Written here, signed on your device, sent from here."
                                            : "Zcash sent here is kept in this sealed wallet."),
                       width: 560, height: 760,
                       wallet: pairingAtOpen ? nil : model.selectedWallet.map { WalletTag(name: engine.walletName($0), sealed: true) },
@@ -141,7 +141,7 @@ private struct SealContent: View {
                 ForEach(accounts, id: \.id) { item in
                     let isOn = item.id == account
                     Button { select(item.id) } label: {
-                        Text(WalletNames.name(for: item, fallback: "Seal it"))
+                        Text(WalletNames.name(for: item, fallback: "Signing device"))
                             .font(Theme.text(12, weight: isOn ? .semibold : .regular))
                             .foregroundStyle(isOn ? Theme.onGold : Theme.text)
                             .padding(.horizontal, 12).padding(.vertical, 6)
@@ -158,7 +158,7 @@ private struct SealContent: View {
                         .overlay(Capsule().stroke(Theme.gold.opacity(0.5), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .help("Pair another signing phone")
+                .help("Pair another signing device")
             }
         }
     }
@@ -176,7 +176,7 @@ private struct SealContent: View {
 
     @ViewBuilder private var pair: some View {
         if pairing {
-            Text("On your phone, open Cupcake (or Seal it) and show the QR code for connecting a wallet. Hold the phone up to this Mac's camera.")
+            Text("On your device, open Cupcake or Keystone and show the QR code for connecting a wallet. Hold it up to this Mac's camera.")
                 .font(Theme.text(13)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             URScannerView(expectedType: SealItURType.accounts) { message in
@@ -189,7 +189,7 @@ private struct SealContent: View {
             mark()
             VStack(alignment: .leading, spacing: 10) {
                 step(1, "Write it", "Lock it writes the payment here, on this Mac.")
-                step(2, "Seal it", "Your phone holds the keys and signs the payment, in Cupcake or Seal it.")
+                step(2, "Seal it", "Your Cupcake or Keystone holds the keys and signs the payment.")
                 step(3, "Send it", "Lock it scans the sealed payment back and sends it.")
                 Text("Signing with a phone is new in Lock it. Use small amounts only.")
                     .font(Theme.text(12)).foregroundStyle(Theme.muted).padding(.top, 4)
@@ -197,7 +197,7 @@ private struct SealContent: View {
             .card()
             if let pairNote { Text(pairNote).font(Theme.text(12)).foregroundStyle(Theme.red) }
             Spacer()
-            PrimaryButton(title: "Pair a signing phone") { pairNote = nil; pairing = true }
+            PrimaryButton(title: "Pair a signing device") { pairNote = nil; pairing = true }
         }
     }
 
@@ -258,7 +258,7 @@ private struct SealContent: View {
 
         case .showUnsigned(let encoder):
             SealSteps(current: .seal)
-            Text("On your phone, open the wallet in Cupcake or Seal it and scan this. Check the address and amount there, then sign.")
+            Text("Open the wallet on Cupcake or Keystone and scan this. Check the address and amount there, then sign.")
                 .font(Theme.text(13)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             HStack { Spacer(); AnimatedURQRView(encoder: encoder).frame(width: 320, height: 320); Spacer() }

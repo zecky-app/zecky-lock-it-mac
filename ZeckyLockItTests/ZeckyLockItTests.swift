@@ -1101,6 +1101,17 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertThrowsError(try CupcakePczt.toCupcake(Data("PSBT1234".utf8)))
     }
 
+    /// A newly paired wallet's name says where it signs.
+    func testASignerWalletIsNamedAfterItsDevice() {
+        XCTAssertEqual(SealItFlow.walletName("Account 0", cupcake: false), "Keystone · Account 0")
+        XCTAssertEqual(SealItFlow.walletName(nil, cupcake: false), "Keystone")
+        XCTAssertEqual(SealItFlow.walletName("Keystone Main", cupcake: false), "Keystone Main")
+        XCTAssertEqual(SealItFlow.walletName("Cupcake", cupcake: true), "Cupcake")
+        XCTAssertEqual(SealItFlow.walletName("My wallet", cupcake: true), "Cupcake · My wallet")
+        XCTAssertEqual(SealItFlow.walletName(" ", cupcake: true), "Cupcake")
+        XCTAssertLessThanOrEqual(SealItFlow.walletName(String(repeating: "x", count: 80), cupcake: false).count, 40)
+    }
+
     /// Cupcake finishes at exactly n distinct frames of n, so a big PCZT
     /// shows only frames 1…n, in a loop, and those n alone rebuild it.
     func testCupcakeLoopsOnlyThePlainFrames() throws {

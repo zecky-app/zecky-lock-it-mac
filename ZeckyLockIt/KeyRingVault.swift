@@ -174,7 +174,7 @@ enum WalletNames {
     static func display(_ account: Account, lead: Bool) -> String {
         if let custom = all[KeyRingVault.hex(account.id)] { return custom }
         if lead && account.keySource != WalletEngine.macKeySource { return "This Mac" }
-        return account.name ?? (SealItFlow.isSealIt(account) ? "Seal it" : "Wallet")
+        return account.name ?? (SealItFlow.isSealIt(account) ? "Signing device" : "Wallet")
     }
 
     static func rename(_ id: AccountUUID, to name: String) {

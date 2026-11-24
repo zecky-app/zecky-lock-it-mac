@@ -72,7 +72,7 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
             Button("Erase everything", role: .destructive) { Task { await erase() } }
         } message: {
-            Text("Every wallet's 24 words, every paired signing phone, the history, address book and settings are removed from this Mac. Without the 24 words on paper, the Zcash in those wallets cannot be recovered.")
+            Text("Every wallet's 24 words, every paired signing device, the history, address book and settings are removed from this Mac. Without the 24 words on paper, the Zcash in those wallets cannot be recovered.")
         }
     }
 
@@ -554,7 +554,7 @@ struct SettingsView: View {
                 if model.isSealedSelected {
                     // A Seal it wallet has no words on this Mac: showing the
                     // main wallet's words here would be the wrong wallet's.
-                    Text("\(walletWords) is paired with a signing phone. Its 24 words are on that phone, never on this Mac, so there is nothing to show here.")
+                    Text("\(walletWords) is paired with a signing device. Its 24 words are on that device, never on this Mac, so there is nothing to show here.")
                         .font(Theme.text(12)).foregroundStyle(Theme.muted)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
@@ -1212,7 +1212,7 @@ struct HowItWorks: View {
             "Key 4 is a security key, such as a YubiKey, touched before each payment you send. Lock it checks its signature itself; nothing goes over the internet. Pair a key on each device.",
             "With a backup key you can also ask a key before your 24 words are shown. Lost every key? \"Lost my keys\" removes them after 48 hours and 48 hours of Zcash blocks, only on a built-in server; any of your keys can cancel it before then.",
             "With a time lock, opening has to be asked for 24 hours, 3 or 7 days ahead. The wait counts in hours and in Zcash blocks, so setting this Mac's clock forward does not shorten it; shortening or switching off the time lock waits the same way. In an emergency, Break the glass opens straight away and stays on record. A time lock does not stop someone who has your 24 words.",
-            "The lock and the time lock cover the Zcash on this Mac. A wallet paired with a signing phone (Cupcake or Seal it) keeps its key on that phone, not on this Mac, so every payment from it is approved there; the Mac's lock does not stand in front of it.",
+            "The lock and the time lock cover the Zcash on this Mac. A wallet paired with a signing device (Cupcake or Keystone) keeps its key on that device, never on this Mac. Every payment from it is checked and signed there, over QR codes only: no cable, no Bluetooth. The Mac's lock and time lock do not stand in front of it; the device is the lock.",
             "After three wrong Zecky codes, each try waits longer, up to an hour. Lock it keeps that count itself, so it slows guessing in Lock it; the Secure Enclave checks the code. With a Lock it password instead of Touch ID, that password's strength is what protects your words: choose a long one.",
             "Every change is listed in Activity › The lock.",
         ]),

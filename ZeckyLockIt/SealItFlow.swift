@@ -80,12 +80,23 @@ final class SealItFlow: ObservableObject {
             seedFingerprint: export.seedFingerprint,
             zip32AccountIndex: export.seedFingerprint == nil ? nil : Zip32AccountIndex(account.index),
             purpose: .spending,          // as Zashi does for Keystone: enables PCZT spending
-            name: account.name.flatMap { $0.isEmpty ? nil : $0 } ?? (export.fromCupcake ? "Cupcake" : "Seal it"),
+            name: Self.walletName(account.name, cupcake: export.fromCupcake),
             keySource: Self.keySource,
             // Cupcake's QR has no birthday and its wallet may hold Zcash
             // already: look from NU7 on (Cupcake added Zcash after it).
             birthday: export.fromCupcake ? BlockHeight(NetworkUpgrade.nu7Height) : birthday
         )
+    }
+
+    /// The name of a newly paired wallet says where it signs: "Keystone ·
+    /// Account 0", "Cupcake · My wallet". A wallet with a seed fingerprint
+    /// comes from Keystone (Seal it uses the same QR but is not live).
+    nonisolated static func walletName(_ given: String?, cupcake: Bool) -> String {
+        let device = cupcake ? "Cupcake" : "Keystone"
+        let name = (given ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty || name.caseInsensitiveCompare(device) == .orderedSame { return device }
+        if name.lowercased().hasPrefix(device.lowercased()) { return String(name.prefix(40)) }
+        return String("\(device) · \(name)".prefix(40))
     }
 
     /// Removes a sealed wallet from Lock it. Its keys stay on the phone, so it
@@ -215,7 +226,7 @@ final class SealItFlow: ObservableObject {
         var errorDescription: String? {
             switch self {
             case .saplingRecipient:
-                return "A signing phone can't sign to an old Sapling-only address. Use a u1… or t1… address."
+                return "A signing device can't sign to an old Sapling-only address. Use a u1… or t1… address."
             case .noteToPublic:
                 return "A private note can only go to a shielded address. Remove the note, or use their u1… address."
             case .noPendingTransaction:
