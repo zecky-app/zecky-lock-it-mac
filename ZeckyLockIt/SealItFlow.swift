@@ -29,6 +29,22 @@ enum WatchOnly {
 
     nonisolated static func isWatch(_ account: Account) -> Bool { account.keySource == keySource }
 
+    /// The engine's refusal of a key that belongs to a wallet already here
+    /// (in another form of the same key).
+    nonisolated static func isCollision(_ text: String) -> Bool {
+        text.range(of: #"collision|already exists|already been imported|duplicate"#,
+                   options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /// Receive for a watch-only wallet: a key without an Orchard part (an
+    /// older wallet) has no shielded address Lock it can show.
+    nonisolated static func addressProblem(_ text: String) -> String {
+        if text.range(of: "orchard", options: .caseInsensitive) != nil || text.range(of: "receiver", options: .caseInsensitive) != nil {
+            return "This viewing key has no Orchard part, so Lock it cannot show a shielded address for it. Payments to the wallet's own addresses still show here."
+        }
+        return "No address could be shown for this wallet. Payments to its addresses still show here."
+    }
+
     /// The Business row in Settings.
     nonisolated static func summary(count: Int) -> String {
         switch count {
@@ -123,17 +139,20 @@ final class SealItFlow: ObservableObject {
             }
         }
 
-        return try await synchronizer.importAccount(
+        // Cupcake's QR has no birthday and its wallet may hold Zcash
+        // already: look from NU7 on (Cupcake added Zcash after it).
+        let start = export.fromCupcake ? BlockHeight(NetworkUpgrade.nu7Height) : birthday
+        let id = try await synchronizer.importAccount(
             ufvk: account.ufvk,
             seedFingerprint: export.seedFingerprint,
             zip32AccountIndex: export.seedFingerprint == nil ? nil : Zip32AccountIndex(account.index),
             purpose: .spending,          // as Zashi does for Keystone: enables PCZT spending
             name: Self.walletName(account.name, cupcake: export.fromCupcake),
             keySource: Self.keySource,
-            // Cupcake's QR has no birthday and its wallet may hold Zcash
-            // already: look from NU7 on (Cupcake added Zcash after it).
-            birthday: export.fromCupcake ? BlockHeight(NetworkUpgrade.nu7Height) : birthday
+            birthday: start
         )
+        if let start { WalletStarts.set(id, Int(start)) }
+        return id
     }
 
     /// The name of a newly paired wallet says where it signs: "Keystone ·

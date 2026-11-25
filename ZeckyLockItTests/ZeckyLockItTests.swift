@@ -2010,4 +2010,37 @@ final class CodeIdentityTests: XCTestCase {
         let ufvk = try tool.deriveUnifiedFullViewingKey(from: usk).stringEncoded
         XCTAssertNotNil(QRCode.image(for: ufvk))
     }
+    /// Audit 25 Nov: a wallet sends once its own blocks are checked, the
+    /// others meanwhile; the engine's refusal of a known key is plain; a move
+    /// inside the wallet is named; a payment during sleep still gets news.
+    func testAuditBeforeSaturday() throws {
+        // 1. Newest checked, older open below 3,524,536 for another wallet.
+        let open = [(first: 2_306_540, end: 3_200_000)]
+        XCTAssertTrue(SyncMath.ownChecked(toScan: open, start: 3_524_536, network: 3_609_479))
+        XCTAssertFalse(SyncMath.ownChecked(toScan: open, start: 2_306_540, network: 3_609_479))
+        XCTAssertTrue(SyncMath.ownChecked(toScan: [(first: 3_609_478, end: 3_609_480)], start: 3_524_536, network: 3_609_479), "the newest 3 may be new")
+        XCTAssertNil(WalletEngine.caughtUpProblem(network: 3_609_479, wallet: 2_306_540, newestCheckedAt: 3_609_478,
+                                                  ownStart: 3_524_536, openRanges: open), "the main wallet sends")
+        guard case .olderBlocks(let since)? = WalletEngine.caughtUpProblem(network: 3_609_479, wallet: 2_306_540, newestCheckedAt: 3_609_478,
+                                                                         ownStart: 2_306_540, openRanges: open) else {
+            return XCTFail("a wallet with an older start waits")
+        }
+        XCTAssertEqual(since, 2_306_540)
+        // 3.
+        XCTAssertTrue(WatchOnly.isCollision("rustImportAccountUfvk(\"Account collision with existing account\")"))
+        XCTAssertFalse(WatchOnly.isCollision("The server is unavailable"))
+        // 4.
+        let move = WalletEngine.ActivityItem(id: Data([9]), kind: .sent, amount: 15_000, date: nil, state: .confirmed, fee: 15_000)
+        XCTAssertEqual(ActivityCSV.row(move, memo: nil).description, "Moved inside the wallet · fee")
+        // 6. Up to date at 22:00, asleep, payment at 23:00, awake at 07:00.
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let lastUp = now.addingTimeInterval(-9 * 3_600)
+        let paid = now.addingTimeInterval(-8 * 3_600).timeIntervalSince1970
+        XCTAssertTrue(WalletEngine.isNews(minedHeight: 3_608_000, blockTime: paid, network: 3_609_479, since: lastUp, now: now))
+        XCTAssertFalse(WalletEngine.isNews(minedHeight: 3_608_000, blockTime: paid, network: 3_609_479, now: now), "fresh start: history")
+        XCTAssertFalse(WalletEngine.isNews(minedHeight: 2_400_000, blockTime: lastUp.timeIntervalSince1970 - 86_400 * 300,
+                                           network: 3_609_479, since: lastUp, now: now), "old payment for a new wallet")
+        // 7.
+        XCTAssertTrue(WatchOnly.addressProblem("no Orchard receiver").contains("no Orchard part"))
+    }
 }

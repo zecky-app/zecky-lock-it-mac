@@ -564,9 +564,18 @@ final class WalletEngine: ObservableObject {
         guard let synchronizer else { throw EngineError.notReady }
         let all = (try? await synchronizer.listAccounts()) ?? []
         if all.contains(where: { $0.ufvk?.stringEncoded == key }) { throw WatchOnly.Failure.alreadyHere }
-        let id = try await synchronizer.importAccount(
+        let id: AccountUUID
+        do {
+            id = try await synchronizer.importAccount(
             ufvk: key, seedFingerprint: nil, zip32AccountIndex: nil, purpose: .viewOnly,
             name: name, keySource: WatchOnly.keySource, birthday: BlockHeight(birthday))
+        } catch {
+            // The same wallet in another form of its key: the engine refuses
+            // it with its own words; say it plainly.
+            if WatchOnly.isCollision(String(describing: error)) { throw WatchOnly.Failure.alreadyHere }
+            throw Self.plain(error)
+        }
+        WalletStarts.set(id, birthday)
         await refreshSealedWallets()
         return id
     }
@@ -619,6 +628,7 @@ final class WalletEngine: ObservableObject {
             id = try await synchronizer.importAccount(
                 ufvk: ufvk.stringEncoded, seedFingerprint: fingerprint, zip32AccountIndex: Zip32AccountIndex(0),
                 purpose: .spending, name: name, keySource: Self.macKeySource, birthday: BlockHeight(birthday))
+            WalletStarts.set(id, birthday)
         } catch {
             await resumeSyncing()
             throw Self.plain(error)
@@ -659,6 +669,7 @@ final class WalletEngine: ObservableObject {
         if focus == id { focus = nil }
         try await synchronizer.deleteAccount(id)
         AddressBook.forget(id)
+        WalletStarts.forget(id)
         await refreshSealedWallets()
     }
 
@@ -749,7 +760,7 @@ final class WalletEngine: ObservableObject {
 
     enum SendError: Error, CustomStringConvertible {
         case badAddress, tooLittle, belowFee, notEnough, noteToPublic, refused(String), lockClosed, busy
-        case notCaughtUp(wallet: Int, network: Int), partlyRefused(String)
+        case notCaughtUp(wallet: Int, network: Int), partlyRefused(String), olderBlocks(since: Int)
         var description: String {
             switch self {
             case .badAddress: return "That is not a valid Zcash address."
@@ -765,6 +776,8 @@ final class WalletEngine: ObservableObject {
                     return "Lock it is still catching up with the Zcash network. You can send once it says Up to date."
                 }
                 return "Lock it is still catching up (block \(wallet.formatted(.number.locale(Locale(identifier: "en_US")))) of \(network.formatted(.number.locale(Locale(identifier: "en_US"))))). You can send once it says Up to date. Nothing was sent."
+            case .olderBlocks(let since):
+                return "Lock it is still checking this wallet's older blocks (since block \(since.formatted(.number.locale(Locale(identifier: "en_US"))))), so its balance may not be complete yet. You can send from it once that is done; your other wallets can send now. Nothing was sent."
             case .partlyRefused(let why):
                 return "Only part of this payment went through: the first step was sent, the next was refused (\(why)). Your Zcash is not lost: it is on a temporary address of this wallet. Check Activity before sending again."
             }
@@ -802,14 +815,43 @@ final class WalletEngine: ObservableObject {
     /// network block now) while older blocks for a wallet just added are
     /// still checked in the background (25 Nov 2026: pairing a Keystone held
     /// up sending from every wallet for 1.5 hours).
-    nonisolated static func caughtUpProblem(network: Int, wallet: Int, newestCheckedAt: Int? = nil) -> SendError? {
+    ///
+    /// The shortcut is for the wallet that pays only when its own blocks,
+    /// from its start, are all checked (`ownStart`, with `openRanges`): a
+    /// wallet paired with an older start waits until its older blocks are
+    /// done, the others can send meanwhile.
+    nonisolated static func caughtUpProblem(network: Int, wallet: Int, newestCheckedAt: Int? = nil,
+                                            ownStart: Int? = nil, openRanges: [(first: Int, end: Int)] = []) -> SendError? {
         if SyncMath.nearlyCurrent(network: network, wallet: wallet) { return nil }
-        if let at = newestCheckedAt, network > 0, abs(network - at) <= 3 { return nil }
+        if let at = newestCheckedAt, network > 0, abs(network - at) <= 3 {
+            guard let start = ownStart, !SyncMath.ownChecked(toScan: openRanges, start: start, network: network) else { return nil }
+            return .olderBlocks(since: start)
+        }
         return .notCaughtUp(wallet: wallet, network: network)
     }
 
-    private func requireCaughtUp() throws {
-        if let problem = Self.caughtUpProblem(network: networkHeight, wallet: walletHeight, newestCheckedAt: newestCheckedAt) { throw problem }
+    /// For the wallet that pays: the selected one, or the main wallet for
+    /// the Ironwood move.
+    private func requireCaughtUp(_ payer: AccountUUID? = nil) throws {
+        let id = payer ?? current
+        if let problem = Self.caughtUpProblem(network: networkHeight, wallet: walletHeight, newestCheckedAt: newestCheckedAt,
+                                              ownStart: id.map { start(of: $0) }, openRanges: openRanges) { throw problem }
+    }
+
+    /// Where a wallet's own blocks start: the start Lock it gave it when it
+    /// was added, else the main wallet's birthday.
+    func start(of id: AccountUUID) -> Int {
+        WalletStarts.get(id) ?? birthdayHeight
+    }
+
+    /// Ranges the engine still has to check, from the last scan overview.
+    private(set) var openRanges: [(first: Int, end: Int)] = []
+    /// The selected wallet's own blocks are not all checked yet while the
+    /// newest are: its balance and history may still grow.
+    @Published private(set) var selectedStillChecking = false
+    private func refreshSelectedStillChecking() {
+        guard status != .upToDate, networkHeight > 0, let id = current else { selectedStillChecking = false; return }
+        selectedStillChecking = !SyncMath.ownChecked(toScan: openRanges, start: start(of: id), network: networkHeight)
     }
 
     /// The network block at which the newest blocks were last seen checked
@@ -824,7 +866,7 @@ final class WalletEngine: ObservableObject {
     func planIronwoodMove() async throws -> SendPlan {
         guard let synchronizer, let account else { throw EngineError.notReady }
         try NetworkUpgrade.checkReleases(networkHeight: networkHeight)
-        try requireCaughtUp()
+        try requireCaughtUp(account)
         let proposal = try await synchronizer.proposeOrchardToIronwoodMigration(accountUUID: account)
         let fee = proposal.totalFeeRequired().amount
         return SendPlan(proposal: proposal, to: "Ironwood", amount: max(0, orchardHeld - fee), fee: fee, toSelf: true, staysInWallet: true)
@@ -1272,13 +1314,15 @@ final class WalletEngine: ObservableObject {
         // first catch-up: a newly added wallet finds its old payments while
         // the others are up to date, and those are history.
         let network = networkHeight
+        let since = seenCurrentAt
+        if isCurrent { seenCurrentAt = Date() }
         // A payment between two wallets on this Mac is one transaction with
         // a line per wallet: only the receiving wallet's line is news. The
         // sending wallet's line (it sent notes, its change comes back) never is.
         let received = fresh.filter {
             !$0.isSentTransaction && $0.sentNoteCount == 0 && !$0.isShielding && $0.poolCrossingValue == nil
                 && $0.isExpiredUmined != true && $0.value.amount > 0
-                && Self.isNews(minedHeight: $0.minedHeight.map { Int($0) }, blockTime: $0.blockTime, network: network)
+                && Self.isNews(minedHeight: $0.minedHeight.map { Int($0) }, blockTime: $0.blockTime, network: network, since: since)
         }
         // One message per payment: the engine can list a payment more than
         // once (one line per pool it arrived in), so each id counts once.
@@ -1293,12 +1337,20 @@ final class WalletEngine: ObservableObject {
 
     /// A payment is news when it is still waiting for a block, or in one of
     /// the last 100 blocks (about 40 minutes), or its block is from the last
-    /// 30 minutes. Older payments found later are history.
-    nonisolated static func isNews(minedHeight: Int?, blockTime: TimeInterval?, network: Int, now: Date = Date()) -> Bool {
+    /// 30 minutes, or from after Lock it was last up to date (`since`: a
+    /// payment that came while this Mac slept). Older payments found later
+    /// are history.
+    nonisolated static func isNews(minedHeight: Int?, blockTime: TimeInterval?, network: Int,
+                                   since: Date? = nil, now: Date = Date()) -> Bool {
         guard let minedHeight else { return true }
         if network > 0, minedHeight >= network - 100 { return true }
-        return (blockTime ?? 0) >= now.addingTimeInterval(-30 * 60).timeIntervalSince1970
+        let recent = now.addingTimeInterval(-30 * 60)
+        let from = min(recent, since ?? recent)
+        return (blockTime ?? 0) >= from.timeIntervalSince1970
     }
+    /// When Lock it was last up to date, in memory: after a sleep, payments
+    /// from since then still get their message.
+    private var seenCurrentAt: Date?
 
     /// The key ring name of a wallet, for the arrival message.
     func walletName(_ id: AccountUUID) -> String {
@@ -1492,6 +1544,7 @@ final class WalletEngine: ObservableObject {
     private func refreshCheckedPercent() {
         if status == .upToDate {
             checkedPercent = 100; openBlocks = 0; walletCheckedTo = networkHeight > 0 ? networkHeight : nil
+            openRanges = []; selectedStillChecking = false
             olderStart = nil; olderShare = nil
             UserDefaults.standard.removeObject(forKey: Self.olderStartKey)
             remember(percent: 100, checkedTo: walletCheckedTo)
@@ -1506,6 +1559,8 @@ final class WalletEngine: ObservableObject {
             // Read only: the engine's scan state, nothing is changed.
             guard let overview = try? await synchronizer.scanOverview() else { return }
             let ranges = overview.toScan.map { (first: Int($0.first), end: Int($0.end)) }
+            openRanges = ranges
+            refreshSelectedStillChecking()
             newestCheckedAt = SyncMath.newestChecked(toScan: ranges, network: networkHeight) ? networkHeight : nil
             openSamples = Array((openSamples + [SyncMath.Sample(at: Date(), height: SyncMath.openCount(toScan: ranges, tip: networkHeight))]).suffix(30))
             guard let share = SyncMath.checkedShare(toScan: ranges, birthday: birthdayHeight, tip: networkHeight) else { return }
@@ -1566,7 +1621,10 @@ enum ActivityCSV {
         }
         let received = item.kind == .received
         let amount = received ? item.amount : max(0, item.amount - (item.fee ?? 0))
-        return Row(date: item.date, received: received, description: item.title, amount: amount,
+        // Only the fee left and it was no TEX step: a move inside the wallet
+        // (locking in, the Ironwood move, a payment to an own address).
+        let description = !received && amount == 0 && item.texStep == nil ? "Moved inside the wallet · fee" : item.title
+        return Row(date: item.date, received: received, description: description, amount: amount,
                    fee: received ? nil : item.fee, status: status, block: item.minedHeight, memo: memo, txid: item.txid)
     }
 
@@ -1619,4 +1677,25 @@ enum ActivityCSV {
         f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = zone; f.dateFormat = "yyyy-MM-dd"
         return "zecky-" + (slug.isEmpty ? "wallet" : slug) + "-" + f.string(from: now) + ".csv"
     }
+}
+
+/// Where each wallet Lock it added starts (its birthday), on this Mac only:
+/// the engine does not report it. Wallets without one use the main wallet's.
+enum WalletStarts {
+    nonisolated static let key = "app.zecky.lockit.mac.walletStarts"
+    static func get(_ id: AccountUUID) -> Int? {
+        (UserDefaults.standard.dictionary(forKey: key) as? [String: Int])?[KeyRingVault.hex(id)]
+    }
+    static func set(_ id: AccountUUID, _ height: Int) {
+        var all = (UserDefaults.standard.dictionary(forKey: key) as? [String: Int]) ?? [:]
+        all[KeyRingVault.hex(id)] = height
+        UserDefaults.standard.set(all, forKey: key)
+    }
+    static func forget(_ id: AccountUUID) {
+        var all = (UserDefaults.standard.dictionary(forKey: key) as? [String: Int]) ?? [:]
+        all[KeyRingVault.hex(id)] = nil
+        UserDefaults.standard.set(all, forKey: key)
+    }
+    /// For Erase everything.
+    static func erase() { UserDefaults.standard.removeObject(forKey: key) }
 }

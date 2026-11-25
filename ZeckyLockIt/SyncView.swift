@@ -68,6 +68,14 @@ enum SyncMath {
         return max(1, Int((Double(open) / rate / 60).rounded()))
     }
 
+    /// A wallet's own blocks, from its start to the newest, are all checked:
+    /// no open range between them (the last 3 blocks may be new).
+    static func ownChecked(toScan: [(first: Int, end: Int)], start: Int, network: Int) -> Bool {
+        guard network > 0 else { return false }
+        let high = network - 3
+        return !toScan.contains { $0.end > start && $0.first < high }
+    }
+
     /// Blocks below the tip still to check, in all ranges, overlaps once.
     static func openCount(toScan: [(first: Int, end: Int)], tip: Int) -> Int {
         let parts = toScan.map { ($0.first, min($0.end, tip)) }.filter { $0.1 > $0.0 }.sorted { $0.0 < $1.0 }

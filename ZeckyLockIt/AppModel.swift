@@ -468,6 +468,7 @@ final class AppModel: ObservableObject {
         MilestoneMoment.reset()
         KeyRingOrder.erase()
         KeyRingHidden.erase()
+        WalletStarts.erase()
         prices.reset()
         themeMode = .dark
         unit = .zec

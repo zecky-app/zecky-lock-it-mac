@@ -600,6 +600,9 @@ struct SettingsView: View {
             Text("Save every payment of \(model.engine.currentTag.map { "the wallet \($0.name)" } ?? "this wallet") as a CSV file: date, direction, amount, fee, status, block, memo and transaction ID. It opens in Numbers or Excel.")
                 .font(Theme.text(12)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
+            Text("The file is not encrypted and shows every payment: keep it where you keep your books.")
+                .font(Theme.text(12)).foregroundStyle(Theme.gold)
+                .fixedSize(horizontal: false, vertical: true)
             HStack {
                 if let csvNote { Text(csvNote).font(Theme.text(12)).foregroundStyle(Theme.muted) }
                 Spacer()

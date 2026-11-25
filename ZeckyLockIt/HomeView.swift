@@ -116,6 +116,14 @@ struct HomeView: View {
                             Text(valueLine).font(Theme.text(13)).foregroundStyle(Theme.muted)
                                 .padding(.top, -4)
                         }
+                        // The newest blocks are checked, this wallet's older
+                        // ones not yet: the balance is not final.
+                        if engine.selectedStillChecking && engine.newestCheckedAt != nil {
+                            Text("Still checking older blocks · may grow")
+                                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                                .padding(.top, -2)
+                                .help("Lock it checks the newest blocks first. Payments from older blocks are still being added to this wallet.")
+                        }
 
                         if model.selectedWallet != nil {
                             heldLineView
@@ -897,6 +905,10 @@ enum ActivityExport {
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
         do {
             try data.write(to: url, options: .atomic)
+            // Older blocks of this wallet still open: say the file may be short.
+            if engine.selectedStillChecking {
+                return "Saved \(url.lastPathComponent). Older blocks are still being checked; this file may miss payments."
+            }
             return "Saved \(url.lastPathComponent)"
         } catch {
             return "Could not save: \(error.localizedDescription)"

@@ -528,7 +528,7 @@ struct WatchSheet: View {
         .task {
             guard let id = model.selectedWallet else { return }
             do { address = try await engine.shieldedOnlyAddress(of: id) }
-            catch { problem = "No address could be shown. \(error)" }
+            catch { problem = WatchOnly.addressProblem(String(describing: error)) }
         }
     }
 }
