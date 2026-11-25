@@ -18,7 +18,7 @@ struct HomeView: View {
 
     /// The plate on the lock: the value when a currency is chosen, else the state.
     /// The plate is engraved: LOCKED or OPEN, never a number that moves.
-    private var plateText: String { model.lockOpen ? "OPEN" : (model.isSealedSelected ? "SEALED" : "LOCKED") }
+    private var plateText: String { model.lockOpen ? "OPEN" : (model.isWatchSelected ? "WATCHING" : (model.isSealedSelected ? "SEALED" : "LOCKED")) }
 
     /// The balance of the wallet chosen on the key ring.
     private var shownTotal: Int64 {
@@ -76,7 +76,7 @@ struct HomeView: View {
                             Medallion(tilt: tilt, diameter: 760)
                                 .animation(.easeOut(duration: 0.6), value: tilt)
                                 .frame(width: 330, height: 330)
-                            if !model.isSealedSelected, let days = heldDays {
+                            if !model.isKeylessSelected, let days = heldDays {
                                 EngravedRings(count: Milestone.engraved(after: days), newestBright: Milestone.engravedToday(after: days), diameter: 640)
                                     .frame(width: 330, height: 330)
                             }
@@ -157,7 +157,12 @@ struct HomeView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         Group {
-                            if model.lockOpen {
+                            if model.lockOpen && model.isWatchSelected {
+                                // Watch only: nothing to send from here.
+                                SecondaryButton(title: "Close the lock") { model.closeLock() }
+                                    .frame(width: 160)
+                                    .keyboardShortcut(.cancelAction)
+                            } else if model.lockOpen {
                                 HStack(spacing: 12) {
                                     BrassButton(title: "Send Zcash",
                                                 icon: model.isSealedSelected ? "envelope.fill" : "lock.open.fill") {
@@ -177,9 +182,9 @@ struct HomeView: View {
                                 }
                             } else {
                                 BrassButton(title: "Receive",
-                                            icon: model.isSealedSelected ? "envelope.fill" : "lock.fill") {
+                                            icon: model.isWatchSelected ? "eye.fill" : (model.isSealedSelected ? "envelope.fill" : "lock.fill")) {
                                     model.sealItSending = false
-                                    model.sheet = model.isSealedSelected ? .signer : .receive
+                                    model.sheet = model.isWatchSelected ? .watchReceive : (model.isSealedSelected ? .signer : .receive)
                                 }
                                     .frame(width: 230)
                                     .disabled(engine.status == .connecting)
@@ -345,6 +350,8 @@ struct HomeView: View {
             case .ironwood: IronwoodSheet(model: model, engine: engine, kind: .ironwood) { model.sheet = nil }
             case .lockIn: IronwoodSheet(model: model, engine: engine, kind: .lockIn) { model.sheet = nil }
             case .signer: SignerSheet(model: model, engine: engine) { model.sheet = nil }
+            case .watchAdd: WatchSheet(model: model, engine: engine, receiving: false) { model.sheet = nil }
+            case .watchReceive: WatchSheet(model: model, engine: engine, receiving: true) { model.sheet = nil }
             case .addWallet: AddWalletSheet(model: model, engine: engine, kind: model.adding ?? .new) { model.sheet = nil }
             case .walletWords: WalletWordsSheet(model: model, engine: engine) { model.sheet = nil }
             case .eraseWallet: EraseWalletSheet(model: model, engine: engine) { model.sheet = nil }
@@ -522,7 +529,7 @@ struct HomeView: View {
     private var baseStatus: String {
         if nodeQuiet { return "No new blocks · check connection" }
         if engine.droppedSince != nil { return "Connection dropped · trying again…" }
-        if engine.isCurrent { return "Up to date" }
+        if engine.isCurrent { return engine.checkingOlder ? "Up to date · checking older blocks" : "Up to date" }
         switch engine.status {
         case .connecting: return "Connecting…"
         case .syncing: return engine.syncingText
@@ -578,6 +585,19 @@ private struct KeyRing: View {
                         Divider()
                         Button("Erase this wallet…") { model.startErasing(wallet.id) }
                     }
+                case .watch(let wallet):
+                    chip(title: WalletNames.name(for: wallet, fallback: "Watch only"), icon: "eye.fill", on: model.selectedWallet == wallet.id) {
+                        choose(wallet.id)
+                    }
+                    .help("Watch only: Lock it shows this wallet and can never spend from it")
+                    .contextMenu {
+                        Button("Rename…") { newName = WalletNames.name(for: wallet, fallback: ""); renaming = wallet }
+                        Divider()
+                        moveButtons(item, index: index, count: items.count)
+                        hideButton(item)
+                        Divider()
+                        Button("Remove from Lock it…") { removing = wallet }
+                    }
                 case .sealed(let wallet):
                     chip(title: WalletNames.name(for: wallet, fallback: "Signing device"), icon: "envelope.fill", on: model.selectedWallet == wallet.id) {
                         choose(wallet.id)
@@ -609,6 +629,7 @@ private struct KeyRing: View {
                     model.sealItSending = false
                     model.sheet = .signer
                 }
+                Button("Watch a wallet (viewing key)") { model.sheet = .watchAdd }
                 Divider()
                 Button("New wallet on this Mac") { model.startAdding(.new) }
                 Button("Restore a wallet with 24 words") { model.startAdding(.restore) }
@@ -661,18 +682,18 @@ private struct KeyRing: View {
     @State private var order = KeyRingOrder.saved
 
     private enum Item {
-        case main, mac(Account), sealed(Account)
+        case main, mac(Account), sealed(Account), watch(Account)
         var key: String {
             switch self {
             case .main: return KeyRingOrder.main
-            case .mac(let a), .sealed(let a): return KeyRingVault.hex(a.id)
+            case .mac(let a), .sealed(let a), .watch(let a): return KeyRingVault.hex(a.id)
             }
         }
     }
 
     /// This Mac, the Mac wallets and the Seal it wallets, in the owner's order.
     private var orderedItems: [Item] {
-        let all: [Item] = [.main] + engine.macWallets.map(Item.mac) + engine.sealedWallets.map(Item.sealed)
+        let all: [Item] = [.main] + engine.macWallets.map(Item.mac) + engine.sealedWallets.map(Item.sealed) + engine.watchWallets.map(Item.watch)
         let keys = KeyRingOrder.ordered(all.map(\.key), saved: order)
         return keys.compactMap { key in all.first { $0.key == key } }
     }
@@ -751,6 +772,9 @@ private struct KeyRing: View {
 
     private var removeMessage: String {
         guard let removing else { return "" }
+        if WatchOnly.isWatch(removing) {
+            return "Only its viewing key is removed from this Mac. Nothing is spent or moved; you can add it again at any time."
+        }
         if SealItFlow.isSealIt(removing) {
             return "Its keys and Zcash stay on your signing device. You can pair it again at any time."
         }

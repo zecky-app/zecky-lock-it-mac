@@ -24,7 +24,7 @@ final class AppModel: ObservableObject {
     @Published var screen: Screen = .loading
     /// The sheet over the home screen, also opened from the menu bar.
     enum Sheet: Identifiable {
-        case receive, send, settings, activity, ironwood, lockIn, signer, addWallet, walletWords, sync, holding, eraseWallet
+        case receive, send, settings, activity, ironwood, lockIn, signer, addWallet, walletWords, sync, holding, eraseWallet, watchAdd, watchReceive
         var id: Self { self }
         /// Read-only screens: shown as a panel over the main screen that a
         /// click beside it closes. Everything where you type or a step is
@@ -59,6 +59,15 @@ final class AppModel: ObservableObject {
         guard let id = selectedWallet else { return false }
         return engine.sealedWallets.contains { $0.id == id }
     }
+
+    /// A watch-only wallet is chosen: shown, never spent from.
+    var isWatchSelected: Bool {
+        guard let id = selectedWallet else { return false }
+        return engine.watchWallets.contains { $0.id == id }
+    }
+
+    /// The chosen wallet has no words on this Mac (signing device or watch only).
+    var isKeylessSelected: Bool { isSealedSelected || isWatchSelected }
 
     /// Adding a wallet to this Mac first opens the main lock: the new words
     /// are sealed with a key that only exists while it is open.
@@ -377,7 +386,7 @@ final class AppModel: ObservableObject {
     enum EraseKind { case sealed, macWallet, handOver(to: Account), everything }
 
     func eraseKind(_ id: AccountUUID?) -> EraseKind {
-        if let id, engine.sealedWallets.contains(where: { $0.id == id }) { return .sealed }
+        if let id, (engine.sealedWallets + engine.watchWallets).contains(where: { $0.id == id }) { return .sealed }
         if let id, id != engine.leadWallet?.id { return .macWallet }
         // The wallet holding the lock: the lock passes to the first other
         // Mac wallet on the key ring; with none left, everything goes.

@@ -19,6 +19,45 @@ import Foundation
 import ZcashLightClientKit
 
 @MainActor
+/// Watch-only wallets: added from someone's (or your shop's) viewing key and
+/// imported as view-only, so the engine itself refuses to spend from them.
+enum WatchOnly {
+    nonisolated static let keySource = "watch"
+    /// Orchard's start (NU5): the earliest a unified viewing key can have
+    /// shielded funds, for "I don't know since when".
+    nonisolated static let orchardStart = 1_687_104
+
+    nonisolated static func isWatch(_ account: Account) -> Bool { account.keySource == keySource }
+
+    enum Failure: LocalizedError, Equatable {
+        case notAViewingKey, testnet, alreadyHere, noName
+        var errorDescription: String? {
+            switch self {
+            case .notAViewingKey: return "That is not a Zcash viewing key. It starts with uview1…; in Lock it: Settings › Viewing key."
+            case .testnet: return "That is a testnet viewing key. Lock it works on mainnet (uview1…)."
+            case .alreadyHere: return "That wallet is already in Lock it."
+            case .noName: return "Give the wallet a name, for example Shop."
+            }
+        }
+    }
+
+    /// A pasted or scanned key, checked: a mainnet unified full viewing key.
+    nonisolated static func cleaned(_ raw: String) throws -> String {
+        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
+        if key.lowercased().hasPrefix("uviewtest") { throw Failure.testnet }
+        guard key.hasPrefix("uview1"), (try? UnifiedFullViewingKey(encoding: key, network: .mainnet)) != nil else {
+            throw Failure.notAViewingKey
+        }
+        return key
+    }
+
+    /// The name on the key ring: trimmed, at most 40 characters, not empty.
+    nonisolated static func name(_ raw: String) -> String? {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : String(name.prefix(40))
+    }
+}
+
 final class SealItFlow: ObservableObject {
     enum Step {
         case idle

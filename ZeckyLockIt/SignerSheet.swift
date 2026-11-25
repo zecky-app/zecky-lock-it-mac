@@ -391,3 +391,144 @@ private struct SealContent: View {
         .frame(maxWidth: .infinity, minHeight: 240)
     }
 }
+
+// MARK: - Watch only
+
+/// Watch-only: add a wallet from its viewing key, or show its shielded
+/// address. Lock it never spends from such a wallet (the engine refuses).
+struct WatchSheet: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var engine: WalletEngine
+    let receiving: Bool
+    let onClose: () -> Void
+
+    @State private var key = ""
+    @State private var name = ""
+    @State private var knowsStart = true
+    @State private var year = Calendar(identifier: .gregorian).component(.year, from: Date())
+    @State private var month = Calendar(identifier: .gregorian).component(.month, from: Date())
+    @State private var scanning = false
+    @State private var working = false
+    @State private var problem: String?
+    @State private var address: String?
+    @State private var copied = false
+
+    private let months = ["January", "February", "March", "April", "May", "June", "July",
+                          "August", "September", "October", "November", "December"]
+    private var years: [Int] { Array((2022...Calendar(identifier: .gregorian).component(.year, from: Date())).reversed()) }
+
+    var body: some View {
+        SheetScaffold(title: receiving ? "Receive" : "Watch a wallet",
+                      subtitle: receiving
+                        ? "Payments to this shielded address show in this watch-only wallet. Lock it cannot spend them."
+                        : "Add a wallet from its viewing key: you see its balance, payments and memos. Lock it can never spend from it.",
+                      height: 660,
+                      wallet: receiving ? engine.currentTag : nil,
+                      onClose: onClose) {
+            if receiving { receiveBody } else { addBody }
+        }
+    }
+
+    // MARK: Add
+
+    @ViewBuilder private var addBody: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if scanning {
+                URScannerView(expectedType: SealItURType.viewingKey) { data in
+                    key = String(decoding: data, as: UTF8.self)
+                    scanning = false
+                }
+                SecondaryButton(title: "Cancel") { scanning = false }.frame(width: 120)
+            } else {
+                Text("Viewing key").font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.muted)
+                TextField("uview1…", text: $key, axis: .vertical)
+                    .lineLimit(3...5)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12, design: .monospaced))
+                HStack(spacing: 10) {
+                    SecondaryButton(title: "Paste") { key = NSPasteboard.general.string(forType: .string) ?? key }.frame(width: 100)
+                    SecondaryButton(title: "Scan a QR code") { problem = nil; scanning = true }.frame(width: 150)
+                }
+                Text("Name on the key ring").font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.muted)
+                TextField("Shop", text: $name).textFieldStyle(.roundedBorder).frame(maxWidth: 260)
+                Text("Since when has this wallet been used?").font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.muted)
+                HStack(spacing: 10) {
+                    Picker("Year", selection: $year) { ForEach(years, id: \.self) { Text(String($0)).tag($0) } }
+                        .frame(width: 140).disabled(!knowsStart)
+                    Picker("Month", selection: $month) { ForEach(1...12, id: \.self) { Text(months[$0 - 1]).tag($0) } }
+                        .frame(width: 190).disabled(!knowsStart)
+                }
+                Toggle("I don't know", isOn: Binding(get: { !knowsStart }, set: { knowsStart = !$0 }))
+                Text(knowsStart
+                     ? "Lock it checks from a little before then. The newest payments show first; older ones fill in."
+                     : "Lock it checks from Orchard's start (2022). The newest payments show first; older ones fill in, which can take hours the first time.")
+                    .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let problem {
+                    Text(problem).font(Theme.text(12)).foregroundStyle(Theme.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                PrimaryButton(title: working ? "Adding…" : "Watch this wallet", enabled: !working) { Task { await add() } }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func add() async {
+        problem = nil
+        do {
+            let clean = try WatchOnly.cleaned(key)
+            guard let title = WatchOnly.name(name) else { throw WatchOnly.Failure.noName }
+            working = true
+            defer { working = false }
+            let tip = engine.networkHeight > 0 ? engine.networkHeight : Birthday.estimatedTip()
+            let start = knowsStart ? max(WatchOnly.orchardStart, Birthday.estimate(year: year, month: month, tip: tip)) : WatchOnly.orchardStart
+            let id = try await engine.addWatchWallet(key: clean, name: title, birthday: start)
+            model.selectedWallet = id
+            onClose()
+        } catch {
+            problem = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        }
+    }
+
+    // MARK: Receive
+
+    @ViewBuilder private var receiveBody: some View {
+        VStack(spacing: 14) {
+            if let address {
+                if let image = QRRenderer.image(for: address) {
+                    Image(nsImage: image).interpolation(.none).resizable()
+                        .frame(width: 260, height: 260)
+                        .padding(18)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(address, forType: .string)
+                    copied = true
+                } label: {
+                    VStack(spacing: 4) {
+                        Text(String(address.prefix(12)) + " … " + String(address.suffix(8)))
+                            .font(.system(size: 13, design: .monospaced)).foregroundStyle(Theme.text)
+                        Text(copied ? "Copied ✓" : "Click to copy")
+                            .font(Theme.text(11, weight: .medium)).foregroundStyle(copied ? Theme.green : Theme.gold)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 8).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(address)
+            } else if let problem {
+                Text(problem).font(Theme.text(12)).foregroundStyle(Theme.red)
+            } else {
+                ProgressView().padding(.top, 60)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)
+        .task {
+            guard let id = model.selectedWallet else { return }
+            do { address = try await engine.shieldedOnlyAddress(of: id) }
+            catch { problem = "No address could be shown. \(error)" }
+        }
+    }
+}

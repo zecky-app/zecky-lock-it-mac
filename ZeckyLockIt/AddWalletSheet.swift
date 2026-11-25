@@ -255,7 +255,7 @@ struct EraseWalletSheet: View {
 
     private var account: Account? {
         guard let id else { return engine.leadWallet }
-        return (engine.macWallets + engine.sealedWallets).first { $0.id == id } ?? (engine.leadWallet?.id == id ? engine.leadWallet : nil)
+        return (engine.macWallets + engine.sealedWallets + engine.watchWallets).first { $0.id == id } ?? (engine.leadWallet?.id == id ? engine.leadWallet : nil)
     }
 
     private var name: String { account.map { WalletNames.display($0, lead: $0.id == engine.leadWallet?.id) } ?? "This wallet" }

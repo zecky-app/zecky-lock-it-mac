@@ -16,6 +16,8 @@ import ZcashLightClientKit
 enum SealItURType {
     static let accounts = "zcash-accounts"
     static let pczt = "zcash-pczt"
+    /// Not a UR: a plain QR holding a viewing key (uview1…), for watch-only.
+    static let viewingKey = "uview"
 }
 
 enum SealItURError: LocalizedError {
@@ -118,6 +120,11 @@ final class SealItURDecoder {
         // zcash-wallet:?label=<name>&private_key=<UFVK> (Cake Wallet's format).
         let plain = raw.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
         if expectedType == SealItURType.accounts, plain.lowercased().hasPrefix("zcash-wallet:") {
+            message = Data(plain.utf8)
+            return true
+        }
+        if expectedType == SealItURType.viewingKey {
+            guard plain.lowercased().hasPrefix("uview") else { throw SealItURError.badViewingKey }
             message = Data(plain.utf8)
             return true
         }

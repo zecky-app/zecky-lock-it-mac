@@ -1294,6 +1294,27 @@ final class ZeckyLockItTests: XCTestCase {
         XCTAssertNotNil(WalletEngine.caughtUpProblem(network: 3_597_825, wallet: 0))
     }
 
+    /// A wallet just added checks its history in the background (newest
+    /// blocks first). Once the newest blocks are checked, sending from the
+    /// other wallets goes on; a gap near the tip still holds it up.
+    func testOlderBlocksForANewWalletDoNotHoldUpSending() {
+        let tip = 3_608_126
+        // Pairing on 24 Nov: open from the old checkpoint to 1,700 blocks below the tip.
+        let history = [(first: 3_550_000, end: tip - 1_700)]
+        XCTAssertTrue(SyncMath.newestChecked(toScan: history, network: tip))
+        XCTAssertNil(WalletEngine.caughtUpProblem(network: tip, wallet: 3_550_000, newestCheckedAt: tip))
+        XCTAssertNil(WalletEngine.caughtUpProblem(network: tip + 2, wallet: 3_550_000, newestCheckedAt: tip), "a block or two later still counts")
+        XCTAssertNotNil(WalletEngine.caughtUpProblem(network: tip + 40, wallet: 3_550_000, newestCheckedAt: tip), "seen too long ago")
+        // Back after a night away: the newest blocks are open.
+        XCTAssertFalse(SyncMath.newestChecked(toScan: [(first: tip - 1_000, end: tip + 1)], network: tip))
+        XCTAssertNotNil(WalletEngine.caughtUpProblem(network: tip, wallet: tip - 1_000, newestCheckedAt: nil))
+        // A gap 50 blocks below the tip holds it up; the newest 3 blocks do not.
+        XCTAssertFalse(SyncMath.newestChecked(toScan: [(first: tip - 50, end: tip - 40)], network: tip))
+        XCTAssertTrue(SyncMath.newestChecked(toScan: [(first: tip - 2, end: tip + 1)], network: tip))
+        XCTAssertTrue(SyncMath.newestChecked(toScan: [], network: tip))
+        XCTAssertFalse(SyncMath.newestChecked(toScan: [], network: 0))
+    }
+
     func testTorNeverGetsThePrivateNode() {
         // Over Tor, whatever server is chosen: public servers only, two of them, with TLS.
         let endpoints = Server.broadcastEndpoints(overTor: true)
@@ -1875,5 +1896,55 @@ final class CodeIdentityTests: XCTestCase {
         // Another code limit is other code, whoever signed it.
         var other = parts.codeDirectory; other[other.startIndex + 35] ^= 1
         XCTAssertFalse(CodeIdentity.sameCode(CodeIdentity.Parts(codeDirectory: other, page0: parts.page0, entitlements: parts.entitlements), parts))
+    }
+
+    /// Watch only: a mainnet viewing key is taken (spaces and newlines
+    /// trimmed), anything else is refused with a clear reason, and the name
+    /// is required and kept short. The QR scanner also takes a plain key.
+    func testWatchOnlyTakesOnlyAMainnetViewingKey() throws {
+        let tool = DerivationTool(networkType: .mainnet)
+        let usk = try tool.deriveUnifiedSpendingKey(seed: [UInt8](repeating: 9, count: 32), accountIndex: Zip32AccountIndex(0))
+        let ufvk = try tool.deriveUnifiedFullViewingKey(from: usk).stringEncoded
+        XCTAssertEqual(try WatchOnly.cleaned("  \n\(ufvk)\n "), ufvk)
+
+        let test = DerivationTool(networkType: .testnet)
+        let tusk = try test.deriveUnifiedSpendingKey(seed: [UInt8](repeating: 9, count: 32), accountIndex: Zip32AccountIndex(0))
+        let testKey = try test.deriveUnifiedFullViewingKey(from: tusk).stringEncoded
+        XCTAssertThrowsError(try WatchOnly.cleaned(testKey)) { XCTAssertEqual($0 as? WatchOnly.Failure, .testnet) }
+        for bad in ["", "uview1notakey", "u1abc", String(ufvk.dropLast())] {
+            XCTAssertThrowsError(try WatchOnly.cleaned(bad)) { XCTAssertEqual($0 as? WatchOnly.Failure, .notAViewingKey, bad) }
+        }
+
+        let decoder = SealItURDecoder(expectedType: SealItURType.viewingKey)
+        XCTAssertTrue(try decoder.receive(ufvk))
+        XCTAssertEqual(String(decoding: try XCTUnwrap(decoder.message), as: UTF8.self), ufvk)
+
+        XCTAssertNil(WatchOnly.name("   "))
+        XCTAssertEqual(WatchOnly.name("  Shop \n"), "Shop")
+        XCTAssertEqual(WatchOnly.name(String(repeating: "a", count: 60))?.count, 40)
+    }
+    /// The time left follows how fast blocks are checked, not how far the
+    /// gap-free height climbs: after adding a wallet the engine re-checks
+    /// older blocks and the height barely moves, which gave "8 days".
+    func testTimeLeftFollowsBlocksChecked() {
+        XCTAssertEqual(SyncMath.openCount(toScan: [(100, 200), (150, 250), (900, 1_200)], tip: 1_000), 250, "overlap once, clipped to the tip")
+        XCTAssertEqual(SyncMath.openCount(toScan: [], tip: 1_000), 0)
+        let t = Date(timeIntervalSince1970: 0)
+        let samples = (0..<4).map { SyncMath.Sample(at: t.addingTimeInterval(Double($0) * 10), height: 1_300_000 - $0 * 3_000) }
+        XCTAssertEqual(SyncMath.minutesLeft(open: 1_200_000, openSamples: samples), 67, "300 blocks a second")
+        XCTAssertNil(SyncMath.minutesLeft(open: 1_200_000, openSamples: Array(samples.prefix(2))), "too few samples")
+        XCTAssertNil(SyncMath.minutesLeft(open: 1_200_000, openSamples: Array(samples.prefix(3)).map { SyncMath.Sample(at: t, height: $0.height) }), "under 20 seconds")
+        XCTAssertNil(SyncMath.minutesLeft(open: 1_200_000, openSamples: samples.reversed().enumerated().map { SyncMath.Sample(at: t.addingTimeInterval(Double($0.offset) * 10), height: $0.element.height) }), "not falling")
+        XCTAssertNil(SyncMath.minutesLeft(open: 0, openSamples: samples))
+    }
+    /// Adding an older wallet finds its old payments while the others are
+    /// up to date: those stay in Activity, only new ones get a message.
+    func testOnlyNewPaymentsGetAMessage() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        XCTAssertTrue(WalletEngine.isNews(minedHeight: nil, blockTime: nil, network: 3_609_479, now: now), "waiting for a block")
+        XCTAssertTrue(WalletEngine.isNews(minedHeight: 3_609_400, blockTime: nil, network: 3_609_479, now: now), "one of the last 100 blocks")
+        XCTAssertTrue(WalletEngine.isNews(minedHeight: 3_500_000, blockTime: now.timeIntervalSince1970 - 600, network: 0, now: now), "network unknown, block 10 minutes old")
+        XCTAssertFalse(WalletEngine.isNews(minedHeight: 2_400_000, blockTime: now.timeIntervalSince1970 - 86_400 * 600, network: 3_609_479, now: now), "a payment from 2024")
+        XCTAssertFalse(WalletEngine.isNews(minedHeight: 3_609_000, blockTime: nil, network: 3_609_479, now: now), "older than 100 blocks, no time")
     }
 }

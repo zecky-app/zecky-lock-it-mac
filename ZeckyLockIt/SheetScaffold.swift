@@ -103,7 +103,7 @@ struct WalletTagView: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: tag.sealed ? "envelope.fill" : "lock.fill").font(.system(size: 10))
+            Image(systemName: tag.watch ? "eye.fill" : (tag.sealed ? "envelope.fill" : "lock.fill")).font(.system(size: 10))
             Text(tag.name).font(Theme.text(12, weight: .semibold)).lineLimit(1)
         }
         .foregroundStyle(Theme.gold)
@@ -118,4 +118,6 @@ struct WalletTagView: View {
 struct WalletTag: Equatable {
     let name: String
     var sealed = false
+    /// Watch only: added from a viewing key, nothing can be spent from it.
+    var watch = false
 }

@@ -55,7 +55,9 @@ struct ArrivalToast: View {
 
     /// The wallet's name in the title: the Mac holds several wallets.
     private func title(_ arrival: WalletEngine.Arrival) -> String {
-        (arrival.kind == .shielded ? "Locked in ✓ · " : "Locked in · ") + engine.walletName(arrival.account)
+        // A watch-only wallet only sees the payment: nothing was locked in here.
+        if engine.watchWallets.contains(where: { $0.id == arrival.account }) { return "Received · " + engine.walletName(arrival.account) }
+        return (arrival.kind == .shielded ? "Locked in ✓ · " : "Locked in · ") + engine.walletName(arrival.account)
     }
 
     private func detail(_ arrival: WalletEngine.Arrival) -> String {

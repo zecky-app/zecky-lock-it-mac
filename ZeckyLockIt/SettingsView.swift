@@ -551,7 +551,11 @@ struct SettingsView: View {
 
     @ViewBuilder private var phrasePage: some View {
             card("Recovery phrase", icon: "doc.text.magnifyingglass") {
-                if model.isSealedSelected {
+                if model.isWatchSelected {
+                    Text("\(walletWords) is watch only: Lock it has only its viewing key, no words, so there is nothing to show here.")
+                        .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if model.isSealedSelected {
                     // A Seal it wallet has no words on this Mac: showing the
                     // main wallet's words here would be the wrong wallet's.
                     Text("\(walletWords) is paired with a signing device. Its 24 words are on that device, never on this Mac, so there is nothing to show here.")
@@ -943,7 +947,7 @@ struct SettingsView: View {
     /// The words of the wallet on screen. An extra wallet on this Mac has
     /// its own, opened with the main ones; a Seal it wallet has none here.
     private func wordsOfSelected(main: StoredWallet) throws -> StoredWallet {
-        guard !model.isSealedSelected else { throw WalletVault.Failure.cancelled }
+        guard !model.isKeylessSelected else { throw WalletVault.Failure.cancelled }
         if let id = model.selectedWallet, KeyRingVault.contains(id) {
             return try KeyRingVault.open(id: id, mainPhrase: main.phrase)
         }
@@ -952,7 +956,7 @@ struct SettingsView: View {
 
     private func showPhrase() async {
         problem = nil
-        guard !model.isSealedSelected else { return }
+        guard !model.isKeylessSelected else { return }
         // With "Ask a key for the recovery phrase" on, a security key is
         // touched first. Unreadable key data counts as on.
         if SecurityKeys.phraseNeedsKey {

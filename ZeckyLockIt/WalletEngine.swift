@@ -471,7 +471,7 @@ final class WalletEngine: ObservableObject {
             let lead = UserDefaults.standard.string(forKey: Self.leadKey)
             guard let first = (all.first(where: { lead != nil && KeyRingVault.hex($0.id) == lead })
                                ?? all.first(where: { $0.keySource == nil })
-                               ?? all.first(where: { !SealItFlow.isSealIt($0) && $0.keySource != Self.macKeySource }))?.id else {
+                               ?? all.first(where: { !SealItFlow.isSealIt($0) && !WatchOnly.isWatch($0) && $0.keySource != Self.macKeySource }))?.id else {
                 if seed == nil { return false }
                 status = .failed("The wallet account could not be created.")
                 return true
@@ -500,6 +500,8 @@ final class WalletEngine: ObservableObject {
     @Published private(set) var signerTotal: Int64 = 0
     /// The Seal it wallets on the key ring, in the order they were added.
     @Published private(set) var sealedWallets: [Account] = []
+    /// Watch-only wallets (from a viewing key), in the order they were added.
+    @Published private(set) var watchWallets: [Account] = []
     /// Extra wallets with their keys on this Mac (words in the key ring vault).
     @Published private(set) var macWallets: [Account] = []
 
@@ -510,9 +512,10 @@ final class WalletEngine: ObservableObject {
     @Published private(set) var leadWallet: Account?
 
     func refreshSealedWallets() async {
-        guard let synchronizer else { sealedWallets = []; macWallets = []; leadWallet = nil; return }
+        guard let synchronizer else { sealedWallets = []; watchWallets = []; macWallets = []; leadWallet = nil; return }
         let all = (try? await synchronizer.listAccounts()) ?? []
         sealedWallets = all.filter { SealItFlow.isSealIt($0) }
+        watchWallets = all.filter { WatchOnly.isWatch($0) }
         macWallets = all.filter { $0.keySource == Self.macKeySource && $0.id != account }
         leadWallet = all.first { $0.id == account }
     }
@@ -548,10 +551,31 @@ final class WalletEngine: ObservableObject {
 
     /// More than the main wallet behind the lock: screens then name the
     /// wallet they work on wherever money moves.
-    var hasSeveralWallets: Bool { !macWallets.isEmpty || !sealedWallets.isEmpty }
+    var hasSeveralWallets: Bool { !macWallets.isEmpty || !sealedWallets.isEmpty || !watchWallets.isEmpty }
 
     func tag(_ id: AccountUUID) -> WalletTag {
-        WalletTag(name: walletName(id), sealed: sealedWallets.contains { $0.id == id })
+        WalletTag(name: walletName(id), sealed: sealedWallets.contains { $0.id == id },
+                  watch: watchWallets.contains { $0.id == id })
+    }
+
+    /// Adds a watch-only wallet from a checked viewing key (WatchOnly.cleaned).
+    /// View-only in the engine: it can show this wallet, never spend from it.
+    func addWatchWallet(key: String, name: String, birthday: Int) async throws -> AccountUUID {
+        guard let synchronizer else { throw EngineError.notReady }
+        let all = (try? await synchronizer.listAccounts()) ?? []
+        if all.contains(where: { $0.ufvk?.stringEncoded == key }) { throw WatchOnly.Failure.alreadyHere }
+        let id = try await synchronizer.importAccount(
+            ufvk: key, seedFingerprint: nil, zip32AccountIndex: nil, purpose: .viewOnly,
+            name: name, keySource: WatchOnly.keySource, birthday: BlockHeight(birthday))
+        await refreshSealedWallets()
+        return id
+    }
+
+    /// A shielded-only (Orchard) address of a wallet without keys on this
+    /// Mac, as for signing devices.
+    func shieldedOnlyAddress(of id: AccountUUID) async throws -> String {
+        guard let synchronizer else { throw EngineError.notReady }
+        return try await synchronizer.getCustomUnifiedAddress(accountUUID: id, receivers: [.orchard]).stringEncoded
     }
 
     /// What the chosen wallet can spend now.
@@ -771,12 +795,30 @@ final class WalletEngine: ObservableObject {
     /// 2026: a TEX payment right after starting, about 1,000 blocks behind,
     /// refused by the node). So nothing is priced or signed until the wallet
     /// is up to date, by the same rule as the status line.
-    nonisolated static func caughtUpProblem(network: Int, wallet: Int) -> SendError? {
-        SyncMath.nearlyCurrent(network: network, wallet: wallet) ? nil : .notCaughtUp(wallet: wallet, network: network)
+    ///
+    /// Up to date means the newest blocks: also when every block is checked
+    /// without gaps up to the network block (`wallet`), or when the newest
+    /// blocks were seen checked at `newestCheckedAt` (within 3 blocks of the
+    /// network block now) while older blocks for a wallet just added are
+    /// still checked in the background (25 Nov 2026: pairing a Keystone held
+    /// up sending from every wallet for 1.5 hours).
+    nonisolated static func caughtUpProblem(network: Int, wallet: Int, newestCheckedAt: Int? = nil) -> SendError? {
+        if SyncMath.nearlyCurrent(network: network, wallet: wallet) { return nil }
+        if let at = newestCheckedAt, network > 0, abs(network - at) <= 3 { return nil }
+        return .notCaughtUp(wallet: wallet, network: network)
     }
 
     private func requireCaughtUp() throws {
-        if let problem = Self.caughtUpProblem(network: networkHeight, wallet: walletHeight) { throw problem }
+        if let problem = Self.caughtUpProblem(network: networkHeight, wallet: walletHeight, newestCheckedAt: newestCheckedAt) { throw problem }
+    }
+
+    /// The network block at which the newest blocks were last seen checked
+    /// without a gap (from the engine's scan state); nil when they were not.
+    @Published private(set) var newestCheckedAt: Int?
+    /// Older blocks are still being checked while the newest are done.
+    var checkingOlder: Bool {
+        status != .upToDate && !SyncMath.nearlyCurrent(network: networkHeight, wallet: walletHeight)
+            && Self.caughtUpProblem(network: networkHeight, wallet: walletHeight, newestCheckedAt: newestCheckedAt) == nil
     }
 
     func planIronwoodMove() async throws -> SendPlan {
@@ -1080,6 +1122,7 @@ final class WalletEngine: ObservableObject {
         signerTotal = 0
         signerBalances = [:]
         sealedWallets = []
+        watchWallets = []
         macWallets = []
         focus = nil
         activity = []
@@ -1167,7 +1210,6 @@ final class WalletEngine: ObservableObject {
     @Published private(set) var arrivals: [Arrival] = []
     private var seenPayments: Set<Data> = []
     private var shieldingsWaiting: Set<Data> = []
-    private var caughtUp = false
     /// Payments that already had their message, kept across restarts, so a
     /// payment from the last 30 minutes is not announced again after Lock
     /// it starts anew. Only the newest 100, on this Mac only.
@@ -1214,20 +1256,18 @@ final class WalletEngine: ObservableObject {
         shielded.forEach { shieldingsWaiting.remove($0.rawID) }
         txs.filter { $0.isShielding && $0.minedHeight == nil && $0.isExpiredUmined != true }
             .forEach { shieldingsWaiting.insert($0.rawID) }
-        let wasCaughtUp = caughtUp
-        if status == .upToDate { caughtUp = true }
-        // Before the first catch-up, only what is clearly new is news: still
-        // waiting for a block, or in a block from the last 30 minutes. So a
-        // payment that arrives while Lock it is still checking gets its
-        // message too, and old history does not.
-        let recent = Date().addingTimeInterval(-30 * 60).timeIntervalSince1970
+        // Only what is clearly new is news: still waiting for a block, or in
+        // a block from the last 30 minutes. Always, not only before the
+        // first catch-up: a newly added wallet finds its old payments while
+        // the others are up to date, and those are history.
+        let network = networkHeight
         // A payment between two wallets on this Mac is one transaction with
         // a line per wallet: only the receiving wallet's line is news. The
         // sending wallet's line (it sent notes, its change comes back) never is.
         let received = fresh.filter {
             !$0.isSentTransaction && $0.sentNoteCount == 0 && !$0.isShielding && $0.poolCrossingValue == nil
                 && $0.isExpiredUmined != true && $0.value.amount > 0
-                && (wasCaughtUp || $0.minedHeight == nil || ($0.blockTime ?? 0) >= recent)
+                && Self.isNews(minedHeight: $0.minedHeight.map { Int($0) }, blockTime: $0.blockTime, network: network)
         }
         // One message per payment: the engine can list a payment more than
         // once (one line per pool it arrived in), so each id counts once.
@@ -1240,10 +1280,19 @@ final class WalletEngine: ObservableObject {
         arrivals += newReceived.map { Arrival(id: $0.rawID, account: $0.accountUUID, kind: .lockedIn, amount: $0.value.amount) }
     }
 
+    /// A payment is news when it is still waiting for a block, or in one of
+    /// the last 100 blocks (about 40 minutes), or its block is from the last
+    /// 30 minutes. Older payments found later are history.
+    nonisolated static func isNews(minedHeight: Int?, blockTime: TimeInterval?, network: Int, now: Date = Date()) -> Bool {
+        guard let minedHeight else { return true }
+        if network > 0, minedHeight >= network - 100 { return true }
+        return (blockTime ?? 0) >= now.addingTimeInterval(-30 * 60).timeIntervalSince1970
+    }
+
     /// The key ring name of a wallet, for the arrival message.
     func walletName(_ id: AccountUUID) -> String {
         if let lead = leadWallet, lead.id == id { return WalletNames.display(lead, lead: true) }
-        if let wallet = (macWallets + sealedWallets).first(where: { $0.id == id }) {
+        if let wallet = (macWallets + sealedWallets + watchWallets).first(where: { $0.id == id }) {
             return WalletNames.display(wallet, lead: false)
         }
         return id == account ? "This Mac" : "Wallet"
@@ -1257,7 +1306,7 @@ final class WalletEngine: ObservableObject {
     var isCurrent: Bool {
         switch status {
         case .upToDate: return true
-        case .syncing: return SyncMath.nearlyCurrent(network: networkHeight, wallet: walletHeight)
+        case .syncing: return Self.caughtUpProblem(network: networkHeight, wallet: walletHeight, newestCheckedAt: newestCheckedAt) == nil
         default: return false
         }
     }
@@ -1276,6 +1325,8 @@ final class WalletEngine: ObservableObject {
     @Published private(set) var problems: [SyncMath.Problem] = []
     /// Recent (time, wallet height) samples for a rough time to go.
     private(set) var heightSamples: [SyncMath.Sample] = []
+    /// Blocks still open (all ranges) over the last minute, for the pace.
+    private(set) var openSamples: [SyncMath.Sample] = []
 
     private func recordProblem(_ message: String) {
         problems = SyncMath.adding(SyncMath.Problem(at: Date(), message: message), to: problems)
@@ -1360,6 +1411,8 @@ final class WalletEngine: ObservableObject {
                 all += pool.total().amount
             }
             perSigner[id] = (usable, all)
+            // A watch-only wallet is shown on its own, never counted as yours.
+            if watchWallets.contains(where: { $0.id == id }) { continue }
             signerSpendable += usable
             signerTotal += all
         }
@@ -1442,6 +1495,8 @@ final class WalletEngine: ObservableObject {
             // Read only: the engine's scan state, nothing is changed.
             guard let overview = try? await synchronizer.scanOverview() else { return }
             let ranges = overview.toScan.map { (first: Int($0.first), end: Int($0.end)) }
+            newestCheckedAt = SyncMath.newestChecked(toScan: ranges, network: networkHeight) ? networkHeight : nil
+            openSamples = Array((openSamples + [SyncMath.Sample(at: Date(), height: SyncMath.openCount(toScan: ranges, tip: networkHeight))]).suffix(30))
             guard let share = SyncMath.checkedShare(toScan: ranges, birthday: birthdayHeight, tip: networkHeight) else { return }
             let open = Int(((1 - share) * Double(networkHeight - birthdayHeight)).rounded())
             openBlocks = open

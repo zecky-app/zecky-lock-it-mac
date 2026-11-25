@@ -17,6 +17,17 @@ enum SyncMath {
         network > 0 && wallet > 0 && network - wallet <= 3
     }
 
+    /// The newest blocks are checked without a gap: nothing is left to check
+    /// from `window` blocks below the network block up to 3 below it. Older
+    /// blocks may still be open, for a wallet just added (its history is
+    /// checked in the background, newest first); they do not change what
+    /// the chain looks like now, so they do not hold up sending.
+    static func newestChecked(toScan: [(first: Int, end: Int)], network: Int, window: Int = 100) -> Bool {
+        guard network > window else { return false }
+        let low = network - window, high = network - 3
+        return !toScan.contains { $0.first <= high && $0.end > low }
+    }
+
     /// A block download or server call that broke off while syncing, such as
     /// "LightWalletService.blockStream failed." The engine retries by itself,
     /// so it is shown calmly, not as an error (as Lock it iPhone).
@@ -41,6 +52,32 @@ enum SyncMath {
         let rate = Double(last.height - first.height) / seconds
         guard rate > 0 else { return nil }
         return max(1, Int((Double(behind) / rate / 60).rounded()))
+    }
+
+    /// Minutes to go from how fast the engine checks blocks: each sample's
+    /// height is the number of blocks still open (all ranges, any wallet),
+    /// so the pace holds while it re-checks older blocks for a newly added
+    /// wallet, when the gap-free height hardly moves. Nil until there are a
+    /// few samples over at least 20 seconds and the open count is falling.
+    static func minutesLeft(open: Int, openSamples samples: [Sample]) -> Int? {
+        guard open > 0, samples.count >= 3, let first = samples.first, let last = samples.last else { return nil }
+        let seconds = last.at.timeIntervalSince(first.at)
+        guard seconds >= 20 else { return nil }
+        let rate = Double(first.height - last.height) / seconds
+        guard rate > 0 else { return nil }
+        return max(1, Int((Double(open) / rate / 60).rounded()))
+    }
+
+    /// Blocks below the tip still to check, in all ranges, overlaps once.
+    static func openCount(toScan: [(first: Int, end: Int)], tip: Int) -> Int {
+        let parts = toScan.map { ($0.first, min($0.end, tip)) }.filter { $0.1 > $0.0 }.sorted { $0.0 < $1.0 }
+        var open = 0, reach = Int.min
+        for (a, b) in parts {
+            let from = max(a, reach)
+            if b > from { open += b - from }
+            reach = max(reach, b)
+        }
+        return open
     }
 
     /// How much of [birthday, tip) is checked, 0…1, from the engine's own
@@ -133,7 +170,7 @@ struct SyncSheet: View {
                     line("This wallet", known && wallet > 0 ? n(wallet) : engine.lastWalletCheckedTo.map { n($0) + " (last time)" } ?? "…")
                     line("Behind", behindText)
                     if known, let start = engine.olderStart, let share = engine.olderShare {
-                        line("Older blocks", String(format: "%.0f%% checked", (share * 100).rounded(.down)) + " · from \(n(start))")
+                        line("Older blocks", String(format: "%.0f%% checked", (share * 100).rounded(.down)) + " · from \(n(start))" + olderMinutes)
                     }
                     line("Block time", network == 0 ? "…" : BlockTime.spacing(at: network) == 25 ? "25 seconds (since NU7)" : "75 seconds")
                     line("Checked from", engine.birthdayHeight > 0 ? "Block \(n(engine.birthdayHeight))" : "…", last: true)
@@ -198,12 +235,20 @@ struct SyncSheet: View {
         }
     }
 
+    /// Time left for the older blocks, once this wallet's own are done (the
+    /// engine checks the newest first): all open blocks at the recent pace.
+    private var olderMinutes: String {
+        guard upToDate, let open = engine.openSamples.last?.height,
+              let minutes = SyncMath.minutesLeft(open: open, openSamples: engine.openSamples) else { return "" }
+        return " · about \(minutes) min"
+    }
+
     private var behindText: String {
         // Blocks since the wallet birthday still to check (the engine may also
         // be checking older ranges that are not this wallet's).
         guard known, let behind = upToDate ? 0 : (engine.openBlocks ?? behind) else { return "…" }
         if behind == 0 { return "Nothing" }
-        let minutes = SyncMath.minutesLeft(behind: behind, samples: engine.heightSamples)
+        let minutes = SyncMath.minutesLeft(open: behind, openSamples: engine.openSamples)
         return "\(n(behind)) blocks" + (minutes.map { ", about \($0) min" } ?? "")
     }
 
@@ -249,7 +294,7 @@ struct SyncSheet: View {
         }
         if upToDate { return "Every block since block \(n(engine.birthdayHeight)), for all wallets on this Mac" }
         if let open = engine.openBlocks, open > 0 {
-            return "Of all blocks since block \(n(engine.birthdayHeight)). Catching up \(n(open)) new \(open == 1 ? "block" : "blocks")."
+            return "Of all blocks since block \(n(engine.birthdayHeight)). \(n(open)) \(open == 1 ? "block" : "blocks") still to check."
         }
         return "Of all blocks since block \(n(engine.birthdayHeight))"
     }
