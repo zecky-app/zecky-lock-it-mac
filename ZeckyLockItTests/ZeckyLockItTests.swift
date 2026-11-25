@@ -2043,4 +2043,23 @@ final class CodeIdentityTests: XCTestCase {
         // 7.
         XCTAssertTrue(WatchOnly.addressProblem("no Orchard receiver").contains("no Orchard part"))
     }
+    /// Pairing asks "new or already used?": a new wallet starts 1,000 blocks
+    /// back, a used one a little before the month given, and "I don't know"
+    /// where the device added Zcash (Keystone Dec 2024, Cupcake NU7).
+    func testPairingStart() {
+        let tip = 3_609_700
+        let now = Date(timeIntervalSince1970: 1_795_600_000)
+        XCTAssertEqual(PairingStart.height(.new, cupcake: false, tip: tip, now: now), tip - 1_000)
+        XCTAssertEqual(PairingStart.height(.new, cupcake: true, tip: tip, now: now), tip - 1_000, "a new Cupcake no longer starts at NU7")
+        XCTAssertEqual(PairingStart.height(.unknown, cupcake: true, tip: tip, now: now), NetworkUpgrade.nu7Height)
+        let keystone = PairingStart.height(.unknown, cupcake: false, tip: tip, now: now)
+        XCTAssertEqual(keystone, Birthday.estimate(year: 2024, month: 12, tip: tip, now: now))
+        XCTAssertGreaterThan(keystone, WatchOnly.orchardStart)
+        XCTAssertLessThan(keystone, NetworkUpgrade.nu7Height)
+        let june = PairingStart.height(.since(year: 2026, month: 6), cupcake: false, tip: tip, now: now)
+        XCTAssertEqual(june, Birthday.estimate(year: 2026, month: 6, tip: tip, now: now))
+        XCTAssertLessThan(june, tip - 1_000)
+        XCTAssertEqual(PairingStart.height(.since(year: 2022, month: 1), cupcake: false, tip: tip, now: now), WatchOnly.orchardStart, "never before Orchard")
+        XCTAssertLessThanOrEqual(PairingStart.height(.since(year: 2026, month: 11), cupcake: true, tip: tip, now: now), tip - 1_000, "this month: at most 1,000 back")
+    }
 }

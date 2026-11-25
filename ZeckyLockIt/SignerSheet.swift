@@ -28,7 +28,7 @@ struct SignerSheet: View {
 
     var body: some View {
         SheetScaffold(title: pairingAtOpen ? "Signing device" : (sending ? "Send Zcash" : "Receive"),
-                      subtitle: pairingAtOpen ? "Pair the offline phone that holds the keys."
+                      subtitle: pairingAtOpen ? "Pair the offline device that holds the keys."
                                 : (sending ? "Written here, signed on your device, sent from here."
                                            : "Zcash sent here is kept in this sealed wallet."),
                       width: 560, height: 760,
@@ -66,6 +66,12 @@ private struct SealContent: View {
     @State private var checked = false
     @State private var pairing = false
     @State private var pairNote: String?
+    /// The answer to "new or already used?", asked before the camera opens.
+    @State private var pairStart: PairingStart?
+    @State private var askingSince = false
+    @State private var sinceKnown = true
+    @State private var sinceYear = Calendar(identifier: .gregorian).component(.year, from: Date())
+    @State private var sinceMonth = Calendar(identifier: .gregorian).component(.month, from: Date())
     @State private var address: String?
     @State private var copied = false
     @State private var showQR = true
@@ -176,7 +182,9 @@ private struct SealContent: View {
     // MARK: Pair
 
     @ViewBuilder private var pair: some View {
-        if pairing {
+        if pairing && pairStart == nil {
+            newOrUsed
+        } else if pairing {
             Text("On your device, open Cupcake or Keystone and show the QR code for connecting a wallet. Hold it up to this Mac's camera.")
                 .font(Theme.text(13)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -185,7 +193,7 @@ private struct SealContent: View {
             }
             if let pairNote { Text(pairNote).font(Theme.text(12)).foregroundStyle(Theme.muted) }
             Spacer()
-            QuietButton(title: "Cancel") { pairing = false; pairNote = nil }
+            QuietButton(title: "Cancel") { stopPairing() }
         } else {
             mark()
             VStack(alignment: .leading, spacing: 10) {
@@ -199,6 +207,47 @@ private struct SealContent: View {
             if let pairNote { Text(pairNote).font(Theme.text(12)).foregroundStyle(Theme.red) }
             Spacer()
             PrimaryButton(title: "Pair a signing device") { pairNote = nil; pairing = true }
+        }
+    }
+
+    private func stopPairing() {
+        pairing = false; pairNote = nil; pairStart = nil; askingSince = false
+    }
+
+    private let monthNames = ["January", "February", "March", "April", "May", "June", "July",
+                              "August", "September", "October", "November", "December"]
+
+    /// Asked once before the camera opens: a new wallet is ready in seconds,
+    /// a used one is checked from when it was first used.
+    @ViewBuilder private var newOrUsed: some View {
+        Text("Is this a new wallet?").font(Theme.serif(20, weight: .medium)).foregroundStyle(Theme.text)
+        if !askingSince {
+            Text("A new wallet is ready in seconds. For a wallet that already holds Zcash, Lock it also checks the older blocks, so its payments and balance show up.")
+                .font(Theme.text(13)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            PrimaryButton(title: "New, never used") { pairStart = .new }
+            SecondaryButton(title: "It already holds Zcash") { askingSince = true }
+            Spacer()
+            QuietButton(title: "Cancel") { stopPairing() }
+        } else {
+            Text("Since when has this wallet been used?").font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.muted)
+            HStack(spacing: 10) {
+                Picker("Year", selection: $sinceYear) {
+                    ForEach(Array((2022...Calendar(identifier: .gregorian).component(.year, from: Date())).reversed()), id: \.self) { Text(String($0)).tag($0) }
+                }
+                .frame(width: 140).disabled(!sinceKnown)
+                Picker("Month", selection: $sinceMonth) { ForEach(1...12, id: \.self) { Text(monthNames[$0 - 1]).tag($0) } }
+                    .frame(width: 190).disabled(!sinceKnown)
+            }
+            Toggle("I don't know", isOn: Binding(get: { !sinceKnown }, set: { sinceKnown = !$0 }))
+            Text(sinceKnown
+                 ? "Lock it checks from a little before then. Your other wallets stay usable; this one shows \u{201C}may grow\u{201D} until its older blocks are done."
+                 : "Lock it checks from when your device added Zcash: Keystone in December 2024, Cupcake at the NU7 upgrade. Your other wallets stay usable meanwhile.")
+                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            PrimaryButton(title: "Continue") { pairStart = sinceKnown ? .since(year: sinceYear, month: sinceMonth) : .unknown }
+            Spacer()
+            QuietButton(title: "Back") { askingSince = false }
         }
     }
 
@@ -216,11 +265,9 @@ private struct SealContent: View {
     private func importAccount(_ message: Data) async {
         pairNote = "Adding the wallet…"
         do {
-            let birthday = await flow.recentBirthday()
-            let id = try await flow.importAccount(fromAccountsUR: message, birthday: birthday)
+            let id = try await flow.importAccount(fromAccountsUR: message, start: pairStart ?? .new)
             await engine.resumeSyncing()
-            pairing = false
-            pairNote = nil
+            stopPairing()
             account = id
             model.selectedWallet = id
             await engine.refreshSealedWallets()
@@ -288,7 +335,7 @@ private struct SealContent: View {
                     .onAppear { withAnimation(.spring(response: 0.45, dampingFraction: 0.55)) { pressed = 1 } }
                     .onDisappear { pressed = 0 }
                 Text("Sealed and sent").font(Theme.serif(28, weight: .medium))
-                Text("Sealed on your offline phone. The keys never touched this Mac.")
+                Text("Sealed on your signing device. The keys never touched this Mac.")
                     .font(Theme.text(13)).foregroundStyle(Theme.muted)
                 if !txId.isEmpty {
                     Text(txId).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted)

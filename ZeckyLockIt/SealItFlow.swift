@@ -123,10 +123,10 @@ final class SealItFlow: ObservableObject {
     }
 
     /// Imports the first account from a scanned `ur:zcash-accounts` message.
-    /// `birthday`: for a brand-new Seal it wallet, a recent height avoids scanning
-    /// years of chain.
+    /// `choice`: the owner's answer to "new or already used?" (PairingStart),
+    /// so a new wallet is ready in seconds and a used one shows its history.
     @discardableResult
-    func importAccount(fromAccountsUR message: Data, birthday: BlockHeight?) async throws -> AccountUUID {
+    func importAccount(fromAccountsUR message: Data, start choice: PairingStart) async throws -> AccountUUID {
         let export = try SealItPayload.parseAccounts(message)
         let account = export.accounts[0]
 
@@ -139,9 +139,10 @@ final class SealItFlow: ObservableObject {
             }
         }
 
-        // Cupcake's QR has no birthday and its wallet may hold Zcash
-        // already: look from NU7 on (Cupcake added Zcash after it).
-        let start = export.fromCupcake ? BlockHeight(NetworkUpgrade.nu7Height) : birthday
+        // Where to start is the owner's answer to "new or already used?";
+        // which device it is shows only now, after the scan.
+        let tip = (try? await synchronizer.latestHeight()).map { Int($0) } ?? Birthday.estimatedTip()
+        let start: BlockHeight? = BlockHeight(PairingStart.height(choice, cupcake: export.fromCupcake, tip: tip))
         let id = try await synchronizer.importAccount(
             ufvk: account.ufvk,
             seedFingerprint: export.seedFingerprint,
@@ -174,10 +175,6 @@ final class SealItFlow: ObservableObject {
     }
 
     /// A safe birthday for a brand-new signer seed: a little below the chain tip.
-    func recentBirthday() async -> BlockHeight? {
-        guard let tip = try? await synchronizer.latestHeight() else { return nil }
-        return max(tip - 1_000, 0)
-    }
 
     // MARK: Sending
 
@@ -301,6 +298,32 @@ final class SealItFlow: ObservableObject {
             case .submit(let reason):
                 return "The server refused the payment: \(reason)"
             }
+        }
+    }
+}
+
+/// Pairing a signing device: the owner says whether the wallet is new or
+/// already holds Zcash, and since when. A new wallet starts 1,000 blocks
+/// back (seconds, with the exact tree state). A used one starts a little
+/// before the month given, or, when unknown, where the device added Zcash:
+/// Keystone with Zashi in December 2024, Cupcake after NU7.
+enum PairingStart: Equatable {
+    case new
+    case since(year: Int, month: Int)
+    case unknown
+
+    /// Keystone's shielded Zcash (with Zashi) came on 19 December 2024.
+    nonisolated static let keystoneYear = 2024, keystoneMonth = 12
+
+    static func height(_ choice: PairingStart, cupcake: Bool, tip: Int, now: Date = Date()) -> Int {
+        switch choice {
+        case .new:
+            return max(tip - 1_000, WatchOnly.orchardStart)
+        case .since(let year, let month):
+            return min(max(Birthday.estimate(year: year, month: month, tip: tip, now: now), WatchOnly.orchardStart), max(tip - 1_000, WatchOnly.orchardStart))
+        case .unknown:
+            if cupcake { return NetworkUpgrade.nu7Height }
+            return Birthday.estimate(year: keystoneYear, month: keystoneMonth, tip: tip, now: now)
         }
     }
 }

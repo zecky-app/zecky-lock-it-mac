@@ -420,7 +420,7 @@ struct SendComposer: View {
                                         : "This is one of your own addresses: only the network fee leaves the lock.", Theme.muted)
             }
             if purpose == .sealIt {
-                note("Next, your offline phone shows the same address and amount. Check them there before you seal it.", Theme.muted)
+                note("Next, your signing device shows the same address and amount. Check them there before you seal it.", Theme.muted)
             }
             if let reviewNote { note(reviewNote, Theme.muted) }
             Spacer(minLength: 0)
