@@ -1071,6 +1071,27 @@ final class WalletEngine: ObservableObject {
         return outcome
     }
 
+    /// Activity of the selected wallet as CSV rows, with each payment's
+    /// note. Read from this Mac's own wallet data; nothing is sent.
+    func csvRows() async -> [ActivityCSV.Row] {
+        var rows: [ActivityCSV.Row] = []
+        for item in activity {
+            let status: String
+            switch item.state {
+            case .confirmed: status = "confirmed"
+            case .waiting: status = "waiting"
+            case .expired: status = "expired"
+            }
+            rows.append(ActivityCSV.Row(date: item.date, received: item.kind == .received, amount: item.amount,
+                                        fee: item.fee, status: status, block: item.minedHeight,
+                                        memo: await note(for: item.id), txid: item.txid))
+        }
+        return rows
+    }
+
+    /// The selected wallet's key ring name, for the export file name.
+    var currentName: String { current.map(walletName) ?? "wallet" }
+
     /// The private note that travelled with a payment, read from this Mac's
     /// own wallet data. nil when there is none.
     func note(for id: Data) async -> String? {
@@ -1520,4 +1541,73 @@ final class WalletEngine: ObservableObject {
     /// Your Zcash by pool, straight from the engine's balance report.
     struct Pools: Equatable { var ironwood: Int64 = 0, orchard: Int64 = 0, sapling: Int64 = 0, transparent: Int64 = 0 }
     @Published var pools = Pools()
+}
+
+/// Activity as a CSV file for bookkeeping: one line per payment, amounts in
+/// ZEC with 8 decimals and a dot, local time with its offset. Anyone can send
+/// a memo, so a field that a spreadsheet would read as a formula gets a
+/// leading ' and every field is quoted the standard way (RFC 4180).
+enum ActivityCSV {
+    struct Row: Equatable {
+        let date: Date?
+        let received: Bool
+        let amount: Int64
+        let fee: Int64?
+        let status: String
+        let block: Int?
+        let memo: String?
+        let txid: String
+    }
+
+    nonisolated static let header = "date,direction,amount_zec,fee_zec,status,block,memo,txid"
+
+    /// 8 decimals, no rounding: 123456789 zatoshi is 1.23456789.
+    nonisolated static func zec(_ zatoshi: Int64) -> String {
+        let sign = zatoshi < 0 ? "-" : ""
+        let z = zatoshi.magnitude
+        let frac = String(z % 100_000_000)
+        return sign + String(z / 100_000_000) + "." + String(repeating: "0", count: 8 - frac.count) + frac
+    }
+
+    /// One field: formula guard first, then quoted when needed.
+    nonisolated static func field(_ raw: String) -> String {
+        var text = raw
+        if let first = text.unicodeScalars.first, "=+-@\t\r".unicodeScalars.contains(first) { text = "'" + text }
+        let needsQuotes = text.contains { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" }
+            || text.first == " " || text.last == " "
+        return needsQuotes ? "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\"" : text
+    }
+
+    nonisolated static func date(_ date: Date?, zone: TimeZone) -> String {
+        guard let date else { return "" }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.timeZone = zone
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss xxxxx"
+        return f.string(from: date)
+    }
+
+    nonisolated static func line(_ row: Row, zone: TimeZone) -> String {
+        [date(row.date, zone: zone), row.received ? "received" : "sent", zec(row.amount),
+         row.fee.map { zec($0) } ?? "", row.status, row.block.map { String($0) } ?? "",
+         field(row.memo ?? ""), field(row.txid)].joined(separator: ",")
+    }
+
+    /// The whole file, UTF-8 with a byte order mark so Excel reads memos
+    /// with accents or emoji right, lines ending in CRLF.
+    nonisolated static func file(_ rows: [Row], zone: TimeZone = .current) -> Data {
+        let text = ([header] + rows.map { line($0, zone: zone) }).joined(separator: "\r\n") + "\r\n"
+        return Data("\u{FEFF}".utf8) + Data(text.utf8)
+    }
+
+    /// zecky-shop-2026-11-25.csv: the wallet name in plain letters.
+    nonisolated static func fileName(wallet: String, now: Date = Date(), zone: TimeZone = .current) -> String {
+        let slug = wallet.lowercased().unicodeScalars
+            .map { CharacterSet.alphanumerics.contains($0) && $0.isASCII ? String($0) : "-" }.joined()
+            .split(separator: "-").joined(separator: "-")
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = zone; f.dateFormat = "yyyy-MM-dd"
+        return "zecky-" + (slug.isEmpty ? "wallet" : slug) + "-" + f.string(from: now) + ".csv"
+    }
 }

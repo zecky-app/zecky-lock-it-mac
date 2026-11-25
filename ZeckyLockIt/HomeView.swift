@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import SwiftUI
 import ZcashLightClientKit
@@ -895,6 +896,8 @@ struct ActivitySheet: View {
         var id: Self { self }
     }
     @State private var filter: Filter = .all
+    @State private var exporting = false
+    @State private var exportNote: String?
     /// The payment whose details are open, by its ID.
     @State private var chosen: Data?
 
@@ -947,6 +950,14 @@ struct ActivitySheet: View {
                         Chip(title: f.rawValue, on: filter == f) { filter = f }
                     }
                     Spacer()
+                    if let exportNote {
+                        Text(exportNote).font(Theme.text(11)).foregroundStyle(Theme.muted)
+                    }
+                    Button(exporting ? "Exporting…" : "Export CSV…") { Task { await exportCSV() } }
+                        .buttonStyle(.plain)
+                        .font(Theme.text(12, weight: .medium)).foregroundStyle(Theme.gold)
+                        .disabled(exporting || engine.activity.isEmpty)
+                        .help("Save this wallet's payments as a CSV file for bookkeeping: date, direction, amount, fee, status, block, memo and transaction ID.")
                 }
                 .padding(.bottom, 12)
                 if entries.isEmpty {
@@ -958,6 +969,24 @@ struct ActivitySheet: View {
                     ActivityList(entries: entries, unit: model.unit, hidden: model.amountsHidden) { chosen = $0.id }
                 }
             }
+        }
+    }
+
+    /// Every payment of this wallet to a CSV file the owner picks.
+    private func exportCSV() async {
+        exporting = true
+        defer { exporting = false }
+        exportNote = nil
+        let data = ActivityCSV.file(await engine.csvRows())
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = ActivityCSV.fileName(wallet: engine.currentName)
+        panel.allowedContentTypes = [.commaSeparatedText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try data.write(to: url, options: .atomic)
+            exportNote = "Saved \(url.lastPathComponent)"
+        } catch {
+            exportNote = "Could not save: \(error.localizedDescription)"
         }
     }
 

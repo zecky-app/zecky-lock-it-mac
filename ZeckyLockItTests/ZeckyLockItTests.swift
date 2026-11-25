@@ -1947,4 +1947,38 @@ final class CodeIdentityTests: XCTestCase {
         XCTAssertFalse(WalletEngine.isNews(minedHeight: 2_400_000, blockTime: now.timeIntervalSince1970 - 86_400 * 600, network: 3_609_479, now: now), "a payment from 2024")
         XCTAssertFalse(WalletEngine.isNews(minedHeight: 3_609_000, blockTime: nil, network: 3_609_479, now: now), "older than 100 blocks, no time")
     }
+    /// CSV for bookkeeping: exact amounts, standard quoting, and a memo
+    /// (anyone can send one) never runs as a spreadsheet formula.
+    func testActivityCSV() throws {
+        XCTAssertEqual(ActivityCSV.zec(123_456_789), "1.23456789")
+        XCTAssertEqual(ActivityCSV.zec(10_000), "0.00010000")
+        XCTAssertEqual(ActivityCSV.zec(2_100_000_000_000_000), "21000000.00000000")
+        XCTAssertEqual(ActivityCSV.zec(0), "0.00000000")
+
+        XCTAssertEqual(ActivityCSV.field("Order 42"), "Order 42")
+        XCTAssertEqual(ActivityCSV.field("a, b"), "\"a, b\"")
+        XCTAssertEqual(ActivityCSV.field("say \"hi\""), "\"say \"\"hi\"\"\"")
+        XCTAssertEqual(ActivityCSV.field("two\nlines"), "\"two\nlines\"")
+        XCTAssertEqual(ActivityCSV.field("=HYPERLINK(\"x\")"), "\"'=HYPERLINK(\"\"x\"\")\"")
+        for bad in ["+1", "-1", "@SUM(A1)", "\tx"] { XCTAssertTrue(ActivityCSV.field(bad).contains("'"), bad) }
+
+        let zone = try XCTUnwrap(TimeZone(identifier: "Europe/Amsterdam"))
+        let when = Date(timeIntervalSince1970: 1_795_589_352) // 2026-11-25 06:49:12 UTC
+        XCTAssertEqual(ActivityCSV.date(when, zone: zone), "2026-11-25 07:49:12 +01:00")
+        let row = ActivityCSV.Row(date: when, received: false, amount: 50_010_000, fee: 10_000, status: "confirmed",
+                                  block: 3_609_479, memo: "Coffee, 2x", txid: "ab12")
+        XCTAssertEqual(ActivityCSV.line(row, zone: zone),
+                       "2026-11-25 07:49:12 +01:00,sent,0.50010000,0.00010000,confirmed,3609479,\"Coffee, 2x\",ab12")
+        let waiting = ActivityCSV.Row(date: nil, received: true, amount: 1, fee: nil, status: "waiting", block: nil, memo: nil, txid: "cd")
+        XCTAssertEqual(ActivityCSV.line(waiting, zone: zone), ",received,0.00000001,,waiting,,,cd")
+
+        let data = ActivityCSV.file([row], zone: zone)
+        XCTAssertEqual(Array(data.prefix(3)), [0xEF, 0xBB, 0xBF], "UTF-8 byte order mark")
+        let text = String(decoding: data.dropFirst(3), as: UTF8.self)
+        XCTAssertTrue(text.hasPrefix(ActivityCSV.header + "\r\n"))
+        XCTAssertTrue(text.hasSuffix("\r\n"))
+
+        XCTAssertEqual(ActivityCSV.fileName(wallet: "My Shop · Café", now: when, zone: zone), "zecky-my-shop-caf-2026-11-25.csv")
+        XCTAssertEqual(ActivityCSV.fileName(wallet: "", now: when, zone: zone), "zecky-wallet-2026-11-25.csv")
+    }
 }
