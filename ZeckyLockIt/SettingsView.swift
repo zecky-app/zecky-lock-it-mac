@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import SwiftUI
 
@@ -150,6 +151,26 @@ struct SettingsView: View {
         }
     }
 
+    @State private var camera = CameraAccess.current
+
+    /// The camera: only on while a scan screen is open; access can be taken
+    /// away in System Settings.
+    private var cameraCard: some View {
+        card("Camera", icon: "camera") {
+            HStack {
+                Text(CameraAccess.text(camera)).font(Theme.text(13, weight: .medium)).foregroundStyle(Theme.text)
+                Spacer()
+                SecondaryButton(title: "Open System Settings") { NSWorkspace.shared.open(CameraAccess.settingsURL) }
+                    .frame(width: 200)
+            }
+            Text("Lock it uses the camera only while you scan a code (pairing a signing device, a viewing key or a sealed payment); the green light shows it. You can take camera access away in System Settings at any time.")
+                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear { camera = CameraAccess.current }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in camera = CameraAccess.current }
+    }
+
     /// Settings › Security, as on the iPhone, with the Mac's time lock.
     @ViewBuilder private var securityPage: some View {
         let _ = model.timeLockChanged
@@ -159,6 +180,7 @@ struct SettingsView: View {
             row(.phrase, "Recovery phrase", "doc.text.magnifyingglass", WalletVault.kind == .secureEnclave ? "Sealed in the Secure Enclave" : "In the Keychain")
             row(.viewKey, "Viewing key", "eye", "View")
         }
+        cameraCard
         eraseCard
     }
 
@@ -1314,6 +1336,7 @@ struct HowItWorks: View {
         ]),
         Chapter(title: "On this Mac", icon: "laptopcomputer", summary: "Where your data lives.", essentials: [
             "Your history (amounts and dates, never the words) is kept in Lock it's own protected folder and left out of Time Machine. Keep FileVault on so the whole disk is encrypted as well.",
+            "Lock it uses the camera only while you scan a code; the green light shows it, and you can take camera access away in System Settings.",
         ], more: [
             "Keys, proofs, signatures and payments are made by librustzcash, the Zcash developers' own core (NU7 releases), not by Lock it. The Zecky engine only connects Lock it to it: release v4.0.0-zecky.5, the same as Lock it for iPhone. Every build checks the engine's commit and fingerprint, and the app checks that it signs for NU7.",
             "The Zcash parameter files (about 50 MB) are inside the app, checked against the Zcash developers' published fingerprints. Lock it never downloads them.",

@@ -286,3 +286,29 @@ struct URScannerView: View {
         }
     }
 }
+
+/// Camera access for Settings › Security: Lock it only uses the camera while
+/// a scan screen is open; the owner can take access away in System Settings.
+enum CameraAccess {
+    enum State: Equatable { case allowed, notAsked, off }
+
+    static func state(_ status: AVAuthorizationStatus) -> State {
+        switch status {
+        case .authorized: return .allowed
+        case .notDetermined: return .notAsked
+        default: return .off
+        }
+    }
+    static var current: State { state(AVCaptureDevice.authorizationStatus(for: .video)) }
+
+    static func text(_ state: State) -> String {
+        switch state {
+        case .allowed: return "Allowed · only while scanning"
+        case .notAsked: return "Not asked yet"
+        case .off: return "Off"
+        }
+    }
+
+    /// System Settings › Privacy & Security › Camera.
+    static let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")!
+}

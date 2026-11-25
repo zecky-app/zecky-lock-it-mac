@@ -560,7 +560,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Zecky Lock it";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
-				INFOPLIST_KEY_NSCameraUsageDescription = "To read QR codes from Zecky Seal it on your offline phone.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "To scan QR codes from your signing device or a viewing key. The camera is only on while a scan screen is open.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = zecky.app;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "To reach your own Zcash node (Rock it) on your home network.";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -591,7 +591,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Zecky Lock it";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
-				INFOPLIST_KEY_NSCameraUsageDescription = "To read QR codes from Zecky Seal it on your offline phone.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "To scan QR codes from your signing device or a viewing key. The camera is only on while a scan screen is open.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = zecky.app;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "To reach your own Zcash node (Rock it) on your home network.";
 				LD_RUNPATH_SEARCH_PATHS = (

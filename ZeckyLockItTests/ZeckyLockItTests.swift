@@ -1,3 +1,4 @@
+import AVFoundation
 import CryptoKit
 import LocalAuthentication
 import XCTest
@@ -2061,5 +2062,16 @@ final class CodeIdentityTests: XCTestCase {
         XCTAssertLessThan(june, tip - 1_000)
         XCTAssertEqual(PairingStart.height(.since(year: 2022, month: 1), cupcake: false, tip: tip, now: now), WatchOnly.orchardStart, "never before Orchard")
         XCTAssertLessThanOrEqual(PairingStart.height(.since(year: 2026, month: 11), cupcake: true, tip: tip, now: now), tip - 1_000, "this month: at most 1,000 back")
+    }
+    /// Settings › Security › Camera says plainly whether Lock it may use it.
+    func testCameraAccessText() {
+        XCTAssertEqual(CameraAccess.state(.authorized), .allowed)
+        XCTAssertEqual(CameraAccess.state(.notDetermined), .notAsked)
+        XCTAssertEqual(CameraAccess.state(.denied), .off)
+        XCTAssertEqual(CameraAccess.state(.restricted), .off)
+        XCTAssertEqual(CameraAccess.text(.allowed), "Allowed · only while scanning")
+        XCTAssertEqual(CameraAccess.text(.notAsked), "Not asked yet")
+        XCTAssertEqual(CameraAccess.text(.off), "Off")
+        XCTAssertEqual(CameraAccess.settingsURL.scheme, "x-apple.systempreferences")
     }
 }
