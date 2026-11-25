@@ -2074,4 +2074,10 @@ final class CodeIdentityTests: XCTestCase {
         XCTAssertEqual(CameraAccess.text(.off), "Off")
         XCTAssertEqual(CameraAccess.settingsURL.scheme, "x-apple.systempreferences")
     }
+    /// The Go Max button on the home screen follows the switch in Settings:
+    /// coin right while on (also while stopped at its last block), left off.
+    func testGoMaxCoinFollowsTheSwitch() {
+        XCTAssertTrue(GoMaxButton.coinOnRight(enabled: true))
+        XCTAssertFalse(GoMaxButton.coinOnRight(enabled: false))
+    }
 }

@@ -325,14 +325,21 @@ struct GoMaxButton: View {
 
     var body: some View {
         Button(action: open) {
+            // As the switch in Settings › Go Max: the coin sits right while
+            // Go Max is on, left while it is off. A click still only opens
+            // the page; it never switches the node.
             HStack(spacing: 12) {
-                coin
-                VStack(alignment: .leading, spacing: 2) {
+                if !Self.coinOnRight(enabled: node.enabled) { coin.transition(.move(edge: .leading).combined(with: .opacity)) }
+                VStack(alignment: Self.coinOnRight(enabled: node.enabled) ? .trailing : .leading, spacing: 2) {
                     Text("Go Max").font(Theme.serif(18, weight: .medium)).foregroundStyle(Theme.text)
                     Text(subtitle).font(Theme.text(12)).foregroundStyle(subtitleColor).lineLimit(1)
                 }
+                if Self.coinOnRight(enabled: node.enabled) { coin.transition(.move(edge: .trailing).combined(with: .opacity)) }
             }
-            .padding(.leading, 8).padding(.trailing, 22).frame(height: 62)
+            .padding(.leading, Self.coinOnRight(enabled: node.enabled) ? 22 : 8)
+            .padding(.trailing, Self.coinOnRight(enabled: node.enabled) ? 8 : 22)
+            .frame(height: 62)
+            .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.8), value: node.enabled)
             .background(Theme.surface, in: Capsule())
             .overlay(Capsule().stroke(Theme.gold.opacity(hover ? 0.95 : 0.55), lineWidth: 1))
             .shadow(color: Theme.gold.opacity(glow), radius: inviting ? 18 : 8, y: 3)
@@ -350,6 +357,9 @@ struct GoMaxButton: View {
               : "Go Max: your own Zcash node on this Mac")
         .accessibilityLabel("Go Max, \(subtitle)")
     }
+
+    /// Where the coin sits: as the switch, by whether Go Max is switched on.
+    static func coinOnRight(enabled: Bool) -> Bool { enabled }
 
     /// The brass coin, engraved with what the node is doing.
     private var coin: some View {
