@@ -1981,4 +1981,15 @@ final class CodeIdentityTests: XCTestCase {
         XCTAssertEqual(ActivityCSV.fileName(wallet: "My Shop · Café", now: when, zone: zone), "zecky-my-shop-caf-2026-11-25.csv")
         XCTAssertEqual(ActivityCSV.fileName(wallet: "", now: when, zone: zone), "zecky-wallet-2026-11-25.csv")
     }
+    /// Settings › Business: the row's summary, and a viewing key fits a QR
+    /// code with high error correction (as on Receive).
+    func testBusinessPage() throws {
+        XCTAssertEqual(WatchOnly.summary(count: 0), "Watch only · viewing key · CSV")
+        XCTAssertEqual(WatchOnly.summary(count: 1), "1 watch-only wallet")
+        XCTAssertEqual(WatchOnly.summary(count: 3), "3 watch-only wallets")
+        let tool = DerivationTool(networkType: .mainnet)
+        let usk = try tool.deriveUnifiedSpendingKey(seed: [UInt8](repeating: 5, count: 32), accountIndex: Zip32AccountIndex(0))
+        let ufvk = try tool.deriveUnifiedFullViewingKey(from: usk).stringEncoded
+        XCTAssertNotNil(QRCode.image(for: ufvk))
+    }
 }

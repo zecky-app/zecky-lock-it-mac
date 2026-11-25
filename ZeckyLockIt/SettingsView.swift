@@ -17,6 +17,8 @@ struct SettingsView: View {
     /// The viewing key while it is on screen, and for which wallet.
     @State private var viewKey: String?
     @State private var viewKeyNote: String?
+    @State private var csvNote: String?
+    @State private var exportingCSV = false
     @State private var codeNote: String?
     @State private var timeLockHours = TimeLock.hours
     @State private var confirmTimeLock: Int?
@@ -80,7 +82,7 @@ struct SettingsView: View {
 
     /// Settings is a calm list; each topic opens its own page.
     enum Page: Hashable {
-        case security, keys, timeLock, phrase, viewKey, addressBook, display, network, goMax, how, about
+        case security, keys, timeLock, phrase, viewKey, addressBook, business, display, network, goMax, how, about
         /// Where Back leads: the Security pages go back to Security.
         var parent: Page? {
             switch self {
@@ -102,6 +104,7 @@ struct SettingsView: View {
             case .timeLock?: pageBody { timeLockPage }
             case .phrase?: pageBody { phrasePage }
             case .addressBook?: pageBody { addressBookPage }
+            case .business?: pageBody { businessPage }
             case .display?: pageBody { displayPage }
             case .network?: pageBody { networkPage }
             case .goMax?: pageBody { GoMaxPage(node: goMax) }
@@ -134,6 +137,7 @@ struct SettingsView: View {
                 row(.display, "Display", "circle.lefthalf.filled", "\(model.themeMode.label) · Value \(prices.currency.short)")
                 row(.security, "Security", "lock.fill", securitySummary)
                 row(.addressBook, "Address book", "person.crop.circle", addressSummary)
+                row(.business, "Business", "briefcase", WatchOnly.summary(count: model.engine.watchWallets.count))
             }
             list {
                 row(.about, "About", "info.circle", "Version \(version)")
@@ -575,6 +579,44 @@ struct SettingsView: View {
 
     }
 
+    /// Settings › Business: watch a wallet, share a viewing key, export for
+    /// bookkeeping. The same pieces as on the home screen and in Activity.
+    @ViewBuilder private var businessPage: some View {
+        card("Watch a wallet", icon: "eye") {
+            Text("Add a wallet from its viewing key, such as your shop's: Lock it shows its balance, payments and memos, and can never spend from it.")
+                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(model.engine.watchWallets, id: \.id) { wallet in
+                Label(WalletNames.display(wallet, lead: false), systemImage: "eye.fill")
+                    .font(Theme.text(13)).foregroundStyle(Theme.text)
+            }
+            HStack {
+                Spacer()
+                SecondaryButton(title: "Watch a wallet") { model.sheet = .watchAdd }.frame(width: 200)
+            }
+        }
+        viewKeyPage
+        card("Bookkeeping", icon: "tablecells") {
+            Text("Save every payment of \(model.engine.currentTag.map { "the wallet \($0.name)" } ?? "this wallet") as a CSV file: date, direction, amount, fee, status, block, memo and transaction ID. It opens in Numbers or Excel.")
+                .font(Theme.text(12)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                if let csvNote { Text(csvNote).font(Theme.text(12)).foregroundStyle(Theme.muted) }
+                Spacer()
+                SecondaryButton(title: exportingCSV ? "Exporting…" : "Export CSV…") {
+                    guard !exportingCSV else { return }
+                    Task {
+                        exportingCSV = true
+                        csvNote = await ActivityExport.save(model.engine)
+                        exportingCSV = false
+                    }
+                }
+                .frame(width: 200)
+            }
+        }
+        .onDisappear { csvNote = nil }
+    }
+
     @ViewBuilder private var viewKeyPage: some View {
             // As on Lock it iPhone (Settings › Security › Viewing key).
             card("Viewing key", icon: "eye") {
@@ -585,6 +627,17 @@ struct SettingsView: View {
                     .font(Theme.text(12)).foregroundStyle(Theme.gold)
                     .fixedSize(horizontal: false, vertical: true)
                 if let viewKey {
+                    // As Zodl: a code to scan, for a shop iPhone or an
+                    // accountant's app. Hidden from screenshots too.
+                    if let qr = QRCode.image(for: viewKey) {
+                        Image(nsImage: qr).interpolation(.none).resizable()
+                            .frame(width: 220, height: 220)
+                            .padding(12)
+                            .background(QRCode.paper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .frame(maxWidth: .infinity)
+                            .hiddenFromCapture()
+                            .accessibilityLabel("Viewing key as a QR code")
+                    }
                     Text(viewKey)
                         .font(.system(size: 12, design: .monospaced))
                         .textSelection(.enabled)
@@ -834,6 +887,7 @@ struct SettingsView: View {
         case .security?: return "Security"
         case .viewKey?: return "Viewing key"
         case .addressBook?: return "Address book"
+        case .business?: return "Business"
         case .display?: return "Display"
         case .network?: return "Network"
         case .goMax?: return "Go Max"
@@ -858,6 +912,7 @@ struct SettingsView: View {
         case .security?: return "The keys, the time lock, your words."
         case .viewKey?: return "Read-only access to a wallet."
         case .addressBook?: return "Addresses you send to often, picked by name."
+        case .business?: return "For a shop or a business: watch a wallet, share a viewing key, export payments."
         case .display?: return "How Lock it looks on this Mac."
         case .network?: return "Where Lock it gets the Zcash chain from."
         case .goMax?: return "Your own Zcash node, on this Mac."
@@ -1245,6 +1300,14 @@ struct HowItWorks: View {
             "With Go Max up to date, Lock it uses no server at all: it reads the chain from its own node on this Mac.",
             "Payments you send leave over Tor, each on its own connection, to a public Zcash server: it sees a payment arriving from Tor, not this Mac's internet address. If Tor cannot connect, the payment waits and you are told; it never goes out another way by itself. You can switch this off in Settings › Network.",
             "Reading the chain from a server does not use Tor yet.",
+        ]),
+        Chapter(title: "For business", icon: "briefcase", summary: "Watch a shop wallet, share a viewing key, export.", essentials: [
+            "Watch a wallet from its viewing key, such as your shop's: Lock it shows its balance, payments and memos, and can never spend from it. Receive shows its shielded address only.",
+            "Export CSV saves every payment of a wallet for your bookkeeping: date, direction, amount, fee, status, block, memo and transaction ID.",
+        ], more: [
+            "A viewing key sees every payment in and out, past and future, and cannot be taken back once shared. Settings › Business shows it as text and as a QR code, after your keys, and hides it from screenshots.",
+            "Adding a wallet with an older start checks those older blocks in the background. Your other wallets stay up to date and can send meanwhile; payments found in old blocks go to Activity without a message.",
+            "In the CSV, amounts are in ZEC with 8 decimals, times are this Mac's local time with its offset, and a memo never runs as a spreadsheet formula.",
         ]),
         Chapter(title: "On this Mac", icon: "laptopcomputer", summary: "Where your data lives.", essentials: [
             "Your history (amounts and dates, never the words) is kept in Lock it's own protected folder and left out of Time Machine. Keep FileVault on so the whole disk is encrypted as well.",

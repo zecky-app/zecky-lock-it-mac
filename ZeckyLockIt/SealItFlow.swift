@@ -29,6 +29,15 @@ enum WatchOnly {
 
     nonisolated static func isWatch(_ account: Account) -> Bool { account.keySource == keySource }
 
+    /// The Business row in Settings.
+    nonisolated static func summary(count: Int) -> String {
+        switch count {
+        case 0: return "Watch only · viewing key · CSV"
+        case 1: return "1 watch-only wallet"
+        default: return "\(count) watch-only wallets"
+        }
+    }
+
     enum Failure: LocalizedError, Equatable {
         case notAViewingKey, testnet, alreadyHere, noName
         var errorDescription: String? {

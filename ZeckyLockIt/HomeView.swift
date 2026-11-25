@@ -886,6 +886,24 @@ struct OpenLockPrompt: View {
 }
 
 /// Activity: the record of every time Zcash was locked or released.
+/// Saves the selected wallet's payments as CSV where the owner chooses.
+/// Returns what to say afterwards; nil when the save was cancelled.
+enum ActivityExport {
+    @MainActor static func save(_ engine: WalletEngine) async -> String? {
+        let data = ActivityCSV.file(await engine.csvRows())
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = ActivityCSV.fileName(wallet: engine.currentName)
+        panel.allowedContentTypes = [.commaSeparatedText]
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        do {
+            try data.write(to: url, options: .atomic)
+            return "Saved \(url.lastPathComponent)"
+        } catch {
+            return "Could not save: \(error.localizedDescription)"
+        }
+    }
+}
+
 struct ActivitySheet: View {
     @ObservedObject var model: AppModel
     @ObservedObject var engine: WalletEngine
@@ -977,17 +995,7 @@ struct ActivitySheet: View {
         exporting = true
         defer { exporting = false }
         exportNote = nil
-        let data = ActivityCSV.file(await engine.csvRows())
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = ActivityCSV.fileName(wallet: engine.currentName)
-        panel.allowedContentTypes = [.commaSeparatedText]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try data.write(to: url, options: .atomic)
-            exportNote = "Saved \(url.lastPathComponent)"
-        } catch {
-            exportNote = "Could not save: \(error.localizedDescription)"
-        }
+        exportNote = await ActivityExport.save(engine)
     }
 
     private var summary: some View {
