@@ -1,145 +1,34 @@
-# Build list: what is still to build
+# Build list: what is still open
 
-Started 11 Nov 2026. One list for Lock it Mac and what the owner asked to
-carry over to Lock it iPhone. Newest state on top of each section; an item
-leaves the list when it is built and seen working.
+Updated 25 Nov 2026, with build 14. Built and tested items leave the list;
+what changed per build is in [CHANGELOG.md](CHANGELOG.md).
 
-Lock it Mac 0.2.0 (3), the first build with Go Max, was uploaded to
-TestFlight on 11 Nov 2026 and is waiting for Apple's review.
+## Before 5 December
 
-## Both apps
+- **Zakura's stop.** The node version inside Go Max (Zakura 1.8.9) stops at
+  block 3,643,309, about 5 Dec. Lock it already says so on the Go Max page,
+  and at the stop it keeps the node's data and asks before reading from a
+  public server (tested 25 Nov). It ships the Zakura release that moves the
+  stop the day it is out. See [NODE_UPDATES.md](NODE_UPDATES.md).
 
-- **Terms acceptance at the first start** (owner, 11 Nov). One screen
-  before a wallet is made: a few plain sentences, a link to the full terms,
-  and an "I understand" button. The app remembers which version was accepted
-  and when, on the device only, and asks again when the terms change.
-  Lock it Mac: done (12 Nov, "Before you start", `Terms.version` 1, links to
-  zecky.app/terms.html and privacy.html, rows under Settings › About).
-  Lock it iPhone: still open.
+## December
 
-## Lock it Mac
+- **NU 7.1** (expected mid-December): a second node update, and an engine
+  update if the upgrade needs one.
+- **Internal security review, round 1**: one work package at a time, keys
+  and sending first. Its report is published with 1.0. It is not an
+  outside audit.
 
-Before a wider release:
+## Before 1.0 (target January 2027)
 
-- Notice before Zakura's stop height (about 5 Dec 2026) and the choice at
-  the stop: built 12 Nov, see NODE_UPDATES.md. To see working: the notice
-  (from about 21 Nov), and the stop itself.
-- Update to Zakura 1.8.6, Umbrel first.
-- Zaino watchdog: the coin can be green while Zaino does not answer.
-- Cookie (password) on the node's control port.
-- Keep the Mac awake only on power.
-- Warnings for a low disk and a metered connection.
-- Texts that said "about 20 GB": changed 12 Nov to 15 GB to start, about
-  22 GB after a month.
-- A leftover node after a hard stop (seen 12 Nov: orphaned zakurad kept
-  port 8232). A new run of Lock it cannot stop it: tried 12 Nov, the
-  sandbox keeps each run apart. So each program now runs under a few lines
-  of shell with a lifeline to Lock it, and is told to stop the moment Lock
-  it is gone; a start waits up to 90 seconds for the ports. To see working:
-  kill Lock it with Go Max on, check the node goes, open Lock it again.
-- Open, 12 Nov: on the owner's home Wi-Fi the Mac's node could not keep
-  peers from 06:43 until about 10:10 (connections closed or reset right
-  after opening; mostly 0 peers). Within three minutes of stopping Rock it
-  on the Umbrel (same internet address, 23 peers) it had 7 peers, then 12
-  to 16, and kept them after Rock it was started again and after a restart
-  of its own. Later the same morning: ten minutes after a restart the Mac
-  had 1 peer while the Umbrel had 36. Cause not proven, but the pattern
-  holds: the two nodes competing for peers that take
-  one connection per address is the suspicion. If it comes back: note the
-  peers on both, stop Rock it first, and keep the node's log. A possible
-  fix is the Mac's node peering with the Umbrel on the home network.
+- Restore tests on another Mac, with and without Go Max.
+- A notarized download from zecky.app, with signed checksums and a "how to
+  verify" page, next to TestFlight.
+- The engine library and the two node programs reproducible from pinned
+  sources.
 
-Sending over Tor, left to test or finish:
+## After 1.0
 
-- A Seal it payment over Tor.
-- Sending over Tor with Go Max off.
-- Sending while the own node is down.
-- "Send through my own node" failed once, seconds after Wi-Fi came back;
-  cause unproven.
-- Tag the engine v4.0.0-zecky.6 after review.
-- Research: Zakura's own peer connections over Tor, and the cost.
-
-Asked for on 11 Nov, not built:
-
-- "Not connected to other Zcash nodes" on the coin, the Go Max page and
-  the status line after a minute without any peer: built 12 Nov, not yet
-  seen working.
-- Remember the last known block between sessions, so confirmations show
-  right after opening.
-
-Small flaws seen in screenshots:
-
-- A divider line under the last row of each Settings list.
-- About: the Zcash engine line is cut off.
-
-Later:
-
-- Phone pairing: Zaino on the home network, QR, then the Tor route.
-  Rock it iPhone linking to the Mac node as well as the Umbrel (waits for
-  answers from the Rock it iPhone code).
-- Add a watch-only wallet from a viewing key.
-- Intel Macs: not planned; count who asks.
-- Windows: only after Go Max has proven itself.
-
-## Two nodes at home (Rock it and Go Max behind one internet address)
-
-Seen 12 Nov: the Umbrel held 36 to 37 peers, the Mac 1 to 2. Build 4 says
-so honestly (peer count on the Go Max page, "not connected" naming a
-second node). Ways to solve it, none built, owner to choose:
-
-- Say it plainly: with Rock it at home, point Lock it Mac at Rock it
-  (Settings, Network) and keep Go Max for a Mac that has no Rock it nearby.
-  No code.
-- Home network link: the Mac's node also takes blocks from Rock it over
-  the home network. Rock it 0.3.17 does not publish its peer port (8233;
-  compose.yml says so on purpose), so this needs a Rock it release as well
-  as a setting in Lock it.
-- Rock it asks for fewer peers, leaving some for a second node. Also a
-  Rock it change; not looked into.
-
-## Lock it iPhone
-
-Not touched from this repository. Written here so it is not lost:
-
-- Terms acceptance at the first start (see Both apps).
-- Check which of today's Mac changes should come over: payment details in
-  Activity, sending over Tor with no silent fallback.
-- Android: first step is a read-through of what in the app is iPhone-only.
-
-## Build 5 (12 Nov 2026): found while adding a Donations wallet
-
-Seen on build 4, the owner's own account, Go Max on:
-
-- "+" right after launch: "synchronizer not prepared". A second try worked and
-  left syncing paused until Lock it was opened again.
-- With the wallet on the node, the re-check of older blocks stood still without
-  an error. Proven: the node answers "block not found" for block 3,172,501.
-- Go Max off: the Sync page named eu.zec.rocks, the wallet did not move until
-  "Use this server" was pressed.
-
-In build 5 (written, **not yet built or run**):
-
-- [ ] After adding a wallet or pairing Seal it, syncing is always started again; the message is "Lock it is still connecting. Try again in a moment."
-- [ ] Rule 3 in GO_MAX.md: older blocks from the server, the page says so, back to the node afterwards.
-- [ ] Rule 4 in GO_MAX.md: a failed server switch does not stop the wallet; Settings › Network keeps the old server and says so.
-- [ ] The Go Max page says when the wallet has not heard a new block from the node for five minutes, and connects once more.
-
-Still open after build 5:
-
-- The same two faults sit in the engine itself (`importAccount` and `switchTo` leave syncing stopped on failure). Lock it now covers them from outside; fix them in zecky-engine too.
-- Adding a brand-new wallet makes the engine check older blocks for all wallets (seen: from block 3,172,501). Find out which wallet that start belongs to, and whether a new wallet can be added without it.
-- Two accounts on one Mac use the same ports: the second one's Go Max cannot start while the first runs.
-- Lock it hides its numbers from other programs in the background, so the Sync page cannot be read by a helper: fine, but note it for support.
-
-## Build 7 plan: a time lock per wallet (decided 13 Nov 2026)
-
-From tester feedback on build 5: with several wallets behind one lock, the
-lock's settings were not clearly about all of them. Build 6 says so plainly
-and names the wallet on the prompts. Build 7 makes the time lock per wallet:
-
-- [ ] Each wallet its own time lock (Savings a week, Donations none). A new wallet starts with the main wallet's time lock.
-- [ ] Shortening or switching off a wallet's time lock waits as long as that wallet's current one (as now).
-- [ ] Shared, for the whole Mac: the code, Touch ID or Mac password, security keys, "Really open the lock?".
-- [ ] Settings › Security shows the time lock per wallet; the prompts name the wallet (done in build 6).
-- [ ] Gap that exists today: "Show its words" asks for the owner but not the time lock, so a time-locked wallet's 24 words can be read without the wait. Showing a wallet's words should wait as long as its time lock, as opening does.
-- [ ] Tests for every rule in LockRules, per wallet.
+- Payment requests with a memo and a payment link; Lock it behind a payment
+  service (CipherPay, BTCPay Server).
+- More signing devices that sign over QR codes.

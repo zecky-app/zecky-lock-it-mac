@@ -12,6 +12,22 @@ chain takes most of a day.
 > **Status: in testing, not audited.** Lock it has had no independent security
 > review yet. Start with a small amount.
 
+## What it does
+
+- **Receive and keep, shielded.** Amounts, senders and receivers stay
+  encrypted on the blockchain. Zcash that arrives on a transparent address
+  is locked in with one step.
+- **Send with care.** Nothing leaves without a receipt; the lock opens with
+  your keys (Touch ID, a code, a security key), and payments leave over Tor.
+- **Several wallets on one key ring**, each named, each with its own history.
+- **Signing devices.** Pair a Keystone (Cypherpunk firmware) or Cupcake over
+  QR codes: the keys stay on the device, Lock it writes the payment and the
+  device signs it. Pairing asks whether the wallet is new or already used.
+- **For a business.** Watch a wallet from its viewing key (Lock it can see,
+  never spend), share a viewing key as text or QR code, and export a
+  wallet's payments as CSV for the books (Settings › Business).
+- **Go Max**, your own node (below).
+
 ## Try it
 
 For an Apple silicon Mac with macOS 13 or later. To test, sign up at
@@ -57,6 +73,7 @@ this team are Zecky Lock it.
 
 What changed per build: [docs/CHANGELOG.md](docs/CHANGELOG.md).
 What is still open: [docs/BUILD_LIST.md](docs/BUILD_LIST.md).
+The camera is used only while a scan screen is open; the green light shows it.
 
 ## Building
 

@@ -2,7 +2,48 @@
 
 Plain-words notes on what changed in Zecky Lock it for Mac, newest first.
 
-## Unreleased
+## Build 14 (0.2.0, 25 Nov 2026)
+
+- **Keystone and Cupcake as signing devices.** Pair either one over QR
+  codes; the keys stay on the device, Lock it writes the payment and the
+  device signs it. Keystone needs its Cypherpunk firmware (Connect Software
+  Wallet). The wallet's name says which device signs.
+- **Pairing asks once: a new wallet, or one that already holds Zcash?** A new
+  one is ready in seconds. For a used one, give the month it was first used,
+  or "I don't know" (Keystone from December 2024, Cupcake from NU7), and its
+  older payments fill in.
+- **Watch a wallet from its viewing key.** "+" › Watch a wallet: paste or
+  scan a `uview1…` key, name it, say since when it is used. Lock it shows
+  its balance, payments and memos and can never spend from it. Receive shows
+  its shielded address.
+- **Export CSV** from Activity or Settings › Business: date (local time with
+  its offset), direction, description, amount (what the receiver got), fee,
+  status, block, memo and transaction ID. A memo never runs as a spreadsheet
+  formula.
+- **Settings › Business**: the watch-only wallets, your viewing key as text
+  and QR code (after your keys, hidden from screenshots), and the export.
+- **Sync stays honest while older blocks are checked.** Adding a wallet with
+  an older start no longer holds up sending: each wallet can send once its
+  own blocks are checked. Its balance says "may grow" meanwhile, the export
+  says it may miss payments, and Sync shows the time left for older blocks.
+  A pairing past the newest built-in checkpoint takes the server's exact
+  tree state (engine `1aba422`), so it is ready in seconds.
+- **Messages only for new payments.** Old payments found while checking
+  older blocks go to Activity quietly; a payment that came while the Mac
+  slept still gets its message. A watch-only wallet's message says
+  "Received".
+- **Removing a wallet asks for Touch ID or your code**, as showing its words
+  does.
+- **The value in your currency comes back over Tor**: the price retries
+  patiently instead of staying empty.
+- **Receive**: the code stays in place between Shielded and Transparent.
+- **Camera**: Settings › Security shows whether Lock it may use it, with a
+  link to System Settings. The permission text is plain.
+- **Go Max**: the button on the home screen follows the switch (coin right
+  while on). Tested: at the node's last block Lock it stops it, keeps its
+  data and asks before reading from a public server.
+
+## Earlier builds
 
 - One lock for all wallets, now said plainly: the time lock and the keys to
   the lock apply to every wallet on this Mac (Settings says so), and with more

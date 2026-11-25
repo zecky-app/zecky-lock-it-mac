@@ -48,7 +48,12 @@ the header are the zecky.5 ones, with the same fingerprints.
 Since 16 Nov 2026 a second Swift-only commit, `f754a69`, adds
 `SDKSynchronizer.treeStateOverTor(height:from:)`: the tree state at a
 height from a given server over a fresh Tor circuit, for Genuine node's
-cross-check (review issue #6). `scripts/check-engine.sh` pins `f754a69` here. Before building this
+cross-check (review issue #6).
+Since 24 Nov 2026 a third Swift-only commit, `1aba422`, makes
+`SDKSynchronizer.importAccount` take the server's exact tree state for a
+birthday past the newest built-in checkpoint (3,550,000), so pairing a
+signing device scans about 1,000 blocks instead of 50,000.
+`scripts/check-engine.sh` pins `1aba422` here. Before building this
 branch: `git -C ~/Documents/ZeckyEngine/zecky-engine checkout tor-submit`;
 before building `main`: `... checkout main`. Once reviewed, the commit is
 to be tagged `v4.0.0-zecky.6` and pinned by tag.
