@@ -1965,12 +1965,30 @@ final class CodeIdentityTests: XCTestCase {
         let zone = try XCTUnwrap(TimeZone(identifier: "Europe/Amsterdam"))
         let when = Date(timeIntervalSince1970: 1_795_589_352) // 2026-11-25 06:49:12 UTC
         XCTAssertEqual(ActivityCSV.date(when, zone: zone), "2026-11-25 07:49:12 +01:00")
-        let row = ActivityCSV.Row(date: when, received: false, amount: 50_010_000, fee: 10_000, status: "confirmed",
+        let row = ActivityCSV.Row(date: when, received: false, description: "Sent", amount: 50_000_000, fee: 10_000, status: "confirmed",
                                   block: 3_609_479, memo: "Coffee, 2x", txid: "ab12")
         XCTAssertEqual(ActivityCSV.line(row, zone: zone),
-                       "2026-11-25 07:49:12 +01:00,sent,0.50010000,0.00010000,confirmed,3609479,\"Coffee, 2x\",ab12")
-        let waiting = ActivityCSV.Row(date: nil, received: true, amount: 1, fee: nil, status: "waiting", block: nil, memo: nil, txid: "cd")
-        XCTAssertEqual(ActivityCSV.line(waiting, zone: zone), ",received,0.00000001,,waiting,,,cd")
+                       "2026-11-25 07:49:12 +01:00,sent,Sent,0.50000000,0.00010000,confirmed,3609479,\"Coffee, 2x\",ab12")
+        let waiting = ActivityCSV.Row(date: nil, received: true, description: "Received", amount: 1, fee: nil, status: "waiting", block: nil, memo: nil, txid: "cd")
+        XCTAssertEqual(ActivityCSV.line(waiting, zone: zone), ",received,Received,0.00000001,,waiting,,,cd")
+
+        // From Activity: a send's fee comes out of the amount, once.
+        let sent = WalletEngine.ActivityItem(id: Data([1]), kind: .sent, amount: 110_000, date: when, state: .confirmed,
+                                             minedHeight: 3_597_827, fee: 10_000)
+        let sentRow = ActivityCSV.row(sent, memo: nil)
+        XCTAssertEqual(sentRow.amount, 100_000)
+        XCTAssertEqual(sentRow.fee, 10_000)
+        XCTAssertEqual(sentRow.description, "Sent")
+        let forwarding = WalletEngine.ActivityItem(id: Data([2]), kind: .sent, amount: 15_000, date: when, state: .confirmed,
+                                                   fee: 15_000, texReceiver: "tex1x", texStep: 2)
+        let fwdRow = ActivityCSV.row(forwarding, memo: nil)
+        XCTAssertEqual(fwdRow.amount, 0, "only the fee left")
+        XCTAssertEqual(fwdRow.fee, 15_000)
+        XCTAssertEqual(fwdRow.description, "TEX payment · forwarding fee")
+        let got = WalletEngine.ActivityItem(id: Data([3]), kind: .received, amount: 180_000, date: when, state: .waiting)
+        XCTAssertEqual(ActivityCSV.row(got, memo: "=1+1").amount, 180_000)
+        XCTAssertNil(ActivityCSV.row(got, memo: nil).fee)
+        XCTAssertEqual(ActivityCSV.row(got, memo: nil).status, "waiting")
 
         let data = ActivityCSV.file([row], zone: zone)
         XCTAssertEqual(Array(data.prefix(3)), [0xEF, 0xBB, 0xBF], "UTF-8 byte order mark")

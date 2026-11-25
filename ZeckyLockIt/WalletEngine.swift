@@ -1075,17 +1075,7 @@ final class WalletEngine: ObservableObject {
     /// note. Read from this Mac's own wallet data; nothing is sent.
     func csvRows() async -> [ActivityCSV.Row] {
         var rows: [ActivityCSV.Row] = []
-        for item in activity {
-            let status: String
-            switch item.state {
-            case .confirmed: status = "confirmed"
-            case .waiting: status = "waiting"
-            case .expired: status = "expired"
-            }
-            rows.append(ActivityCSV.Row(date: item.date, received: item.kind == .received, amount: item.amount,
-                                        fee: item.fee, status: status, block: item.minedHeight,
-                                        memo: await note(for: item.id), txid: item.txid))
-        }
+        for item in activity { rows.append(ActivityCSV.row(item, memo: await note(for: item.id))) }
         return rows
     }
 
@@ -1551,6 +1541,9 @@ enum ActivityCSV {
     struct Row: Equatable {
         let date: Date?
         let received: Bool
+        let description: String
+        /// What was received, or what the receiver got: a send's fee is
+        /// only in `fee`, so amount + fee is what left the wallet.
         let amount: Int64
         let fee: Int64?
         let status: String
@@ -1559,7 +1552,23 @@ enum ActivityCSV {
         let txid: String
     }
 
-    nonisolated static let header = "date,direction,amount_zec,fee_zec,status,block,memo,txid"
+    nonisolated static let header = "date,direction,description,amount_zec,fee_zec,status,block,memo,txid"
+
+    /// One Activity line as a row. The engine's sent amount includes the
+    /// fee; here it is taken out, so a TEX forwarding step (only its fee
+    /// leaves) is 0 with its fee, and nothing is counted twice.
+    nonisolated static func row(_ item: WalletEngine.ActivityItem, memo: String?) -> Row {
+        let status: String
+        switch item.state {
+        case .confirmed: status = "confirmed"
+        case .waiting: status = "waiting"
+        case .expired: status = "expired"
+        }
+        let received = item.kind == .received
+        let amount = received ? item.amount : max(0, item.amount - (item.fee ?? 0))
+        return Row(date: item.date, received: received, description: item.title, amount: amount,
+                   fee: received ? nil : item.fee, status: status, block: item.minedHeight, memo: memo, txid: item.txid)
+    }
 
     /// 8 decimals, no rounding: 123456789 zatoshi is 1.23456789.
     nonisolated static func zec(_ zatoshi: Int64) -> String {
@@ -1589,7 +1598,7 @@ enum ActivityCSV {
     }
 
     nonisolated static func line(_ row: Row, zone: TimeZone) -> String {
-        [date(row.date, zone: zone), row.received ? "received" : "sent", zec(row.amount),
+        [date(row.date, zone: zone), row.received ? "received" : "sent", field(row.description), zec(row.amount),
          row.fee.map { zec($0) } ?? "", row.status, row.block.map { String($0) } ?? "",
          field(row.memo ?? ""), field(row.txid)].joined(separator: ",")
     }
